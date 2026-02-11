@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import ast
+import re
 from typing import AsyncIterator, Iterable
 
 
@@ -11,13 +13,27 @@ def normalize_response_text(payload) -> str:
     if payload is None:
         return ""
     if isinstance(payload, str):
+        content_match = re.search(
+            r"content=(['\"])((?:\\.|(?!\1).)*)\1\s+additional_kwargs=",
+            payload,
+            flags=re.DOTALL,
+        )
+        if content_match:
+            raw_quoted_content = f"{content_match.group(1)}{content_match.group(2)}{content_match.group(1)}"
+            try:
+                decoded = ast.literal_eval(raw_quoted_content)
+                if isinstance(decoded, str):
+                    return decoded
+            except Exception:
+                return content_match.group(2)
         return payload
     if isinstance(payload, dict):
-        for key in ("answer", "final_answer", "distilled", "summary"):
+        for key in ("content", "text", "message", "answer", "final_answer", "distilled", "summary"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value
-        return str(payload)
+    if hasattr(payload, "content") and isinstance(payload.content, str):
+        return payload.content
     return str(payload)
 
 

@@ -100,15 +100,17 @@ function createWebApi(managerClassOrFactory) {
                 max_tokens = 1000,
                 temperature = 0.7,
                 session_id = 'default',
+                sessionId = null,
             } = req.body;
 
             if (!topic) {
                 return res.status(400).json({ error: 'Topic is required' });
             }
 
+            const effectiveSessionId = sessionId ?? session_id ?? 'default';
             const { result, logs } = await captureConsoleOutputAsync(async () => {
                 if (supportsMemory(manager)) {
-                    return manager.askQuestion(topic, provider, template, max_tokens, temperature, session_id);
+                    return manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId);
                 }
                 return manager.askQuestion(topic, provider, template, max_tokens, temperature);
             });
@@ -126,14 +128,14 @@ function createWebApi(managerClassOrFactory) {
                 framework: manager.framework,
                 provider: result.provider,
                 model: result.model,
-                response: result.response,
+                response: normalizeResponseText(result.response),
                 parameters: {
                     temperature: result.temperature,
                     max_tokens: result.maxTokens,
                     template,
                 },
                 prompt: result.prompt,
-                session_id: result.sessionId || 'default',
+                session_id: result.sessionId || effectiveSessionId,
                 ...(logs ? { debug: logs } : {}),
             });
         } catch (error) {
@@ -150,15 +152,17 @@ function createWebApi(managerClassOrFactory) {
                 max_tokens = 1000,
                 temperature = 0.7,
                 session_id = 'default',
+                sessionId = null,
             } = req.body;
 
             if (!topic) {
                 return res.status(400).json({ error: 'Topic is required' });
             }
 
+            const effectiveSessionId = sessionId ?? session_id ?? 'default';
             const { result } = await captureConsoleOutputAsync(async () => {
                 if (supportsMemory(manager)) {
-                    return manager.askQuestion(topic, provider, template, max_tokens, temperature, session_id);
+                    return manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId);
                 }
                 return manager.askQuestion(topic, provider, template, max_tokens, temperature);
             });
@@ -215,7 +219,7 @@ function createWebApi(managerClassOrFactory) {
                 if (response.success) {
                     cleanResponses[provider] = {
                         success: true,
-                        response: response.response,
+                        response: normalizeResponseText(response.response),
                         model: response.model,
                         parameters: {
                             temperature: response.temperature,
@@ -255,11 +259,11 @@ function createWebApi(managerClassOrFactory) {
         if (!supportsMemory(manager)) {
             return res.status(400).json({ error: 'Memory not supported by this manager' });
         }
-        const { provider, session_id = 'default' } = req.query;
+        const { provider, session_id = 'default', sessionId = null } = req.query;
         if (!provider) {
             return res.status(400).json({ error: 'provider is required' });
         }
-        return res.json(manager.getHistory(provider, session_id));
+        return res.json(manager.getHistory(provider, sessionId ?? session_id ?? "default"));
     });
 
     app.post('/reset-memory', async (req, res) => {
@@ -268,9 +272,9 @@ function createWebApi(managerClassOrFactory) {
         }
         const body = req.body || {};
         const bodyProvider = body.provider ?? null;
-        const bodySessionId = body.session_id ?? null;
+        const bodySessionId = body.sessionId ?? body.session_id ?? null;
         const queryProvider = req.query?.provider ?? null;
-        const querySessionId = req.query?.session_id ?? null;
+        const querySessionId = req.query?.sessionId ?? req.query?.session_id ?? null;
         const provider = bodyProvider !== null ? bodyProvider : queryProvider;
         const sessionId = bodySessionId !== null ? bodySessionId : querySessionId;
         return res.json(manager.resetMemory(provider, sessionId));

@@ -23,6 +23,7 @@ class QueryRequest(BaseModel):
     max_tokens: int = 1000
     temperature: float = 0.7
     session_id: Optional[str] = "default"
+    sessionId: Optional[str] = None
 
 
 class QueryAllRequest(BaseModel):
@@ -31,11 +32,13 @@ class QueryAllRequest(BaseModel):
     max_tokens: int = 1000
     temperature: float = 0.7
     session_id: Optional[str] = "default"
+    sessionId: Optional[str] = None
 
 
 class ResetMemoryRequest(BaseModel):
     provider: Optional[str] = None
     session_id: Optional[str] = None
+    sessionId: Optional[str] = None
 
 
 def _supports_memory(manager) -> bool:
@@ -110,16 +113,16 @@ def create_web_api(manager_class):
                     "max_tokens": request.max_tokens,
                     "temperature": request.temperature
                 }
+                effective_session_id = request.sessionId or request.session_id or "default"
                 if _supports_memory(manager):
-                    args["session_id"] = request.session_id
+                    args["session_id"] = effective_session_id
 
                 result = manager.ask_question(**args)
 
             if not result.get("success"):
                 raise HTTPException(status_code=400, detail=result.get("error", "Query failed"))
 
-            raw = result.get("response")
-            content = raw.content if hasattr(raw, "content") else raw
+            content = normalize_response_text(result.get("response"))
 
             return {
                 "success": True,
@@ -133,7 +136,7 @@ def create_web_api(manager_class):
                     "template": request.template
                 },
                 "prompt": result["prompt"],
-                "session_id": result.get("session_id", "default")
+                "session_id": result.get("session_id", effective_session_id)
             }
 
         except HTTPException:
@@ -153,8 +156,9 @@ def create_web_api(manager_class):
                         "max_tokens": request.max_tokens,
                         "temperature": request.temperature,
                     }
+                    effective_session_id = request.sessionId or request.session_id or "default"
                     if _supports_memory(manager):
-                        args["session_id"] = request.session_id
+                        args["session_id"] = effective_session_id
 
                     result = manager.ask_question(**args)
 
@@ -196,8 +200,7 @@ def create_web_api(manager_class):
 
             clean_responses = {}
             for provider, res in result["responses"].items():
-                raw = res.get("response")
-                content = raw.content if hasattr(raw, "content") else raw
+                content = normalize_response_text(res.get("response"))
                 clean_responses[provider] = {
                     "success": res["success"],
                     "model": res.get("model", ""),
@@ -235,7 +238,7 @@ def create_web_api(manager_class):
         if not _supports_memory(manager):
             raise HTTPException(status_code=400, detail="Memory not supported by this manager")
         body_provider = request.provider if request else None
-        body_session_id = request.session_id if request else None
+        body_session_id = (request.sessionId or request.session_id) if request else None
         effective_provider = body_provider if body_provider is not None else provider
         effective_session_id = body_session_id if body_session_id is not None else session_id
         return manager.reset_memory(effective_provider, effective_session_id)
