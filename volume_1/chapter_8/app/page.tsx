@@ -688,6 +688,7 @@ const LlamaIndexPage = () => {
 
   const chat = useChat({
     api: '/api/llamaindex-agent',
+    streamProtocol: 'text',
     body: {
       queryMode: settings.queryMode,
       selectedProvider: settings.selectedProvider,
