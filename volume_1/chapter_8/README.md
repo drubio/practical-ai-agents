@@ -1,4 +1,4 @@
-# Chapter 8 — Unified LLM UI App (Streaming + Standard Responses)
+# Chapter 8 — Unified LLM UI App (Streaming + Standard Response Modes)
 
 This chapter is the final UI showcase for Volume 1.
 
@@ -19,11 +19,12 @@ All four views share the same runtime settings sidebar and can talk to the earli
 Each framework tab exposes similar behavior (provider selection, temperature, max tokens, optional memory/history) so you can compare integration style and developer ergonomics.
 
 ### 2) **Standard (non-streaming)** vs **Streaming** responses
-The app supports three response modes from the settings panel:
+The app supports two response modes from the settings panel:
 
-- **Auto Detect**: Uses streaming for single-provider mode when backend capabilities advertise streaming.
+- **Streaming**: Progressive chunk rendering when backend streaming is available.
 - **Standard**: Classic request/response (render full answer when complete).
-- **Stream (SSE)**: Server-Sent Events mode with progressive chunk rendering.
+
+If streaming is unavailable, the Streaming option is disabled and the app falls back to Standard mode.
 
 ### 3) Backend capability detection
 The UI checks backend status and capabilities to decide whether streaming is available (similar to the online/offline indicator pattern).
@@ -44,8 +45,8 @@ This UI expects a backend on `http://localhost:8000` with:
 - `GET /providers`
 - `POST /query` (standard single provider)
 - `POST /query-all` (standard multi-provider)
-- `GET /capabilities` (feature discovery, including streaming)
-- `POST /query-stream` (SSE streaming for progressive output)
+- `GET /capabilities` (feature discovery, returns `streaming: true|false`)
+- `POST /query-stream` (streaming endpoint for progressive output)
 - Optional memory endpoints:
   - `GET /history`
   - `POST /reset-memory`
@@ -104,8 +105,8 @@ Open `http://localhost:3000`.
 2. Open settings (gear icon).
 3. Configure:
    - Query Mode: single provider or all providers
-   - Provider (in single mode)
-   - Response Mode: auto / standard / stream
+   - Provider (in single mode, defaults to OpenAI when available)
+   - Response Mode: streaming / standard
    - Temperature / max tokens
    - Session ID (if memory-enabled backend)
 4. Send prompts and compare behavior across frameworks.
@@ -113,7 +114,7 @@ Open `http://localhost:3000`.
 ### Streaming behavior notes
 - Streaming is primarily used in **single-provider mode**.
 - If streaming is unavailable, choose **Standard** mode.
-- In **Auto Detect**, the app prefers streaming when backend capabilities indicate support.
+- The app defaults to **Streaming** when backend capabilities indicate support.
 
 ---
 
@@ -132,4 +133,4 @@ This chapter is intentionally not about one “best” chat component.
 It is a side-by-side comparison showing how different UI stacks can integrate with the same LLM backend while supporting both:
 
 - **Synchronous request/response UX**, and
-- **Asynchronous streamed UX (SSE)**.
+- **Asynchronous streamed UX**.

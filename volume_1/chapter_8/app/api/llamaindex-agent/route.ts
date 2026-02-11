@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       ...(queryMode === 'single' && { provider: selectedProvider })
     };
 
-    const useStreaming = queryMode === 'single' && (responseMode === 'stream' || responseMode === 'auto');
+    const useStreaming = queryMode === 'single' && responseMode === 'stream';
     const endpoint = useStreaming ? '/query-stream' : (queryMode === 'single' ? '/query' : '/query-all');
 
     const response = await fetch(`http://localhost:8000${endpoint}`, {

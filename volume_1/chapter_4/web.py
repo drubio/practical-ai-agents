@@ -96,7 +96,6 @@ def create_web_api(manager_class):
         return {
             "framework": manager.framework,
             "streaming": True,
-            "stream_transport": "sse",
             "memory": _supports_memory(manager),
         }
 
@@ -165,7 +164,7 @@ def create_web_api(manager_class):
                     return
 
                 response_text = normalize_response_text(result.get("response"))
-                async for chunk in iter_text_chunks(response_text):
+                async for chunk in iter_text_chunks(response_text, delay_seconds=0.03):
                     payload = {"type": "chunk", "content": chunk}
                     yield f"data: {json.dumps(payload)}\n\n"
 

@@ -87,7 +87,6 @@ function createWebApi(managerClassOrFactory) {
         res.json({
             framework: manager.framework,
             streaming: true,
-            stream_transport: 'sse',
             memory: supportsMemory(manager),
         });
     });
@@ -176,6 +175,7 @@ function createWebApi(managerClassOrFactory) {
             const responseText = normalizeResponseText(result.response);
             for (const chunk of chunkText(responseText)) {
                 res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+                await new Promise((resolve) => setTimeout(resolve, 35));
             }
 
             res.write(`data: ${JSON.stringify({ type: 'done', provider: result.provider, model: result.model })}\n\n`);

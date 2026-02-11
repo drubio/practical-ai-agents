@@ -97,6 +97,22 @@ const processApiResponse = (data: any, queryMode: string) => {
   }
 };
 
+
+const createMessageId = () => Date.now() + Math.floor(Math.random() * 100000);
+
+const formatHistoryMessage = (provider: string, sessionId: string, turns: Array<{ role: string; content: string }> = []) => {
+  if (!turns.length) {
+    return `History for ${provider} (session: ${sessionId})\n\nNo conversation history found.`;
+  }
+
+  const lines = turns.map((turn, index) => {
+    const roleLabel = turn.role === 'assistant' ? 'Assistant' : turn.role === 'user' ? 'User' : turn.role;
+    return `${index + 1}. ${roleLabel}: ${turn.content}`;
+  });
+
+  return `History for ${provider} (session: ${sessionId})\n\n${lines.join('\n\n')}`;
+};
+
 // Custom hook for API settings and providers
 const useAPISettings = () => {
   const [providers, setProviders] = useState([]);
@@ -105,16 +121,15 @@ const useAPISettings = () => {
     hasMemory: false,
     hasHistory: false,
     framework: '',
-    hasStreaming: false,
-    streamTransport: ''
+    hasStreaming: false
   });
   const [settings, setSettings] = useState({
     queryMode: 'single',
-    selectedProvider: '',
+    selectedProvider: 'openai',
     temperature: 0.7,
     maxTokens: 1000,
     sessionId: 'default', // Added session ID support
-    responseMode: 'auto' // auto | stream | standard
+    responseMode: 'stream' // stream | standard
   });
 
   const checkApiStatus = async () => {
@@ -157,13 +172,20 @@ const useAPISettings = () => {
             hasMemory: statusData.framework?.includes('History') || capabilitiesData?.memory || false,
             hasHistory: statusData.framework?.includes('History') || capabilitiesData?.memory || false,
             framework: statusData.framework || providersData.framework || '',
-            hasStreaming: Boolean(capabilitiesData?.streaming),
-            streamTransport: capabilitiesData?.stream_transport || ''
+            hasStreaming: Boolean(capabilitiesData?.streaming)
           });
           
           if (providersData.providers?.length > 0) {
-            setSettings(prev => ({ ...prev, selectedProvider: providersData.providers[0].name }));
+            const providerNames = providersData.providers.map((provider) => provider.name);
+            const defaultProvider = providerNames.includes('openai') ? 'openai' : providersData.providers[0].name;
+            setSettings(prev => ({ ...prev, selectedProvider: defaultProvider }));
           }
+
+          setSettings(prev => (
+            prev.responseMode === 'stream' && !capabilitiesData?.streaming
+              ? { ...prev, responseMode: 'standard' }
+              : prev
+          ));
         } else {
           setApiStatus('offline');
         }
@@ -173,7 +195,8 @@ const useAPISettings = () => {
     } catch (error) {
       setProviders([]);
       setApiStatus('offline');
-      setApiCapabilities({ hasMemory: false, hasHistory: false, framework: '', hasStreaming: false, streamTransport: '' });
+      setApiCapabilities({ hasMemory: false, hasHistory: false, framework: '', hasStreaming: false });
+      setSettings(prev => ({ ...prev, responseMode: 'standard' }));
     }
   };
 
@@ -200,7 +223,7 @@ const callAPI = async (message, settings, options = {}) => {
     ...(settings.queryMode === 'single' && { provider: settings.selectedProvider })
   };
 
-  const wantsStreaming = settings.responseMode === 'stream' || (settings.responseMode === 'auto' && settings.queryMode === 'single');
+  const wantsStreaming = settings.responseMode === 'stream' && settings.queryMode === 'single';
   if (wantsStreaming && settings.queryMode === 'single') {
     const response = await fetch('http://localhost:8000/query-stream', {
       method: 'POST',
@@ -428,15 +451,14 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
           onChange={(e) => onSettingsChange({ ...settings, responseMode: e.target.value })}
           className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
         >
-          <option value="auto">Auto Detect</option>
-          <option value="standard">Standard (wait for full response)</option>
           <option value="stream" disabled={!apiCapabilities.hasStreaming}>
-            Stream (SSE) {apiCapabilities.hasStreaming ? '' : '— unavailable'}
+            Streaming {apiCapabilities.hasStreaming ? '' : '— unavailable'}
           </option>
+          <option value="standard">Standard (wait for full response)</option>
         </select>
         <p className="text-xs text-gray-500 mt-1">
           {apiCapabilities.hasStreaming
-            ? `Backend supports ${apiCapabilities.streamTransport || 'streaming'}.`
+            ? 'Backend supports streaming responses.'
             : 'Backend does not advertise streaming support.'}
         </p>
       </div>
@@ -558,21 +580,18 @@ const LangChainPage = () => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
-        const historyContent = historyData.turns && historyData.turns.length > 0 
-          ? `**Conversation History for ${provider} (${sessionId}):**\n\n` + 
-            historyData.turns.map(turn => `**${turn.role.toUpperCase()}**: ${turn.content}`).join('\n\n')
-          : `**No conversation history found for ${provider} (${sessionId})**`;
+        const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
         
-        setMessages(prev => [...prev, { role: 'system', content: historyContent }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: historyContent }]);
       } catch (error) {
-        setMessages(prev => [...prev, { role: 'system', content: `Error getting history: ${error.message}` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${error.message}` }]);
       }
     } else if (action === 'reset') {
       try {
         await resetMemory(provider, sessionId);
-        setMessages(prev => [...prev, { role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
       } catch (error) {
-        setMessages(prev => [...prev, { role: 'system', content: `Error resetting memory: ${error.message}` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${error.message}` }]);
       }
     }
   };
@@ -593,13 +612,16 @@ const LangChainPage = () => {
           <div className="flex-1 overflow-y-auto p-4">
             {messages?.map((message) => (
               <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : message.role === 'system' ? 'text-center' : 'text-left'}`}>
-                <div className={`inline-block max-w-md px-4 py-2 rounded-lg ${
+                <div className={`inline-block px-4 py-2 rounded-lg ${
                   message.role === 'user'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-blue-600 text-white max-w-md'
                     : message.role === 'system'
-                    ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
-                    : 'bg-gray-100 text-gray-900 whitespace-pre-wrap'
+                    ? 'bg-amber-50 text-amber-900 border border-amber-200 max-w-3xl text-left whitespace-pre-wrap'
+                    : 'bg-gray-100 text-gray-900 max-w-md whitespace-pre-wrap'
                 }`}>
+                  {message.role === 'system' && (
+                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Conversation History</div>
+                  )}
                   {message.content}
                 </div>
               </div>
@@ -685,10 +707,7 @@ const LlamaIndexPage = () => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
-        const historyContent = historyData.turns && historyData.turns.length > 0 
-          ? `**Conversation History for ${provider} (${sessionId}):**\n\n` + 
-            historyData.turns.map(turn => `**${turn.role.toUpperCase()}**: ${turn.content}`).join('\n\n')
-          : `**No conversation history found for ${provider} (${sessionId})**`;
+        const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
         
         // Add history to LlamaIndex chat
         chat.append({ role: 'system', content: historyContent });
@@ -845,10 +864,7 @@ const AssistantUIPage = () => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
-        const historyContent = historyData.turns && historyData.turns.length > 0 
-          ? `**Conversation History for ${provider} (${sessionId}):**\n\n` + 
-            historyData.turns.map(turn => `**${turn.role.toUpperCase()}**: ${turn.content}`).join('\n\n')
-          : `**No conversation history found for ${provider} (${sessionId})**`;
+        const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
         
         // Add system message to runtime - this might not work with current Assistant UI
         // For now, we'll show an alert or console log
@@ -1001,21 +1017,18 @@ const CustomChatPage = () => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
-        const historyContent = historyData.turns && historyData.turns.length > 0 
-          ? `**Conversation History for ${provider} (${sessionId}):**\n\n` + 
-            historyData.turns.map(turn => `**${turn.role.toUpperCase()}**: ${turn.content}`).join('\n\n')
-          : `**No conversation history found for ${provider} (${sessionId})**`;
+        const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
         
-        setMessages(prev => [...prev, { id: Date.now(), role: 'system', content: historyContent }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: historyContent }]);
       } catch (error) {
-        setMessages(prev => [...prev, { id: Date.now(), role: 'system', content: `Error getting history: ${error.message}` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${error.message}` }]);
       }
     } else if (action === 'reset') {
       try {
         await resetMemory(provider, sessionId);
-        setMessages(prev => [...prev, { id: Date.now(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
       } catch (error) {
-        setMessages(prev => [...prev, { id: Date.now(), role: 'system', content: `Error resetting memory: ${error.message}` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${error.message}` }]);
       }
     }
   };
@@ -1036,15 +1049,18 @@ const CustomChatPage = () => {
           <div className="flex-1 overflow-y-auto p-4">
             {messages?.map((message) => (
               <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : message.role === 'system' ? 'text-center' : 'text-left'}`}>
-                <div className={`inline-block max-w-md px-4 py-2 rounded-lg ${
+                <div className={`inline-block px-4 py-2 rounded-lg ${
                   message.role === 'user'
-                    ? 'bg-orange-600 text-white'
+                    ? 'bg-orange-600 text-white max-w-md'
                     : message.role === 'system'
-                    ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
-                    : 'bg-orange-100 text-gray-900 whitespace-pre-wrap'
+                    ? 'bg-amber-50 text-amber-900 border border-amber-200 max-w-3xl text-left whitespace-pre-wrap'
+                    : 'bg-orange-100 text-gray-900 max-w-md whitespace-pre-wrap'
                 }`}>
                   {message.role === 'assistant' && (
                     <div className="text-xs font-semibold mb-1 text-orange-700">Custom Assistant</div>
+                  )}
+                  {message.role === 'system' && (
+                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Conversation History</div>
                   )}
                   {message.content}
                 </div>
