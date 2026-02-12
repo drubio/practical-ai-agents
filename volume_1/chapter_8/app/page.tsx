@@ -500,11 +500,19 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
   onRefreshApi: () => void;
   apiCapabilities: APICapabilities;
   onHistoryAction: (action: 'show' | 'reset', provider: string, sessionId: string) => Promise<void>;
-}) => (
-  <div className={`fixed right-0 top-0 h-full w-80 bg-white border-l shadow-xl transform transition-transform z-50 ${
-    isOpen ? 'translate-x-0' : 'translate-x-full'
-  }`}>
-    <div className="p-4 border-b bg-gray-50">
+}) => {
+  const handleHistoryButtonClick = (action: 'show' | 'reset') => {
+    onClose();
+    void onHistoryAction(action, settings.selectedProvider, settings.sessionId);
+  };
+
+  return (
+    <div
+      className={`fixed right-0 top-0 h-full w-80 bg-white border-l shadow-xl transform transition-transform z-50 ${
+        isOpen ? 'translate-x-0' : 'translate-x-full'
+      }`}
+    >
+      <div className="p-4 border-b bg-gray-50">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-semibold">API Settings</h2>
         <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
@@ -580,18 +588,20 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
           {settings.queryMode === 'single' && apiCapabilities.hasHistory && (
             <div className="flex space-x-2 mt-2">
               <button
-                onClick={() => onHistoryAction('show', settings.selectedProvider, settings.sessionId)}
-                className="flex-1 px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                onClick={() => handleHistoryButtonClick('show')}
+                className="group flex flex-1 items-center justify-between px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
                 disabled={apiStatus !== 'online' || !settings.selectedProvider}
               >
-                Show History
+                <span>Show History</span>
+                <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5 group-focus-visible:translate-x-0.5">→</span>
               </button>
               <button
-                onClick={() => onHistoryAction('reset', settings.selectedProvider, settings.sessionId)}
-                className="flex-1 px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                onClick={() => handleHistoryButtonClick('reset')}
+                className="group flex flex-1 items-center justify-between px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1"
                 disabled={apiStatus !== 'online' || !settings.selectedProvider}
               >
-                Reset Memory
+                <span>Reset Memory</span>
+                <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5 group-focus-visible:translate-x-0.5">→</span>
               </button>
             </div>
           )}
@@ -651,8 +661,9 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
         />
       </div>
     </div>
-  </div>
-);
+    </div>
+  );
+};
 
 // Shared Header Component
 const FrameworkHeader = ({ title, color, settings, onSettingsClick, apiStatus, apiCapabilities }: {
