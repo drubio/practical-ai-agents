@@ -62,6 +62,33 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         return this.chains.get(key);
     }
 
+    _extractTokenUsage(responseMetadata, usageMetadata) {
+        if (responseMetadata && typeof responseMetadata === 'object') {
+            const source = (responseMetadata.token_usage && typeof responseMetadata.token_usage === 'object')
+                ? responseMetadata.token_usage
+                : responseMetadata;
+            const compact = {
+                completion_tokens: source.completion_tokens,
+                prompt_tokens: source.prompt_tokens,
+                total_tokens: source.total_tokens,
+            };
+            const cleaned = Object.fromEntries(Object.entries(compact).filter(([, value]) => value != null));
+            if (Object.keys(cleaned).length > 0) return cleaned;
+        }
+
+        if (usageMetadata && typeof usageMetadata === 'object') {
+            const compact = {
+                completion_tokens: usageMetadata.output_tokens ?? usageMetadata.completion_tokens,
+                prompt_tokens: usageMetadata.input_tokens ?? usageMetadata.prompt_tokens,
+                total_tokens: usageMetadata.total_tokens,
+            };
+            const cleaned = Object.fromEntries(Object.entries(compact).filter(([, value]) => value != null));
+            if (Object.keys(cleaned).length > 0) return cleaned;
+        }
+
+        return null;
+    }
+
     async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
         if (!this.memoryEnabled) {
             return super.askQuestion(topic, provider, template, maxTokens, temperature);
@@ -80,8 +107,27 @@ class LangChainLLMManager extends Chapter4LangChainManager {
             const chain = this._getChain(resolvedProvider, sessionId, temperature, maxTokens);
             const result = await chain.invoke({ input: prompt }, { configurable: { sessionId } });
             const responseText = this._extractText(resolvedProvider, result);
+            const responseMetadata = result?.response_metadata ?? result?.responseMetadata ?? null;
+            const usageMetadata = result?.usage_metadata ?? result?.usageMetadata ?? null;
+            const messageId = result?.id ?? null;
+            const finishReason = responseMetadata?.finish_reason ?? responseMetadata?.stop_reason ?? responseMetadata?.finishReason ?? null;
+            const tokenUsage = this._extractTokenUsage(responseMetadata, usageMetadata);
 
-            return { success: true, provider: resolvedProvider, model, prompt, response: responseText, temperature, maxTokens, sessionId };
+            return {
+                success: true,
+                provider: resolvedProvider,
+                model,
+                prompt,
+                response: responseText,
+                temperature,
+                maxTokens,
+                sessionId,
+                ...(responseMetadata != null ? { response_metadata: responseMetadata } : {}),
+                ...(usageMetadata != null ? { usage_metadata: usageMetadata } : {}),
+                ...(tokenUsage != null ? { token_usage: tokenUsage } : {}),
+                ...(messageId != null ? { id: messageId } : {}),
+                ...(finishReason != null ? { finish_reason: finishReason } : {}),
+            };
         } catch (error) {
             return {
                 success: false,
@@ -98,10 +144,18 @@ class LangChainLLMManager extends Chapter4LangChainManager {
     }
 
     getHistory(provider, sessionId = 'default') {
-        const turns = this._getHistory(provider, sessionId).messages.map((message) => ({
-            role: message._getType?.() ?? message.getType?.() ?? message.type,
-            content: message.content,
-        }));
+        const turns = this._getHistory(provider, sessionId).messages.map((message) => {
+            const additionalKwargs = message?.additional_kwargs ?? message?.additionalKwargs ?? {};
+            const responseMetadata = message?.response_metadata ?? message?.responseMetadata ?? additionalKwargs?.response_metadata ?? null;
+            const usageMetadata = message?.usage_metadata ?? message?.usageMetadata ?? additionalKwargs?.usage_metadata ?? null;
+            const tokenUsage = this._extractTokenUsage(responseMetadata, usageMetadata);
+            const turn = {
+                role: message._getType?.() ?? message.getType?.() ?? message.type,
+                content: message.content,
+            };
+            if (tokenUsage != null) turn.token_usage = tokenUsage;
+            return turn;
+        });
         return { provider, sessionId, turns, count: turns.length };
     }
 

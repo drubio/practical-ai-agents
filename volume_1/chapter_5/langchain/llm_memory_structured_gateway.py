@@ -1,5 +1,6 @@
 """LLM Memory Structured Gateway - LangChain with structured JSON responses."""
 
+import ast
 import json
 import os
 import sys
@@ -29,7 +30,11 @@ Respond in the following JSON format:
   "answer": "...",
   "summary": "...",
   "keywords": ["...", "..."],
-  "distilled": "..."
+  "distilled": "...",
+  "metadata": {{
+    "confidence": "high|medium|low",
+    "notes": "optional extra context"
+  }}
 }}
 
 Topic: {topic}
@@ -54,6 +59,91 @@ class LangChainLLMManager(Chapter5LangChainManager):
             content = content[:-3]
         return json.loads(content.strip())
 
+    @staticmethod
+    def _extract_dict_from_text(raw_response: str, key: str) -> Optional[Dict]:
+        marker = f"{key}="
+        idx = raw_response.find(marker)
+        if idx == -1:
+            return None
+
+        start = raw_response.find("{", idx)
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        quote = ""
+        escape = False
+
+        for pos in range(start, len(raw_response)):
+            ch = raw_response[pos]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == quote:
+                    in_string = False
+                continue
+
+            if ch in ('"', "'"):
+                in_string = True
+                quote = ch
+                continue
+
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return ast.literal_eval(raw_response[start : pos + 1])
+                    except Exception:
+                        return None
+
+        return None
+
+    def _build_metadata(self, result: Dict, raw_response: str) -> Dict:
+        response_metadata = result.get("response_metadata")
+        usage_metadata = result.get("usage_metadata")
+
+        if response_metadata is None:
+            response_metadata = self._extract_dict_from_text(raw_response, "response_metadata")
+        if usage_metadata is None:
+            usage_metadata = self._extract_dict_from_text(raw_response, "usage_metadata")
+
+        token_usage = None
+        if isinstance(response_metadata, dict) and isinstance(response_metadata.get("token_usage"), dict):
+            usage = response_metadata.get("token_usage")
+            token_usage = {
+                "completion_tokens": usage.get("completion_tokens"),
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+            }
+        elif isinstance(usage_metadata, dict):
+            token_usage = {
+                "completion_tokens": usage_metadata.get("output_tokens"),
+                "prompt_tokens": usage_metadata.get("input_tokens"),
+                "total_tokens": usage_metadata.get("total_tokens"),
+            }
+
+        if isinstance(token_usage, dict):
+            token_usage = {k: v for k, v in token_usage.items() if v is not None}
+            if not token_usage:
+                token_usage = None
+
+        metadata = {
+            "provider": result.get("provider"),
+            "model": result.get("model"),
+            "framework": self.framework,
+            "session_id": result.get("session_id"),
+            "temperature": result.get("temperature"),
+            "max_tokens": result.get("max_tokens"),
+            "raw_response_chars": len(raw_response),
+            "token_usage": token_usage,
+        }
+        return {k: v for k, v in metadata.items() if v is not None}
+
     def ask_question(
         self,
         topic: str,
@@ -68,9 +158,15 @@ class LangChainLLMManager(Chapter5LangChainManager):
         if not result.get("success"):
             return result
 
-        raw_response = normalize_response_text(result.get("response"))
+        original_response = result.get("response")
+        raw_response = normalize_response_text(original_response)
+        metadata_source = original_response if isinstance(original_response, str) else str(original_response)
         try:
             parsed = self._parse_structured_response(raw_response)
+            parsed["metadata"] = {
+                **(parsed.get("metadata") or {}),
+                **self._build_metadata(result, metadata_source),
+            }
         except Exception as exc:
             return {
                 **result,

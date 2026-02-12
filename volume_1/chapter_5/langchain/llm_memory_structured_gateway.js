@@ -18,7 +18,11 @@ Respond in the following JSON format:
   "answer": "...",
   "summary": "...",
   "keywords": ["...", "..."],
-  "distilled": "..."
+  "distilled": "...",
+  "metadata": {
+    "confidence": "high|medium|low",
+    "notes": "optional extra context"
+  }
 }
 
 Topic: {topic}`;
@@ -37,6 +41,88 @@ class LangChainLLMManager extends Chapter5LangChainManager {
         return JSON.parse(content.trim());
     }
 
+    _extractObjectFromText(rawResponse, key) {
+        const marker = `${key}=`;
+        const markerIndex = rawResponse.indexOf(marker);
+        if (markerIndex === -1) return null;
+
+        const start = rawResponse.indexOf('{', markerIndex);
+        if (start === -1) return null;
+
+        let depth = 0;
+        let inString = false;
+        let quote = '';
+        let escape = false;
+
+        for (let i = start; i < rawResponse.length; i += 1) {
+            const ch = rawResponse[i];
+            if (inString) {
+                if (escape) {
+                    escape = false;
+                } else if (ch === '\\') {
+                    escape = true;
+                } else if (ch === quote) {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (ch === '"' || ch === "'") {
+                inString = true;
+                quote = ch;
+                continue;
+            }
+
+            if (ch === '{') {
+                depth += 1;
+            } else if (ch === '}') {
+                depth -= 1;
+                if (depth === 0) {
+                    const block = rawResponse.slice(start, i + 1);
+                    try {
+                        return JSON.parse(block.replace(/'/g, '"'));
+                    } catch {
+                        return null;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    _buildMetadata(result, rawResponse) {
+        const responseMetadata = result.response_metadata ?? this._extractObjectFromText(rawResponse, 'response_metadata');
+        const usageMetadata = result.usage_metadata ?? this._extractObjectFromText(rawResponse, 'usage_metadata');
+        const tokenUsageSource = responseMetadata?.token_usage;
+        const tokenUsage = tokenUsageSource
+            ? {
+                completion_tokens: tokenUsageSource.completion_tokens,
+                prompt_tokens: tokenUsageSource.prompt_tokens,
+                total_tokens: tokenUsageSource.total_tokens,
+            }
+            : (usageMetadata
+                ? {
+                    completion_tokens: usageMetadata.output_tokens,
+                    prompt_tokens: usageMetadata.input_tokens,
+                    total_tokens: usageMetadata.total_tokens,
+                }
+                : null);
+
+        const metadata = {
+            provider: result.provider,
+            model: result.model,
+            framework: this.framework,
+            session_id: result.sessionId,
+            temperature: result.temperature,
+            max_tokens: result.maxTokens,
+            raw_response_chars: rawResponse.length,
+            token_usage: tokenUsage ? Object.fromEntries(Object.entries(tokenUsage).filter(([, value]) => value != null)) : null,
+        };
+
+        return Object.fromEntries(Object.entries(metadata).filter(([, value]) => value != null));
+    }
+
     async askQuestion(topic, provider = null, template = STRUCTURED_TEMPLATE, maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
         const result = await super.askQuestion(topic, provider, template, maxTokens, temperature, sessionId);
 
@@ -47,6 +133,10 @@ class LangChainLLMManager extends Chapter5LangChainManager {
         const rawResponse = normalizeResponseText(result.response);
         try {
             const parsed = this._parseStructuredResponse(rawResponse);
+            parsed.metadata = {
+                ...(parsed.metadata || {}),
+                ...this._buildMetadata(result, rawResponse),
+            };
             return {
                 ...result,
                 response: parsed,

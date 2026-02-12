@@ -122,7 +122,8 @@ def create_web_api(manager_class):
             if not result.get("success"):
                 raise HTTPException(status_code=400, detail=result.get("error", "Query failed"))
 
-            content = normalize_response_text(result.get("response"))
+            raw_response = result.get("response")
+            content = raw_response if isinstance(raw_response, (dict, list)) else normalize_response_text(raw_response)
 
             return {
                 "success": True,
@@ -167,7 +168,12 @@ def create_web_api(manager_class):
                     yield f"data: {json.dumps(error_payload)}\n\n"
                     return
 
-                response_text = normalize_response_text(result.get("response"))
+                raw_response = result.get("response")
+                response_text = (
+                    json.dumps(raw_response, ensure_ascii=False)
+                    if isinstance(raw_response, (dict, list))
+                    else normalize_response_text(raw_response)
+                )
                 async for chunk in iter_text_chunks(response_text, delay_seconds=0.03):
                     payload = {"type": "chunk", "content": chunk}
                     yield f"data: {json.dumps(payload)}\n\n"
@@ -200,7 +206,7 @@ def create_web_api(manager_class):
 
             clean_responses = {}
             for provider, res in result["responses"].items():
-                content = normalize_response_text(res.get("response"))
+                content = res.get("response") if isinstance(res.get("response"), (dict, list)) else normalize_response_text(res.get("response"))
                 clean_responses[provider] = {
                     "success": res["success"],
                     "model": res.get("model", ""),

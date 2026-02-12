@@ -128,7 +128,9 @@ function createWebApi(managerClassOrFactory) {
                 framework: manager.framework,
                 provider: result.provider,
                 model: result.model,
-                response: normalizeResponseText(result.response),
+                response: (typeof result.response === 'object' && result.response !== null)
+                    ? result.response
+                    : normalizeResponseText(result.response),
                 parameters: {
                     temperature: result.temperature,
                     max_tokens: result.maxTokens,
@@ -176,7 +178,9 @@ function createWebApi(managerClassOrFactory) {
                 return res.end();
             }
 
-            const responseText = normalizeResponseText(result.response);
+            const responseText = (typeof result.response === 'object' && result.response !== null)
+                ? JSON.stringify(result.response)
+                : normalizeResponseText(result.response);
             for (const chunk of chunkText(responseText)) {
                 res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
                 await new Promise((resolve) => setTimeout(resolve, 35));
@@ -219,7 +223,9 @@ function createWebApi(managerClassOrFactory) {
                 if (response.success) {
                     cleanResponses[provider] = {
                         success: true,
-                        response: normalizeResponseText(response.response),
+                        response: (typeof response.response === 'object' && response.response !== null)
+                            ? response.response
+                            : normalizeResponseText(response.response),
                         model: response.model,
                         parameters: {
                             temperature: response.temperature,

@@ -64,6 +64,31 @@ class LangChainLLMManager(Chapter4LangChainManager):
             )
         return self.chains[key]
 
+    @staticmethod
+    def _extract_token_usage(response_metadata, usage_metadata):
+        if isinstance(response_metadata, dict):
+            usage = response_metadata.get("token_usage") if isinstance(response_metadata.get("token_usage"), dict) else response_metadata
+            compact = {
+                "completion_tokens": usage.get("completion_tokens"),
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+            }
+            compact = {k: v for k, v in compact.items() if v is not None}
+            if compact:
+                return compact
+
+        if isinstance(usage_metadata, dict):
+            compact = {
+                "completion_tokens": usage_metadata.get("output_tokens") or usage_metadata.get("completion_tokens"),
+                "prompt_tokens": usage_metadata.get("input_tokens") or usage_metadata.get("prompt_tokens"),
+                "total_tokens": usage_metadata.get("total_tokens"),
+            }
+            compact = {k: v for k, v in compact.items() if v is not None}
+            if compact:
+                return compact
+
+        return None
+
     def ask_question(
         self,
         topic: str,
@@ -93,7 +118,15 @@ class LangChainLLMManager(Chapter4LangChainManager):
                 {"input": prompt},
                 config={"configurable": {"session_id": session_id}},
             )
-            return {
+            response_metadata = getattr(result, "response_metadata", None)
+            usage_metadata = getattr(result, "usage_metadata", None)
+            message_id = getattr(result, "id", None)
+            finish_reason = None
+            if isinstance(response_metadata, dict):
+                finish_reason = response_metadata.get("finish_reason") or response_metadata.get("stop_reason")
+            token_usage = self._extract_token_usage(response_metadata, usage_metadata)
+
+            payload = {
                 "success": True,
                 "provider": provider,
                 "model": get_default_model(provider),
@@ -102,7 +135,13 @@ class LangChainLLMManager(Chapter4LangChainManager):
                 "temperature": temperature,
                 "max_tokens": max_tokens,
                 "session_id": session_id,
+                "response_metadata": response_metadata,
+                "usage_metadata": usage_metadata,
+                "token_usage": token_usage,
+                "id": message_id,
+                "finish_reason": finish_reason,
             }
+            return {k: v for k, v in payload.items() if v is not None}
         except Exception as exc:
             return {
                 "success": False,
@@ -118,10 +157,26 @@ class LangChainLLMManager(Chapter4LangChainManager):
 
     def get_history(self, provider: str, session_id: str) -> Dict:
         messages = self._get_history(provider, session_id).messages
+        turns = []
+        for msg in messages:
+            if not hasattr(msg, "content"):
+                continue
+            response_metadata = getattr(msg, "response_metadata", None)
+            usage_metadata = getattr(msg, "usage_metadata", None)
+            additional_kwargs = getattr(msg, "additional_kwargs", None) or {}
+            if response_metadata is None:
+                response_metadata = additional_kwargs.get("response_metadata")
+            if usage_metadata is None:
+                usage_metadata = additional_kwargs.get("usage_metadata")
+            token_usage = self._extract_token_usage(response_metadata, usage_metadata)
+            turn = {"role": msg.type, "content": msg.content}
+            if token_usage is not None:
+                turn["token_usage"] = token_usage
+            turns.append(turn)
         return {
             "provider": provider,
             "session_id": session_id,
-            "turns": [{"role": msg.type, "content": msg.content} for msg in messages if hasattr(msg, "content")],
+            "turns": turns,
             "count": len(messages),
         }
 
