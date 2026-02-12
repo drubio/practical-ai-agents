@@ -7,6 +7,7 @@ import { Settings } from 'lucide-react';
 import { Client as LangGraphClient } from '@langchain/langgraph-sdk';
 import { ChatSection, ChatMessages, ChatInput } from '@llamaindex/chat-ui';
 import { useChat } from '@ai-sdk/react';
+import { TextStreamChatTransport } from 'ai';
 import { 
   ThreadPrimitive, 
   MessagePrimitive, 
@@ -757,23 +758,39 @@ const LlamaIndexPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
 
-  const chat = useChat({
-    api: '/api/llamaindex-agent',
-    streamProtocol: 'text',
-    body: {
-      queryMode: settings.queryMode,
-      selectedProvider: settings.selectedProvider,
-      temperature: settings.temperature,
-      maxTokens: settings.maxTokens,
-      sessionId: settings.sessionId,
-      responseMode: settings.responseMode,
-      template: '{topic}'
-    },
+  const chat = useChat<any>({
+    transport: new TextStreamChatTransport({
+      api: '/api/llamaindex-agent',
+      body: {
+        queryMode: settings.queryMode,
+        selectedProvider: settings.selectedProvider,
+        temperature: settings.temperature,
+        maxTokens: settings.maxTokens,
+        sessionId: settings.sessionId,
+        responseMode: settings.responseMode,
+        template: '{topic}'
+      }
+    }) as any,
     onError: (error) => console.error('LlamaIndex chat error:', error),
-    initialMessages: [
-      { id: 'welcome', role: 'assistant', content: 'Hello! I\'m your LlamaIndex assistant connected to your API.' }
+    messages: [
+      {
+        id: 'welcome',
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'Hello! I\'m your LlamaIndex assistant connected to your API.' }]
+      }
     ]
   });
+
+  const appendSystemMessage = (content: string) => {
+    chat.setMessages((messages) => [
+      ...messages,
+      {
+        id: `system-${Date.now()}`,
+        role: 'system',
+        parts: [{ type: 'text', text: content }]
+      }
+    ]);
+  };
 
   const handleHistoryAction = async (action: 'show' | 'reset', provider: string, sessionId: string) => {
     if (action === 'show') {
@@ -782,16 +799,16 @@ const LlamaIndexPage = () => {
         const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
         
         // Add history to LlamaIndex chat
-        chat.append({ role: 'system', content: historyContent });
+        appendSystemMessage(historyContent);
       } catch (error) {
-        chat.append({ role: 'system', content: `Error getting history: ${getErrorMessage(error)}` });
+        appendSystemMessage(`Error getting history: ${getErrorMessage(error)}`);
       }
     } else if (action === 'reset') {
       try {
         await resetMemory(provider, sessionId);
-        chat.append({ role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` });
+        appendSystemMessage(`✅ Memory cleared for ${provider} (${sessionId})`);
       } catch (error) {
-        chat.append({ role: 'system', content: `Error resetting memory: ${getErrorMessage(error)}` });
+        appendSystemMessage(`Error resetting memory: ${getErrorMessage(error)}`);
       }
     }
   };

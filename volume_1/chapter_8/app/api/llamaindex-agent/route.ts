@@ -1,5 +1,11 @@
 import { NextRequest } from 'next/server';
 
+type IncomingMessage = {
+  role?: 'system' | 'user' | 'assistant';
+  content?: string;
+  parts?: Array<{ type?: string; text?: string }>;
+};
+
 async function readSSEToText(response: Response): Promise<string> {
   if (!response.body) {
     throw new Error('No response body available for streaming');
@@ -34,13 +40,39 @@ async function readSSEToText(response: Response): Promise<string> {
   return fullText;
 }
 
+function getLastUserMessageText(messages: IncomingMessage[]): string {
+  const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user');
+
+  if (!lastUserMessage) {
+    return '';
+  }
+
+  if (typeof lastUserMessage.content === 'string' && lastUserMessage.content.trim().length > 0) {
+    return lastUserMessage.content;
+  }
+
+  if (Array.isArray(lastUserMessage.parts)) {
+    return lastUserMessage.parts
+      .filter((part) => part?.type === 'text')
+      .map((part) => part.text ?? '')
+      .join('')
+      .trim();
+  }
+
+  return '';
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { messages, queryMode, selectedProvider, temperature, maxTokens, sessionId, responseMode } = await req.json();
-    const lastMessage = messages[messages.length - 1];
+    const { messages = [], queryMode, selectedProvider, temperature, maxTokens, sessionId, responseMode } = await req.json();
+    const topic = getLastUserMessageText(messages as IncomingMessage[]);
+
+    if (!topic) {
+      return new Response('Error: Missing user message content', { status: 400 });
+    }
 
     const payload = {
-      topic: lastMessage.content,
+      topic,
       temperature: temperature || 0.7,
       max_tokens: maxTokens || 1000,
       template: '{topic}',
@@ -59,12 +91,12 @@ export async function POST(req: NextRequest) {
 
     if (useStreaming) {
       const content = await readSSEToText(response);
-      return new Response(content);
+      return new Response(content, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }
 
     const data = await response.json();
     const content = data.success ? (typeof data.response === 'string' ? data.response : JSON.stringify(data.response)) : `Error: ${data.error}`;
-    return new Response(content);
+    return new Response(content, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   } catch (error) {
     return new Response(`Error: ${(error as Error).message}`, { status: 500 });
   }
