@@ -1,4 +1,4 @@
-"""LLM Structured Gateway - LangChain with structured JSON responses."""
+"""LLM Memory Structured Gateway - LangChain with structured JSON responses."""
 
 import json
 import os
@@ -6,10 +6,10 @@ import sys
 from typing import Dict, Optional
 
 CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
-CHAPTER_5_LANGCHAIN = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_5", "langchain"))
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 sys.path.append(CHAPTER_4_ROOT)
-sys.path.append(CHAPTER_5_LANGCHAIN)
+sys.path.append(CURRENT_DIR)
 
 from llm_memory_persist_gateway import LangChainLLMManager as Chapter5LangChainManager
 from utils import interactive_cli
@@ -36,7 +36,7 @@ Topic: {topic}
 
 
 class LangChainLLMManager(Chapter5LangChainManager):
-    """Chapter 6 manager that layers structured parsing on chapter 5 persistence."""
+    """Chapter 5 structured manager layered on persistent memory."""
 
     def __init__(self, memory_enabled: bool = True):
         super().__init__(memory_enabled=memory_enabled)

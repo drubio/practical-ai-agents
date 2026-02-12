@@ -1,39 +1,35 @@
 # LLM Memory Gateway
 
-This chapter extends Chapter 4's universal LLM gateway with **conversation memory**.
+-This chapter extends Chapter 4's universal LLM gateway with:
 
-It provides cross-framework (**LangChain**, **LlamaIndex**) and dual-language (**Python**, **JavaScript**) implementations in two memory modes:
+1. **Persistent memory gateway** (default memory baseline)
+2. **Persistent memory + structured output parsing**
 
-- **In-memory session memory** (lives for process lifetime)
-- **Persistent session memory** (stored on disk and reused across runs)
+Both variations are available across **LangChain** and **LlamaIndex**, in **Python** and **JavaScript**, as well as CLI and Web API modes.
 
-Just like Chapter 4, each script can be run in:
-- **Command line mode**
-- **Web API mode**
-
-## Project structure and characteristics
+## Project structure
 
 ```text
 chapter_5/
 ├── langchain/
-│   ├── llm_memory_gateway.py
-│   ├── llm_memory_gateway.js
 │   ├── llm_memory_persist_gateway.py
-│   └── llm_memory_persist_gateway.js
+│   ├── llm_memory_persist_gateway.js
+│   ├── llm_memory_structured_gateway.py
+│   └── llm_memory_structured_gateway.js
 ├── llamaindex/
-│   ├── llm_memory_gateway.py
-│   ├── llm_memory_gateway.js
 │   ├── llm_memory_persist_gateway.py
-│   └── llm_memory_persist_gateway.js
+│   ├── llm_memory_persist_gateway.js
+│   ├── llm_memory_structured_gateway.py
+│   └── llm_memory_structured_gateway.js
 └── README.md
 ```
 
-### Script matrix
+## Script matrix
 
-| Framework | In-memory (Python) | In-memory (JavaScript) | Persistent (Python) | Persistent (JavaScript) |
+| Framework | Persistent memory (Python) | Persistent memory (JavaScript) | Structured + memory (Python) | Structured + memory (JavaScript) |
 |---|---|---|---|---|
-| **LangChain** | `langchain/llm_memory_gateway.py` | `langchain/llm_memory_gateway.js` | `langchain/llm_memory_persist_gateway.py` | `langchain/llm_memory_persist_gateway.js` |
-| **LlamaIndex** | `llamaindex/llm_memory_gateway.py` | `llamaindex/llm_memory_gateway.js` | `llamaindex/llm_memory_persist_gateway.py` | `llamaindex/llm_memory_persist_gateway.js` |
+| **LangChain** | `langchain/llm_memory_persist_gateway.py` | `langchain/llm_memory_persist_gateway.js` | `langchain/llm_memory_structured_gateway.py` | `langchain/llm_memory_structured_gateway.js` |
+| **LlamaIndex** | `llamaindex/llm_memory_persist_gateway.py` | `llamaindex/llm_memory_persist_gateway.js` | `llamaindex/llm_memory_structured_gateway.py` | `llamaindex/llm_memory_structured_gateway.js` |
 
 ## Dependencies and environment
 
@@ -54,40 +50,43 @@ XAI_API_KEY=your-xai-key
 
 ## Usage
 
-> Run commands from this folder (`volume_1/chapter_5`) unless otherwise noted.
+Run commands from `volume_1/chapter_5`.
 
 ### Command line mode
 
 #### Python
 
 ```bash
-python langchain/llm_memory_gateway.py
 python langchain/llm_memory_persist_gateway.py
-python llamaindex/llm_memory_gateway.py
+python langchain/llm_memory_structured_gateway.py
 python llamaindex/llm_memory_persist_gateway.py
+python llamaindex/llm_memory_structured_gateway.py
 ```
 
 #### JavaScript
 
 ```bash
-node langchain/llm_memory_gateway.js
 node langchain/llm_memory_persist_gateway.js
-node llamaindex/llm_memory_gateway.js
+node langchain/llm_memory_structured_gateway.js
 node llamaindex/llm_memory_persist_gateway.js
+node llamaindex/llm_memory_structured_gateway.js
 ```
 
 ### Web API mode
 
-Each script can launch a web API server (default port `8000`):
-
 ```bash
-python langchain/llm_memory_gateway.py web
-node llamaindex/llm_memory_persist_gateway.js web
+python langchain/llm_memory_persist_gateway.py web
+node llamaindex/llm_memory_structured_gateway.js web
 ```
 
-## Memory-aware API endpoints
+## Incremental learning goal
 
-In addition to Chapter 4 endpoints (`/`, `/providers`, `/query`, `/query-all`, `/health`), memory-capable managers expose:
+- **Persistent memory gateways** show reusable conversation state across runs.
+- **Structured gateways** keep memory while adding JSON output parsing, so downstream code can consume stable fields (`answer`, `summary`, `keywords`, `distilled`).
+
+## Memory-aware endpoints
+
+In addition to base Chapter 4 endpoints (`/`, `/providers`, `/query`, `/query-all`, `/health`), memory-capable managers expose:
 
 | Method | Path | Description |
 |---|---|---|
@@ -129,8 +128,9 @@ curl -X POST http://localhost:8000/reset-memory \
   -H "Content-Type: application/json" \
 ```
 
+
 ## Notes
 
-- Persistent variants save session memory to a local `sessions/` folder under each framework implementation.
-- Session memory is isolated by both `provider` and `session_id`.
-- Keep using Chapter 4 for base, stateless gateway behavior; use Chapter 5 when memory/persistence is needed. The /capabilities end point exposes the flag "memory" (true or false) to indicate if the gateway supports memory/persistence.
+- Session memory is isolated by `provider` + `session_id`.
+- Persistent sessions are stored under each framework's `sessions/` directory.
+- Structured variants return parsed JSON in `response` and keep a short `raw_answer`/`rawAnswer` field.

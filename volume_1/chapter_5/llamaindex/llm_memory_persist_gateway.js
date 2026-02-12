@@ -1,23 +1,30 @@
 /**
- * LLM Memory History Gateway - LlamaIndex JS with persistent session memory.
+ * LLM Memory Gateway - LlamaIndex JS with persistent session memory.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { ChatMemoryBuffer, SimpleChatStore } from 'llamaindex';
-import { LlamaIndexLLMManager as InMemoryLlamaIndexLLMManager } from './llm_memory_gateway.js';
-import { interactiveCli } from '../../chapter_4/utils.js';
+import { ChatMemoryBuffer, SimpleChatEngine, SimpleChatStore } from 'llamaindex';
+import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_gateway.js';
+import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-class LlamaIndexLLMManager extends InMemoryLlamaIndexLLMManager {
+class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     constructor(memoryEnabled = true) {
-        super(memoryEnabled);
+        super();
         this.framework = 'LlamaIndex+History JS';
+        this.memoryEnabled = memoryEnabled;
+        this.memories = new Map();
+        this.chatEngines = new Map();
         this.chatStores = new Map();
+    }
+
+    _historyKey(provider, sessionId) {
+        return `${provider}::${sessionId}`;
     }
 
     _sessionFilePath(provider, sessionId) {
@@ -60,41 +67,118 @@ class LlamaIndexLLMManager extends InMemoryLlamaIndexLLMManager {
         chatStore.persist(this._sessionFilePath(provider, sessionId));
     }
 
-    async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
-        const result = await super.askQuestion(topic, provider, template, maxTokens, temperature, sessionId);
-        if (result.success && this.memoryEnabled) {
-            this._persistMemory(result.provider, result.sessionId || 'default');
+    _getChatEngine(provider, sessionId, temperature, maxTokens) {
+        const key = this._historyKey(provider, sessionId);
+        if (!this.chatEngines.has(key)) {
+            const client = this._createClient(provider, temperature, maxTokens);
+            const memory = this._getMemory(provider, sessionId);
+            const engine = SimpleChatEngine.fromDefaults({ llm: client, memory });
+            this.chatEngines.set(key, engine);
         }
-        return result;
+        return this.chatEngines.get(key);
+    }
+
+    _memoryMessages(memory) {
+        if (typeof memory.getAll === 'function') return memory.getAll();
+        if (typeof memory.getMessages === 'function') return memory.getMessages();
+        return Array.isArray(memory.chatHistory) ? memory.chatHistory : [];
+    }
+
+    async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
+        if (!this.memoryEnabled) {
+            return super.askQuestion(topic, provider, template, maxTokens, temperature);
+        }
+
+        const prompt = template.replace('{topic}', topic);
+        const resolvedProvider = this._resolveProvider(provider);
+
+        if (!resolvedProvider) {
+            return { success: false, error: 'No providers available', provider: 'none', model: 'none', prompt, response: null };
+        }
+
+        const model = getDefaultModel(resolvedProvider);
+
+        try {
+            const chatEngine = this._getChatEngine(resolvedProvider, sessionId, temperature, maxTokens);
+            const response = await chatEngine.chat(prompt);
+            const responseText = response?.response ?? this._extractText(response);
+            this._persistMemory(resolvedProvider, sessionId);
+
+            return { success: true, provider: resolvedProvider, model, prompt, response: responseText, temperature, maxTokens, sessionId };
+        } catch (error) {
+            return {
+                success: false,
+                provider: resolvedProvider,
+                model,
+                prompt,
+                error: error.message,
+                response: null,
+                temperature,
+                maxTokens,
+                sessionId,
+            };
+        }
+    }
+
+    getHistory(provider, sessionId = 'default') {
+        const turns = this._memoryMessages(this._getMemory(provider, sessionId)).map((message) => ({
+            role: message.role ?? message?.message?.role,
+            content: message.content ?? message?.message?.content,
+        }));
+        return { provider, sessionId, turns, count: turns.length };
     }
 
     resetMemory(provider = null, sessionId = null) {
-        const result = super.resetMemory(provider, sessionId);
+        const removedSessions = [];
         const sessionsDir = path.join(__dirname, 'sessions');
 
-        if (result.removedSessions.length === 1 && result.removedSessions[0] === 'ALL') {
+        if (provider && sessionId) {
+            const key = this._historyKey(provider, sessionId);
+            this.memories.delete(key);
+            this.chatEngines.delete(key);
+            this.chatStores.delete(key);
+            removedSessions.push([provider, sessionId]);
+        } else if (provider) {
+            for (const key of Array.from(this.memories.keys())) {
+                const [p, s] = key.split('::');
+                if (p === provider) {
+                    this.memories.delete(key);
+                    this.chatEngines.delete(key);
+                    this.chatStores.delete(key);
+                    removedSessions.push([p, s]);
+                }
+            }
+        } else if (sessionId) {
+            for (const key of Array.from(this.memories.keys())) {
+                const [p, s] = key.split('::');
+                if (s === sessionId) {
+                    this.memories.delete(key);
+                    this.chatEngines.delete(key);
+                    this.chatStores.delete(key);
+                    removedSessions.push([p, s]);
+                }
+            }
+        } else {
+            this.memories.clear();
+            this.chatEngines.clear();
             this.chatStores.clear();
+            removedSessions.push('ALL');
+        }
+
+        if (removedSessions.length === 1 && removedSessions[0] === 'ALL') {
             if (fs.existsSync(sessionsDir)) {
                 for (const fileName of fs.readdirSync(sessionsDir)) {
-                    if (fileName.endsWith('.json')) {
-                        fs.unlinkSync(path.join(sessionsDir, fileName));
-                    }
+                    if (fileName.endsWith('.json')) fs.unlinkSync(path.join(sessionsDir, fileName));
                 }
             }
-            return result;
-        }
-
-        for (const key of result.removedSessions) {
-            if (Array.isArray(key)) {
-                const filePath = this._sessionFilePath(key[0], key[1]);
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
-                }
-                this.chatStores.delete(this._historyKey(key[0], key[1]));
+        } else {
+            for (const [p, s] of removedSessions.filter(Array.isArray)) {
+                const filePath = this._sessionFilePath(p, s);
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             }
         }
 
-        return result;
+        return { status: 'cleared', removedSessions };
     }
 }
 
