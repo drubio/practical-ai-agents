@@ -7,6 +7,8 @@ import json
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 
+from stream import normalize_response_text
+
 # Load environment variables
 load_dotenv()
 
@@ -110,10 +112,12 @@ def display_provider_response(provider: str, response: Dict[str, Any], framework
     
     if response.get("success"):
         raw = response.get("response", "")
-        if hasattr(raw, "content"):  # Structured message (like AIMessage)
+        if isinstance(raw, (dict, list)):
+            print(json.dumps(raw, indent=2, ensure_ascii=False))
+        elif hasattr(raw, "content"):  # Structured message (like AIMessage)
             print(str(raw.content))
         else:
-            print(str(raw))
+            print(normalize_response_text(raw))
     else:
         print(f"Error: {response.get('error', 'Unknown error')}")
     print("=" * 60)

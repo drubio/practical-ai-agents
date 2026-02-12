@@ -9,6 +9,8 @@ import { config } from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
+import { normalizeResponseText } from './stream.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 config({ path: join(__dirname, '.env') });
@@ -69,13 +71,19 @@ export function displayProviderResponse(provider, response, framework = '') {
     const configParts = [];
     if (typeof response.temperature !== 'undefined') configParts.push(`temp: ${response.temperature}`);
     if (typeof response.maxTokens !== 'undefined') configParts.push(`max_tokens: ${response.maxTokens}`);
+    else if (typeof response.max_tokens !== 'undefined') configParts.push(`max_tokens: ${response.max_tokens}`);
     if (response.model) configParts.push(`model: ${response.model}`);
     if (configParts.length > 0) {
         console.log(`[${configParts.join(', ')}]`);
     }
 
     if (response.success) {
-        console.log(response.response || 'No response');
+        const raw = response.response;
+        if (raw && typeof raw === 'object') {
+            console.log(JSON.stringify(raw, null, 2));
+        } else {
+            console.log(normalizeResponseText(raw) || 'No response');
+        }
     } else {
         console.log(`Error: ${response.error || 'Unknown error'}`);
     }

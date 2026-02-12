@@ -4,6 +4,7 @@
 
 import { LangChainLLMManager as Chapter5LangChainManager } from './llm_memory_persist_gateway.js';
 import { interactiveCli } from '../../chapter_4/utils.js';
+import { normalizeResponseText } from '../../chapter_4/stream.js';
 
 const STRUCTURED_TEMPLATE = `Given the topic below, provide:
 
@@ -43,7 +44,7 @@ class LangChainLLMManager extends Chapter5LangChainManager {
             return result;
         }
 
-        const rawResponse = String(result.response ?? '');
+        const rawResponse = normalizeResponseText(result.response);
         try {
             const parsed = this._parseStructuredResponse(rawResponse);
             return {

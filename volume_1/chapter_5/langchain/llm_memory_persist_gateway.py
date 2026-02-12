@@ -98,7 +98,7 @@ class LangChainLLMManager(Chapter4LangChainManager):
                 "provider": provider,
                 "model": get_default_model(provider),
                 "prompt": prompt,
-                "response": str(result),
+                "response": self._extract_text(provider, result),
                 "temperature": temperature,
                 "max_tokens": max_tokens,
                 "session_id": session_id,

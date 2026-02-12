@@ -13,6 +13,7 @@ sys.path.append(CURRENT_DIR)
 
 from llm_memory_persist_gateway import LangChainLLMManager as Chapter5LangChainManager
 from utils import interactive_cli
+from stream import normalize_response_text
 
 
 STRUCTURED_TEMPLATE = """
@@ -67,7 +68,7 @@ class LangChainLLMManager(Chapter5LangChainManager):
         if not result.get("success"):
             return result
 
-        raw_response = str(result.get("response", ""))
+        raw_response = normalize_response_text(result.get("response"))
         try:
             parsed = self._parse_structured_response(raw_response)
         except Exception as exc:
