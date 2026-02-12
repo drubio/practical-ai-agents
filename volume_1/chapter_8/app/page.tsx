@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Settings } from 'lucide-react';
 
 // Framework imports
-import { useStream } from '@langchain/langgraph-sdk/react';
+import { Client as LangGraphClient } from '@langchain/langgraph-sdk';
 import { ChatSection, ChatMessages, ChatInput } from '@llamaindex/chat-ui';
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
 import { 
   ThreadPrimitive, 
   MessagePrimitive, 
@@ -15,6 +15,54 @@ import {
   useLocalRuntime,
   type ChatModelAdapter
 } from '@assistant-ui/react';
+
+type ChatRole = 'assistant' | 'user' | 'system';
+type QueryMode = 'single' | 'all';
+type ResponseMode = 'stream' | 'standard';
+type APIStatus = 'online' | 'offline' | 'checking';
+
+type Provider = {
+  name: string;
+  display_name: string;
+};
+
+type ChatMessage = {
+  id: number;
+  role: ChatRole;
+  content: string;
+};
+
+type APISettings = {
+  queryMode: QueryMode;
+  selectedProvider: string;
+  temperature: number;
+  maxTokens: number;
+  sessionId: string;
+  responseMode: ResponseMode;
+};
+
+type APICapabilities = {
+  hasMemory: boolean;
+  hasHistory: boolean;
+  framework: string;
+  hasStreaming: boolean;
+};
+
+type CallAPIOptions = {
+  onChunk?: (partialText: string) => void;
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+};
+
+const GATEWAY_API_BASE = 'http://localhost:8000';
+const LANGGRAPH_API_URL = GATEWAY_API_BASE;
+const LANGGRAPH_ASSISTANT_ID = 'agent';
 
 // ============================================================================
 // SHARED HOOKS AND UTILITIES
@@ -115,15 +163,15 @@ const formatHistoryMessage = (provider: string, sessionId: string, turns: Array<
 
 // Custom hook for API settings and providers
 const useAPISettings = () => {
-  const [providers, setProviders] = useState([]);
-  const [apiStatus, setApiStatus] = useState('checking'); // 'online', 'offline', 'checking'
-  const [apiCapabilities, setApiCapabilities] = useState({
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [apiStatus, setApiStatus] = useState<APIStatus>('checking'); // 'online', 'offline', 'checking'
+  const [apiCapabilities, setApiCapabilities] = useState<APICapabilities>({
     hasMemory: false,
     hasHistory: false,
     framework: '',
     hasStreaming: false
   });
-  const [settings, setSettings] = useState({
+  const [settings, setSettings] = useState<APISettings>({
     queryMode: 'single',
     selectedProvider: 'openai',
     temperature: 0.7,
@@ -135,7 +183,7 @@ const useAPISettings = () => {
   const checkApiStatus = async () => {
     try {
       // Check main status endpoint
-      const statusResponse = await fetch('http://localhost:8000/', {
+      const statusResponse = await fetch(`${GATEWAY_API_BASE}/`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000)
       });
@@ -144,7 +192,7 @@ const useAPISettings = () => {
         const statusData = await statusResponse.json();
         
         // Check providers endpoint
-        const providersResponse = await fetch('http://localhost:8000/providers', {
+        const providersResponse = await fetch(`${GATEWAY_API_BASE}/providers`, {
           method: 'GET',
           signal: AbortSignal.timeout(5000)
         });
@@ -157,7 +205,7 @@ const useAPISettings = () => {
           // Detect API capabilities
           let capabilitiesData = null;
           try {
-            const capabilitiesResponse = await fetch('http://localhost:8000/capabilities', {
+            const capabilitiesResponse = await fetch(`${GATEWAY_API_BASE}/capabilities`, {
               method: 'GET',
               signal: AbortSignal.timeout(3000)
             });
@@ -176,7 +224,7 @@ const useAPISettings = () => {
           });
           
           if (providersData.providers?.length > 0) {
-            const providerNames = providersData.providers.map((provider) => provider.name);
+            const providerNames = providersData.providers.map((provider: Provider) => provider.name);
             const defaultProvider = providerNames.includes('openai') ? 'openai' : providersData.providers[0].name;
             setSettings(prev => ({ ...prev, selectedProvider: defaultProvider }));
           }
@@ -212,7 +260,7 @@ const useAPISettings = () => {
 };
 
 // Shared API call logic
-const callAPI = async (message, settings, options = {}) => {
+const callAPI = async (message: string, settings: APISettings, options: CallAPIOptions = {}) => {
   const endpoint = settings.queryMode === 'single' ? '/query' : '/query-all';
   const payload = {
     topic: message,
@@ -225,7 +273,7 @@ const callAPI = async (message, settings, options = {}) => {
 
   const wantsStreaming = settings.responseMode === 'stream' && settings.queryMode === 'single';
   if (wantsStreaming && settings.queryMode === 'single') {
-    const response = await fetch('http://localhost:8000/query-stream', {
+    const response = await fetch(`${GATEWAY_API_BASE}/query-stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -268,7 +316,7 @@ const callAPI = async (message, settings, options = {}) => {
     return fullText;
   }
 
-  const response = await fetch(`http://localhost:8000${endpoint}`, {
+  const response = await fetch(`${GATEWAY_API_BASE}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
@@ -279,9 +327,9 @@ const callAPI = async (message, settings, options = {}) => {
 };
 
 // History and memory management functions
-const getHistory = async (provider, sessionId) => {
+const getHistory = async (provider: string, sessionId: string) => {
   try {
-    const response = await fetch(`http://localhost:8000/history?provider=${provider}&session_id=${sessionId}`, {
+    const response = await fetch(`${GATEWAY_API_BASE}/history?provider=${provider}&session_id=${sessionId}`, {
       method: 'GET'
     });
     if (response.ok) {
@@ -289,13 +337,13 @@ const getHistory = async (provider, sessionId) => {
     }
     throw new Error(`HTTP ${response.status}`);
   } catch (error) {
-    throw new Error(`Failed to get history: ${error.message}`);
+    throw new Error(`Failed to get history: ${getErrorMessage(error)}`);
   }
 };
 
-const resetMemory = async (provider, sessionId) => {
+const resetMemory = async (provider: string, sessionId: string) => {
   try {
-    const response = await fetch(`http://localhost:8000/reset-memory`, {
+    const response = await fetch(`${GATEWAY_API_BASE}/reset-memory`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider, session_id: sessionId })
@@ -305,12 +353,12 @@ const resetMemory = async (provider, sessionId) => {
     }
     throw new Error(`HTTP ${response.status}`);
   } catch (error) {
-    throw new Error(`Failed to reset memory: ${error.message}`);
+    throw new Error(`Failed to reset memory: ${getErrorMessage(error)}`);
   }
 };
 
 // API Status Indicator Component
-const ApiStatusIndicator = ({ status, onRefresh }) => {
+const ApiStatusIndicator = ({ status, onRefresh }: { status: APIStatus; onRefresh: () => void }) => {
   const getStatusColor = () => {
     switch (status) {
       case 'online': return 'bg-green-500';
@@ -346,7 +394,17 @@ const ApiStatusIndicator = ({ status, onRefresh }) => {
 };
 
 // Shared Settings Sidebar Component
-const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, providers, apiStatus, onRefreshApi, apiCapabilities, onHistoryAction }) => (
+const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, providers, apiStatus, onRefreshApi, apiCapabilities, onHistoryAction }: {
+  isOpen: boolean;
+  onClose: () => void;
+  settings: APISettings;
+  onSettingsChange: React.Dispatch<React.SetStateAction<APISettings>>;
+  providers: Provider[];
+  apiStatus: APIStatus;
+  onRefreshApi: () => void;
+  apiCapabilities: APICapabilities;
+  onHistoryAction: (action: 'show' | 'reset', provider: string, sessionId: string) => Promise<void>;
+}) => (
   <div className={`fixed right-0 top-0 h-full w-80 bg-white border-l shadow-xl transform transition-transform z-50 ${
     isOpen ? 'translate-x-0' : 'translate-x-full'
   }`}>
@@ -373,7 +431,7 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
               type="radio"
               value="single"
               checked={settings.queryMode === 'single'}
-              onChange={(e) => onSettingsChange({ ...settings, queryMode: e.target.value })}
+              onChange={(e) => onSettingsChange({ ...settings, queryMode: e.target.value as QueryMode })}
               className="text-blue-600"
             />
             <span className="ml-2 text-sm">Single Provider</span>
@@ -383,7 +441,7 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
               type="radio"
               value="all"
               checked={settings.queryMode === 'all'}
-              onChange={(e) => onSettingsChange({ ...settings, queryMode: e.target.value })}
+              onChange={(e) => onSettingsChange({ ...settings, queryMode: e.target.value as QueryMode })}
               className="text-blue-600"
             />
             <span className="ml-2 text-sm">All Providers</span>
@@ -400,7 +458,7 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
             className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
             disabled={apiStatus !== 'online'}
           >
-            {providers.map(p => (
+            {providers.map((p) => (
               <option key={p.name} value={p.name}>{p.display_name}</option>
             ))}
           </select>
@@ -448,7 +506,7 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
         <label className="block text-sm font-medium mb-2">Response Mode</label>
         <select
           value={settings.responseMode}
-          onChange={(e) => onSettingsChange({ ...settings, responseMode: e.target.value })}
+          onChange={(e) => onSettingsChange({ ...settings, responseMode: e.target.value as ResponseMode })}
           className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
         >
           <option value="stream" disabled={!apiCapabilities.hasStreaming}>
@@ -501,7 +559,14 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
 );
 
 // Shared Header Component
-const FrameworkHeader = ({ title, color, settings, onSettingsClick, apiStatus, apiCapabilities }) => (
+const FrameworkHeader = ({ title, color, settings, onSettingsClick, apiStatus, apiCapabilities }: {
+  title: string;
+  color: string;
+  settings: APISettings;
+  onSettingsClick: () => void;
+  apiStatus: APIStatus;
+  apiCapabilities: APICapabilities;
+}) => (
   <div className={`bg-${color}-600 text-white p-3 flex justify-between items-center`}>
     <div className="flex items-center space-x-3">
       <div>
@@ -541,16 +606,22 @@ const LangChainPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([
-    { id: 1, role: 'assistant', content: 'Hello! I\'m your LangChain assistant connected to your API.' }
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { id: 1, role: 'assistant', content: 'Hello! I\'m your LangChain assistant connected to your gateway API.' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  // Keep LangGraph SDK in use and instantiate explicitly with URL params (no env vars required)
+  const langGraphClient = useMemo(
+    () => new LangGraphClient({ apiUrl: LANGGRAPH_API_URL }),
+    []
+  );
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input?.trim() || isLoading) return;
 
-    const userMessage = { id: Date.now(), role: 'user', content: input };
+    const userMessage: ChatMessage = { id: Date.now(), role: 'user', content: input };
     const assistantId = Date.now() + 1;
     setMessages(prev => [...prev, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
     setIsLoading(true);
@@ -559,54 +630,54 @@ const LangChainPage = () => {
     try {
       const content = await callAPI(input, settings, {
         onChunk: (partialText) => {
-          setMessages(prev => prev.map((message: any) => (
+          setMessages(prev => prev.map((message) => (
             message.id === assistantId ? { ...message, content: partialText } : message
           )));
         }
       });
-      setMessages(prev => prev.map((message: any) => (
+      setMessages(prev => prev.map((message) => (
         message.id === assistantId ? { ...message, content } : message
       )));
     } catch (error) {
-      setMessages(prev => prev.map((message: any) => (
-        message.id === assistantId ? { ...message, content: `Connection Error: ${error.message}` } : message
+      setMessages(prev => prev.map((message) => (
+        message.id === assistantId ? { ...message, content: `Connection Error: ${getErrorMessage(error)}` } : message
       )));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleHistoryAction = async (action, provider, sessionId) => {
+  const handleHistoryAction = async (action: 'show' | 'reset', provider: string, sessionId: string) => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
         const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
-        
         setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: historyContent }]);
       } catch (error) {
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${error.message}` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${getErrorMessage(error)}` }]);
       }
-    } else if (action === 'reset') {
-      try {
-        await resetMemory(provider, sessionId);
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
-      } catch (error) {
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${error.message}` }]);
-      }
+      return;
+    }
+
+    try {
+      await resetMemory(provider, sessionId);
+      setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
+    } catch (error) {
+      setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${getErrorMessage(error)}` }]);
     }
   };
 
   return (
     <div className="h-screen flex flex-col">
-      <FrameworkHeader 
-        title="LangChain Agent UI (Real Components)"
+      <FrameworkHeader
+        title="LangChain Agent UI (LangGraph SDK + Gateway)"
         color="blue"
         settings={settings}
         onSettingsClick={() => setShowSettings(!showSettings)}
         apiStatus={apiStatus}
         apiCapabilities={apiCapabilities}
       />
-      
+
       <div className="flex-1 overflow-hidden p-4">
         <div className="h-full bg-white rounded-lg border overflow-hidden flex flex-col">
           <div className="flex-1 overflow-y-auto p-4">
@@ -642,7 +713,7 @@ const LangChainPage = () => {
                   value={input || ''}
                   onChange={(e) => setInput(e.target.value)}
                   type="text"
-                  placeholder={`Ask questions... (${settings.queryMode === 'single' ? settings.selectedProvider : 'all providers'})`}		  
+                  placeholder={`Ask questions... (${settings.queryMode === 'single' ? settings.selectedProvider : 'all providers'})`}
                   className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   disabled={isLoading}
                 />
@@ -656,7 +727,7 @@ const LangChainPage = () => {
               </div>
             </form>
             <div className="text-xs text-gray-500 mt-2">
-              Powered by @langchain/langgraph-sdk • Connected to localhost:8000
+              Powered by LangGraph SDK client + gateway • {LANGGRAPH_API_URL} • assistant: {LANGGRAPH_ASSISTANT_ID} • client: {langGraphClient ? 'ready' : 'n/a'}
             </div>
           </div>
         </div>
@@ -700,11 +771,11 @@ const LlamaIndexPage = () => {
     },
     onError: (error) => console.error('LlamaIndex chat error:', error),
     initialMessages: [
-      { role: 'assistant', content: 'Hello! I\'m your LlamaIndex assistant connected to your API.' }
+      { id: 'welcome', role: 'assistant', content: 'Hello! I\'m your LlamaIndex assistant connected to your API.' }
     ]
   });
 
-  const handleHistoryAction = async (action, provider, sessionId) => {
+  const handleHistoryAction = async (action: 'show' | 'reset', provider: string, sessionId: string) => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
@@ -713,14 +784,14 @@ const LlamaIndexPage = () => {
         // Add history to LlamaIndex chat
         chat.append({ role: 'system', content: historyContent });
       } catch (error) {
-        chat.append({ role: 'system', content: `Error getting history: ${error.message}` });
+        chat.append({ role: 'system', content: `Error getting history: ${getErrorMessage(error)}` });
       }
     } else if (action === 'reset') {
       try {
         await resetMemory(provider, sessionId);
         chat.append({ role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` });
       } catch (error) {
-        chat.append({ role: 'system', content: `Error resetting memory: ${error.message}` });
+        chat.append({ role: 'system', content: `Error resetting memory: ${getErrorMessage(error)}` });
       }
     }
   };
@@ -743,7 +814,6 @@ const LlamaIndexPage = () => {
             <ChatInput className="border-t">
               <ChatInput.Form className="p-4">
                 <ChatInput.Field 
-                  type="textarea" 
                   placeholder={`Ask questions... (${settings.queryMode === 'single' ? settings.selectedProvider : 'all providers'})`}
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
@@ -820,7 +890,7 @@ const AssistantUIPage = () => {
 
         console.log('Assistant UI API call:', { endpoint, payload });
 
-        const response = await fetch(`http://localhost:8000${endpoint}`, {
+        const response = await fetch(`${GATEWAY_API_BASE}${endpoint}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -850,7 +920,7 @@ const AssistantUIPage = () => {
           content: [
             {
               type: "text", 
-              text: `Connection Error: ${error.message}`
+              text: `Connection Error: ${getErrorMessage(error)}`
             }
           ]
         };
@@ -861,7 +931,7 @@ const AssistantUIPage = () => {
   // Assistant UI runtime using useLocalRuntime
   const runtime = useLocalRuntime(modelAdapter);
 
-  const handleHistoryAction = async (action, provider, sessionId) => {
+  const handleHistoryAction = async (action: 'show' | 'reset', provider: string, sessionId: string) => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
@@ -872,15 +942,15 @@ const AssistantUIPage = () => {
         console.log('History:', historyContent);
         alert(`History loaded for ${provider} (${sessionId}). Check console for details.`);
       } catch (error) {
-        console.error('Error getting history:', error.message);
-        alert(`Error getting history: ${error.message}`);
+        console.error('Error getting history:', getErrorMessage(error));
+        alert(`Error getting history: ${getErrorMessage(error)}`);
       }
     } else if (action === 'reset') {
       try {
         await resetMemory(provider, sessionId);
         alert(`✅ Memory cleared for ${provider} (${sessionId})`);
       } catch (error) {
-        alert(`Error resetting memory: ${error.message}`);
+        alert(`Error resetting memory: ${getErrorMessage(error)}`);
       }
     }
   };
@@ -909,14 +979,14 @@ const AssistantUIPage = () => {
                 </ThreadPrimitive.Empty>
                 <ThreadPrimitive.Messages 
                   components={{
-                    UserMessage: ({ children }) => (
+                    UserMessage: () => (
                       <div className="mb-4 text-right">
                         <div className="bg-green-600 text-white px-4 py-2 rounded-lg inline-block max-w-md">
                           <MessagePrimitive.Content />
                         </div>
                       </div>
                     ),
-                    AssistantMessage: ({ children }) => (
+                    AssistantMessage: () => (
                       <div className="mb-4 text-left">
                         <div className="bg-gray-100 text-gray-900 px-4 py-2 rounded-lg inline-block max-w-md whitespace-pre-wrap">
                           <MessagePrimitive.Content />
@@ -971,16 +1041,16 @@ const CustomChatPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 1, role: 'assistant', content: 'Hello! I\'m your custom chat assistant connected to your API.' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input?.trim() || isLoading) return;
 
-    const userMessage = { id: Date.now(), role: 'user', content: input };
+    const userMessage: ChatMessage = { id: Date.now(), role: 'user', content: input };
     const assistantId = Date.now() + 1;
     setMessages(prev => [...prev, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
     setIsLoading(true);
@@ -1007,14 +1077,14 @@ const CustomChatPage = () => {
       )));
     } catch (error) {
       setMessages(prev => prev.map(message => (
-        message.id === assistantId ? { ...message, content: `Connection Error: ${error.message}` } : message
+        message.id === assistantId ? { ...message, content: `Connection Error: ${getErrorMessage(error)}` } : message
       )));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleHistoryAction = async (action, provider, sessionId) => {
+  const handleHistoryAction = async (action: 'show' | 'reset', provider: string, sessionId: string) => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
@@ -1022,14 +1092,14 @@ const CustomChatPage = () => {
         
         setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: historyContent }]);
       } catch (error) {
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${error.message}` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${getErrorMessage(error)}` }]);
       }
     } else if (action === 'reset') {
       try {
         await resetMemory(provider, sessionId);
         setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
       } catch (error) {
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${error.message}` }]);
+        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${getErrorMessage(error)}` }]);
       }
     }
   };
