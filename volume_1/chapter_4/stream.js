@@ -64,6 +64,19 @@ export function normalizeResponseText(payload) {
         if (typeof extracted === 'string') {
             return extracted;
         }
+
+        try {
+            const maybeJson = JSON.parse(payload);
+            if (maybeJson && typeof maybeJson === 'object') {
+                for (const key of ['answer', 'distilled', 'content', 'text', 'message', 'summary']) {
+                    const value = maybeJson[key];
+                    if (typeof value === 'string' && value.trim()) return value;
+                }
+            }
+        } catch {
+            // not JSON text, keep original payload
+        }
+
         return payload;
     }
 

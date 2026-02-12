@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import ast
 import re
+import json
 from typing import AsyncIterator, Iterable
 
 
@@ -26,6 +27,17 @@ def normalize_response_text(payload) -> str:
                     return decoded
             except Exception:
                 return content_match.group(2)
+
+        try:
+            maybe_json = json.loads(payload)
+            if isinstance(maybe_json, dict):
+                for key in ("answer", "distilled", "content", "text", "message", "summary"):
+                    value = maybe_json.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value
+        except Exception:
+            pass
+
         return payload
     if isinstance(payload, dict):
         for key in ("content", "text", "message", "answer", "final_answer", "distilled", "summary"):

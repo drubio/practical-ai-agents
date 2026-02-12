@@ -28,6 +28,33 @@ function supportsMemory(manager) {
     );
 }
 
+function recoverStructuredParseError(result) {
+    if (!result || result.success) {
+        return result;
+    }
+
+    const errorMessage = String(result.error || '');
+    if (!errorMessage.includes('Failed to parse structured JSON response') || !result.rawResponse) {
+        return result;
+    }
+
+    const fallbackText = normalizeResponseText(result.rawResponse);
+    return {
+        ...result,
+        success: true,
+        error: null,
+        response: {
+            answer: fallbackText,
+            distilled: fallbackText,
+            metadata: {
+                confidence: 'low',
+                notes: errorMessage,
+            },
+        },
+        rawAnswer: fallbackText,
+    };
+}
+
 function buildManager(managerClassOrFactory) {
     if (typeof managerClassOrFactory !== 'function') {
         throw new Error('Invalid manager class/factory provided');
@@ -110,9 +137,13 @@ function createWebApi(managerClassOrFactory) {
             const effectiveSessionId = sessionId ?? session_id ?? 'default';
             const { result, logs } = await captureConsoleOutputAsync(async () => {
                 if (supportsMemory(manager)) {
-                    return manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId);
+                    return recoverStructuredParseError(
+                        await manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId)
+                    );
                 }
-                return manager.askQuestion(topic, provider, template, max_tokens, temperature);
+                return recoverStructuredParseError(
+                    await manager.askQuestion(topic, provider, template, max_tokens, temperature)
+                );
             });
 
             if (!result.success) {
@@ -164,9 +195,13 @@ function createWebApi(managerClassOrFactory) {
             const effectiveSessionId = sessionId ?? session_id ?? 'default';
             const { result } = await captureConsoleOutputAsync(async () => {
                 if (supportsMemory(manager)) {
-                    return manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId);
+                    return recoverStructuredParseError(
+                        await manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId)
+                    );
                 }
-                return manager.askQuestion(topic, provider, template, max_tokens, temperature);
+                return recoverStructuredParseError(
+                    await manager.askQuestion(topic, provider, template, max_tokens, temperature)
+                );
             });
 
             res.setHeader('Content-Type', 'text/event-stream');
@@ -178,15 +213,13 @@ function createWebApi(managerClassOrFactory) {
                 return res.end();
             }
 
-            const responseText = (typeof result.response === 'object' && result.response !== null)
-                ? JSON.stringify(result.response)
-                : normalizeResponseText(result.response);
+            const responseText = normalizeResponseText(result.response);
             for (const chunk of chunkText(responseText)) {
                 res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
                 await new Promise((resolve) => setTimeout(resolve, 35));
             }
 
-            res.write(`data: ${JSON.stringify({ type: 'done', provider: result.provider, model: result.model })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'done', provider: result.provider, model: result.model, response: (typeof result.response === 'object' && result.response !== null) ? result.response : null, token_usage: result.tokenUsage ?? result.token_usage ?? null, session_id: result.sessionId ?? effectiveSessionId })}\n\n`);
             return res.end();
         } catch (error) {
             if (!res.headersSent) {

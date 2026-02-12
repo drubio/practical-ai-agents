@@ -49,6 +49,33 @@ def _supports_memory(manager) -> bool:
     )
 
 
+def _recover_structured_parse_error(result: dict) -> dict:
+    """Downgrade structured-parse failures to usable plain-text responses."""
+    if not isinstance(result, dict) or result.get("success"):
+        return result
+
+    error_message = str(result.get("error") or "")
+    raw_response = result.get("raw_response")
+    if "Failed to parse structured JSON response" not in error_message or not raw_response:
+        return result
+
+    fallback_text = normalize_response_text(raw_response)
+    return {
+        **result,
+        "success": True,
+        "error": None,
+        "response": {
+            "answer": fallback_text,
+            "distilled": fallback_text,
+            "metadata": {
+                "confidence": "low",
+                "notes": error_message,
+            },
+        },
+        "raw_answer": fallback_text,
+    }
+
+
 def create_web_api(manager_class):
     app = FastAPI(
         title="LLM Service API",
@@ -117,7 +144,7 @@ def create_web_api(manager_class):
                 if _supports_memory(manager):
                     args["session_id"] = effective_session_id
 
-                result = manager.ask_question(**args)
+                result = _recover_structured_parse_error(manager.ask_question(**args))
 
             if not result.get("success"):
                 raise HTTPException(status_code=400, detail=result.get("error", "Query failed"))
@@ -161,7 +188,7 @@ def create_web_api(manager_class):
                     if _supports_memory(manager):
                         args["session_id"] = effective_session_id
 
-                    result = manager.ask_question(**args)
+                    result = _recover_structured_parse_error(manager.ask_question(**args))
 
                 if not result.get("success"):
                     error_payload = {"type": "error", "error": result.get("error", "Query failed")}
@@ -169,11 +196,7 @@ def create_web_api(manager_class):
                     return
 
                 raw_response = result.get("response")
-                response_text = (
-                    json.dumps(raw_response, ensure_ascii=False)
-                    if isinstance(raw_response, (dict, list))
-                    else normalize_response_text(raw_response)
-                )
+                response_text = normalize_response_text(raw_response)
                 async for chunk in iter_text_chunks(response_text, delay_seconds=0.03):
                     payload = {"type": "chunk", "content": chunk}
                     yield f"data: {json.dumps(payload)}\n\n"
@@ -182,6 +205,9 @@ def create_web_api(manager_class):
                     "type": "done",
                     "provider": result.get("provider"),
                     "model": result.get("model"),
+                    "response": raw_response if isinstance(raw_response, dict) else None,
+                    "token_usage": result.get("token_usage"),
+                    "session_id": result.get("session_id") or effective_session_id,
                 }
                 yield f"data: {json.dumps(done_payload)}\n\n"
             except Exception as e:

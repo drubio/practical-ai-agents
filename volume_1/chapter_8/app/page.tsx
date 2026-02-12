@@ -5,7 +5,7 @@ import { Settings } from 'lucide-react';
 
 // Framework imports
 import { Client as LangGraphClient } from '@langchain/langgraph-sdk';
-import { ChatSection, ChatMessages, ChatInput } from '@llamaindex/chat-ui';
+import { ChatSection, ChatInput } from '@llamaindex/chat-ui';
 import { useChat } from '@ai-sdk/react';
 import { TextStreamChatTransport } from 'ai';
 import { 
@@ -14,7 +14,8 @@ import {
   ComposerPrimitive,
   AssistantRuntimeProvider, 
   useLocalRuntime,
-  type ChatModelAdapter
+  type ChatModelAdapter,
+  useMessage
 } from '@assistant-ui/react';
 
 type ChatRole = 'assistant' | 'user' | 'system';
@@ -31,6 +32,29 @@ type ChatMessage = {
   id: number;
   role: ChatRole;
   content: string;
+  details?: ResponseDetails;
+};
+
+type TokenUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+type ResponseDetails = {
+  provider?: string;
+  sessionId?: string;
+  summary?: string;
+  distilled?: string;
+  keywords?: string[];
+  confidence?: string;
+  notes?: string;
+  tokenUsage?: TokenUsage;
+};
+
+type ProcessedResponse = {
+  content: string;
+  details?: ResponseDetails;
 };
 
 type APISettings = {
@@ -70,93 +94,251 @@ const LANGGRAPH_ASSISTANT_ID = 'agent';
 // ============================================================================
 
 // Response processing utilities
-const processApiResponse = (data: any, queryMode: string) => {
-  if (queryMode === 'single') {
-    if (data.success) {
-      // Handle both old and new API response formats
-      if (typeof data.response === 'string') {
-        // Old API format - simple string response
-        return data.response;
-      } else if (typeof data.response === 'object' && data.response !== null) {
-        // New API format - structured JSON response
-        const structured = data.response;
-        let content = '';
-        
-        if (structured.answer) {
-          content += structured.answer;
-        }
-        
-        if (structured.distilled && structured.distilled !== structured.answer) {
-          content += `\n\n**Quick Answer**: ${structured.distilled}`;
-        }
-        
-        if (structured.summary && structured.summary !== structured.answer) {
-          content += `\n\n**Summary**: ${structured.summary}`;
-        }
-        
-        if (structured.keywords && Array.isArray(structured.keywords) && structured.keywords.length > 0) {
-          content += `\n\n**Keywords**: ${structured.keywords.join(', ')}`;
-        }
-        
-        // Fallback to raw_answer if structured response is empty
-        if (!content && data.raw_answer) {
-          content = data.raw_answer;
-        }
-        
-        return content || 'No response content available';
-      } else {
-        // Fallback to raw_answer for new API
-        return data.raw_answer || 'No response available';
-      }
-    } else {
-      return `Error: ${data.error}`;
-    }
-  } else {
-    // Multi-provider mode
-    if (data.success) {
-      let content = `Results from ${data.summary?.total_providers || Object.keys(data.responses).length} providers:\n\n`;
-      
-      for (const [provider, response] of Object.entries(data.responses)) {
-        const providerResponse = response as any;
-        content += `**${provider}**: `;
-        
-        if (providerResponse.success) {
-          if (typeof providerResponse.response === 'string') {
-            // Old API format
-            content += providerResponse.response;
-          } else if (typeof providerResponse.response === 'object' && providerResponse.response !== null) {
-            // New API format - use answer field or fallback to raw_answer
-            const structured = providerResponse.response;
-            content += structured.answer || providerResponse.raw_answer || 'No response available';
-          } else {
-            // Fallback
-            content += providerResponse.raw_answer || 'No response available';
-          }
-        } else {
-          content += `Error: ${providerResponse.error}`;
-        }
-        
-        content += '\n\n';
-      }
-      
-      return content;
-    } else {
-      return `Error: ${data.error}`;
+const parseJsonText = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch (_) {
+    const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i);
+    if (!fenced?.[1]) return null;
+    try {
+      return JSON.parse(fenced[1].trim());
+    } catch {
+      return null;
     }
   }
+};
+
+const extractTokenUsage = (data: any): TokenUsage | undefined => {
+  const usage = data?.token_usage
+    || data?.response?.token_usage
+    || data?.turns?.findLast?.((turn: any) => turn?.token_usage)?.token_usage;
+
+  if (!usage || typeof usage !== 'object') return undefined;
+  return {
+    prompt_tokens: usage.prompt_tokens,
+    completion_tokens: usage.completion_tokens,
+    total_tokens: usage.total_tokens
+  };
+};
+
+const buildDetails = (structured: any, data: any): ResponseDetails | undefined => {
+  if (!structured && !data) return undefined;
+
+  const details: ResponseDetails = {
+    provider: data?.provider,
+    sessionId: data?.session_id,
+    summary: structured?.summary,
+    distilled: structured?.distilled,
+    keywords: Array.isArray(structured?.keywords) ? structured.keywords.filter(Boolean) : undefined,
+    confidence: structured?.metadata?.confidence,
+    notes: structured?.metadata?.notes,
+    tokenUsage: extractTokenUsage(data)
+  };
+
+  return Object.values(details).some((value) => value !== undefined) ? details : undefined;
+};
+
+const extractApiErrorMessage = (data: any, status?: number): string => {
+  if (typeof data === 'string' && data.trim()) {
+    return data.trim();
+  }
+
+  if (!data || typeof data !== 'object') {
+    return status ? `Request failed with status ${status}` : 'Request failed';
+  }
+
+  const candidates = [
+    data.error,
+    data.message,
+    data.detail,
+    data.response?.error,
+    data.response?.message,
+    data.response?.detail
+  ];
+
+  const found = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+  if (found) return found;
+
+  if (Array.isArray(data.detail)) {
+    const details = data.detail
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (item?.msg) return String(item.msg);
+        return '';
+      })
+      .filter(Boolean)
+      .join('; ');
+
+    if (details) return details;
+  }
+
+  return status ? `Request failed with status ${status}` : 'Request failed';
+};
+
+const readResponsePayload = async (response: Response): Promise<{ data: any; isJson: boolean }> => {
+  const rawText = await response.text();
+
+  if (!rawText.trim()) {
+    return { data: null, isJson: false };
+  }
+
+  try {
+    return { data: JSON.parse(rawText), isJson: true };
+  } catch {
+    return { data: rawText, isJson: false };
+  }
+};
+
+const processApiResponse = (data: any, queryMode: string): ProcessedResponse => {
+  if (queryMode === 'single') {
+    if (data.success) {
+      if (typeof data.response === 'string') {
+        const structured = parseJsonText(data.response);
+        return {
+          content: structured?.answer || data.response,
+          details: buildDetails(structured, data)
+        };
+      }
+
+      if (typeof data.response === 'object' && data.response !== null) {
+        return {
+          content: data.response.answer || data.raw_answer || 'No response content available',
+          details: buildDetails(data.response, data)
+        };
+      }
+
+      return { content: data.raw_answer || 'No response available', details: buildDetails(undefined, data) };
+    }
+
+    return { content: `Error: ${extractApiErrorMessage(data)}` };
+  }
+
+  if (data.success) {
+    let content = `Results from ${data.summary?.total_providers || Object.keys(data.responses).length} providers:\n\n`;
+
+    for (const [provider, response] of Object.entries(data.responses)) {
+      const providerResponse = response as any;
+      content += `**${provider}**: `;
+
+      if (providerResponse.success) {
+        if (typeof providerResponse.response === 'string') {
+          content += providerResponse.response;
+        } else if (typeof providerResponse.response === 'object' && providerResponse.response !== null) {
+          content += providerResponse.response.answer || providerResponse.raw_answer || 'No response available';
+        } else {
+          content += providerResponse.raw_answer || 'No response available';
+        }
+      } else {
+        content += `Error: ${providerResponse.error}`;
+      }
+
+      content += '\n\n';
+    }
+
+    return { content };
+  }
+
+  return { content: `Error: ${extractApiErrorMessage(data)}` };
+};
+
+const extractDetailsFromContent = (content: string): ResponseDetails | undefined => {
+  const parsed = parseJsonText(content);
+  if (!parsed) return undefined;
+  return buildDetails(parsed, parsed);
+};
+
+const getDisplayContentFromStructuredText = (content: string): string => {
+  const parsed = parseJsonText(content);
+  if (!parsed || typeof parsed !== 'object') return content;
+  if (typeof parsed.answer === 'string' && parsed.answer.trim()) return parsed.answer;
+  if (typeof parsed.distilled === 'string' && parsed.distilled.trim()) return parsed.distilled;
+  return content;
+};
+
+const parseMessageEnvelope = (text: string): ProcessedResponse | null => {
+  const parsed = parseJsonText(text);
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (typeof parsed.content !== 'string') return null;
+
+  return {
+    content: parsed.content,
+    details: parsed.details
+  };
 };
 
 
 const createMessageId = () => Date.now() + Math.floor(Math.random() * 100000);
 
-const formatHistoryMessage = (provider: string, sessionId: string, turns: Array<{ role: string; content: string }> = []) => {
+const getTurnText = (content: unknown): string => {
+  if (typeof content === 'string') return content;
+
+  if (Array.isArray(content)) {
+    return content
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (item?.type === 'text' && typeof item?.text === 'string') return item.text;
+        if (typeof item?.content === 'string') return item.content;
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  if (content && typeof content === 'object' && 'text' in (content as any) && typeof (content as any).text === 'string') {
+    return (content as any).text;
+  }
+
+  return '';
+};
+
+const historyMetadataLines = (turn: any): string[] => {
+  const lines: string[] = [];
+  const text = getTurnText(turn?.content);
+  const structured = parseJsonText(text);
+  const details = buildDetails(structured, turn);
+
+  if (details?.distilled) lines.push(`   Distilled: ${details.distilled}`);
+  if (details?.summary) lines.push(`   Summary: ${details.summary}`);
+  if (details?.keywords?.length) lines.push(`   Keywords: ${details.keywords.join(', ')}`);
+  if (details?.confidence) lines.push(`   Confidence: ${details.confidence}`);
+  if (details?.notes) lines.push(`   Notes: ${details.notes}`);
+
+  if (details?.tokenUsage?.total_tokens !== undefined) {
+    lines.push(`   Tokens: total ${details.tokenUsage.total_tokens}`);
+  }
+  if (details?.tokenUsage?.prompt_tokens !== undefined) {
+    lines.push(`   Prompt tokens: ${details.tokenUsage.prompt_tokens}`);
+  }
+  if (details?.tokenUsage?.completion_tokens !== undefined) {
+    lines.push(`   Completion tokens: ${details.tokenUsage.completion_tokens}`);
+  }
+
+  return lines;
+};
+
+const formatHistoryMessage = (
+  provider: string,
+  sessionId: string,
+  turns: Array<{ role: string; content?: unknown; token_usage?: TokenUsage }> = []
+) => {
   if (!turns.length) {
     return `History for ${provider} (session: ${sessionId})\n\nNo conversation history found.`;
   }
 
   const lines = turns.map((turn, index) => {
-    const roleLabel = turn.role === 'assistant' ? 'Assistant' : turn.role === 'user' ? 'User' : turn.role;
-    return `${index + 1}. ${roleLabel}: ${turn.content}`;
+    const roleLabel = turn.role === 'assistant' || turn.role === 'ai'
+      ? 'Assistant'
+      : turn.role === 'user' || turn.role === 'human'
+      ? 'User'
+      : turn.role;
+
+    const content = getTurnText(turn.content) || '(no content)';
+    const metadata = roleLabel === 'Assistant' ? historyMetadataLines(turn) : [];
+
+    return [`${index + 1}. ${roleLabel}: ${content}`, ...metadata].join('\n');
   });
 
   return `History for ${provider} (session: ${sessionId})\n\n${lines.join('\n\n')}`;
@@ -261,7 +443,7 @@ const useAPISettings = () => {
 };
 
 // Shared API call logic
-const callAPI = async (message: string, settings: APISettings, options: CallAPIOptions = {}) => {
+const callAPI = async (message: string, settings: APISettings, options: CallAPIOptions = {}): Promise<ProcessedResponse> => {
   const endpoint = settings.queryMode === 'single' ? '/query' : '/query-all';
   const payload = {
     topic: message,
@@ -274,47 +456,60 @@ const callAPI = async (message: string, settings: APISettings, options: CallAPIO
 
   const wantsStreaming = settings.responseMode === 'stream' && settings.queryMode === 'single';
   if (wantsStreaming && settings.queryMode === 'single') {
-    const response = await fetch(`${GATEWAY_API_BASE}/query-stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    try {
+      const response = await fetch(`${GATEWAY_API_BASE}/query-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-    if (!response.ok || !response.body) {
-      throw new Error(`Streaming failed with status ${response.status}`);
-    }
+      if (!response.ok || !response.body) {
+        throw new Error(`Streaming failed with status ${response.status}`);
+      }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let buffer = '';
+      let streamDetails: ResponseDetails | undefined;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split('\n\n');
-      buffer = events.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
 
-      for (const event of events) {
-        const lines = event.split('\n').filter(line => line.startsWith('data: '));
-        for (const line of lines) {
-          const payloadLine = line.slice(6);
-          if (!payloadLine) continue;
-          const parsed = JSON.parse(payloadLine);
+        for (const event of events) {
+          const lines = event.split('\n').filter(line => line.startsWith('data: '));
+          for (const line of lines) {
+            const payloadLine = line.slice(6);
+            if (!payloadLine) continue;
+            let parsed: any;
+            try {
+              parsed = JSON.parse(payloadLine);
+            } catch {
+              // Ignore non-JSON SSE heartbeat/done payloads.
+              continue;
+            }
 
-          if (parsed.type === 'chunk') {
-            fullText += parsed.content || '';
-            options.onChunk?.(fullText);
-          } else if (parsed.type === 'error') {
-            throw new Error(parsed.error || 'Streaming failed');
+            if (parsed.type === 'chunk') {
+              fullText += parsed.content || '';
+              options.onChunk?.(fullText);
+            } else if (parsed.type === 'done') {
+              streamDetails = buildDetails(parsed.response, parsed);
+            } else if (parsed.type === 'error') {
+              throw new Error(parsed.error || 'Streaming failed');
+            }
           }
         }
       }
-    }
 
-    return fullText;
+      return { content: getDisplayContentFromStructuredText(fullText), details: streamDetails || extractDetailsFromContent(fullText) };
+    } catch (streamError) {
+      console.warn('Streaming request failed, retrying with standard response mode.', streamError);
+    }
   }
 
   const response = await fetch(`${GATEWAY_API_BASE}${endpoint}`, {
@@ -323,8 +518,62 @@ const callAPI = async (message: string, settings: APISettings, options: CallAPIO
     body: JSON.stringify(payload)
   });
 
-  const data = await response.json();
+  const { data } = await readResponsePayload(response);
+  if (!response.ok) {
+    throw new Error(extractApiErrorMessage(data, response.status));
+  }
+
   return processApiResponse(data, settings.queryMode);
+};
+
+const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
+  if (!details) return null;
+
+  const tokenText = details.tokenUsage?.total_tokens
+    ? `${details.tokenUsage.total_tokens} tokens`
+    : null;
+
+  return (
+    <div className="mt-2 border-t border-gray-200 pt-2 text-xs text-gray-600">
+      {details.keywords?.length ? (
+        <div className="mb-2 flex flex-wrap gap-1">
+          {details.keywords.map((keyword) => (
+            <button
+              key={keyword}
+              type="button"
+              className="rounded-full border border-gray-300 bg-white px-2 py-0.5 text-xs text-gray-700"
+            >
+              {keyword}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex items-end justify-end">
+        {tokenText && <span className="font-medium text-gray-500">{tokenText}</span>}
+      </div>
+
+      {(details.summary || details.distilled || details.notes || details.confidence || details.provider || details.sessionId) && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-gray-500 hover:text-gray-700">More response details</summary>
+          <div className="mt-1 space-y-1 text-gray-700">
+            {details.distilled && <div><span className="font-semibold">Distilled:</span> {details.distilled}</div>}
+            {details.summary && <div><span className="font-semibold">Summary:</span> {details.summary}</div>}
+            {details.confidence && <div><span className="font-semibold">Confidence:</span> {details.confidence}</div>}
+            {details.notes && <div><span className="font-semibold">Notes:</span> {details.notes}</div>}
+            {details.provider && <div><span className="font-semibold">Provider:</span> {details.provider}</div>}
+            {details.sessionId && <div><span className="font-semibold">Session:</span> {details.sessionId}</div>}
+            {details.tokenUsage?.prompt_tokens !== undefined && (
+              <div><span className="font-semibold">Prompt tokens:</span> {details.tokenUsage.prompt_tokens}</div>
+            )}
+            {details.tokenUsage?.completion_tokens !== undefined && (
+              <div><span className="font-semibold">Completion tokens:</span> {details.tokenUsage.completion_tokens}</div>
+            )}
+          </div>
+        </details>
+      )}
+    </div>
+  );
 };
 
 // History and memory management functions
@@ -629,7 +878,7 @@ const LangChainPage = () => {
     setInput('');
 
     try {
-      const content = await callAPI(input, settings, {
+      const response = await callAPI(input, settings, {
         onChunk: (partialText) => {
           setMessages(prev => prev.map((message) => (
             message.id === assistantId ? { ...message, content: partialText } : message
@@ -637,7 +886,7 @@ const LangChainPage = () => {
         }
       });
       setMessages(prev => prev.map((message) => (
-        message.id === assistantId ? { ...message, content } : message
+        message.id === assistantId ? { ...message, content: response.content, details: response.details } : message
       )));
     } catch (error) {
       setMessages(prev => prev.map((message) => (
@@ -695,6 +944,7 @@ const LangChainPage = () => {
                     <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Conversation History</div>
                   )}
                   {message.content}
+                  {message.role === 'assistant' && <ResponseDetailsPanel details={message.details} />}
                 </div>
               </div>
             ))}
@@ -758,6 +1008,8 @@ const LlamaIndexPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
 
+  const [llamaResponseDetails, setLlamaResponseDetails] = useState<Record<string, ResponseDetails>>({});
+
   const chat = useChat<any>({
     transport: new TextStreamChatTransport({
       api: '/api/llamaindex-agent',
@@ -772,6 +1024,14 @@ const LlamaIndexPage = () => {
       }
     }) as any,
     onError: (error) => console.error('LlamaIndex chat error:', error),
+    onFinish: ({ message }: any) => {
+      const text = message?.parts?.find((part: any) => part?.type === 'text')?.text;
+      if (!text || typeof text !== 'string') return;
+      const envelope = parseMessageEnvelope(text);
+      const details = envelope?.details || extractDetailsFromContent(text);
+      if (!details) return;
+      setLlamaResponseDetails((prev) => ({ ...prev, [message.id]: details }));
+    },
     messages: [
       {
         id: 'welcome',
@@ -827,7 +1087,27 @@ const LlamaIndexPage = () => {
       <div className="flex-1 overflow-hidden p-4">
         <div className="h-full bg-white rounded-lg border overflow-hidden flex flex-col">
           <ChatSection handler={chat} className="h-full flex flex-col">
-            <ChatMessages className="flex-1 overflow-y-auto p-4" />
+            <div className="flex-1 overflow-y-auto p-4">
+              {chat.messages.map((message: any) => {
+                const rawText = message?.parts?.find((part: any) => part?.type === 'text')?.text || '';
+                const envelope = parseMessageEnvelope(rawText);
+                const text = envelope?.content || rawText;
+                return (
+                  <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : message.role === 'system' ? 'text-center' : 'text-left'}`}>
+                    <div className={`inline-block px-4 py-2 rounded-lg ${
+                      message.role === 'user'
+                        ? 'bg-purple-600 text-white max-w-md'
+                        : message.role === 'system'
+                        ? 'bg-amber-50 text-amber-900 border border-amber-200 max-w-3xl text-left whitespace-pre-wrap'
+                        : 'bg-purple-100 text-gray-900 max-w-md whitespace-pre-wrap'
+                    }`}>
+                      {text}
+                      {message.role === 'assistant' && <ResponseDetailsPanel details={llamaResponseDetails[message.id]} />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
             <ChatInput className="border-t">
               <ChatInput.Form className="p-4">
                 <ChatInput.Field 
@@ -919,15 +1199,15 @@ const AssistantUIPage = () => {
         }
 
         const data = await response.json();
-        const content = processApiResponse(data, settings.queryMode);
+        const result = processApiResponse(data, settings.queryMode);
 
-        console.log('Assistant UI API response:', content);
+        console.log('Assistant UI API response:', result);
 
         return {
           content: [
             {
               type: "text",
-              text: content
+              text: JSON.stringify(result)
             }
           ]
         };
@@ -1003,13 +1283,22 @@ const AssistantUIPage = () => {
                         </div>
                       </div>
                     ),
-                    AssistantMessage: () => (
-                      <div className="mb-4 text-left">
-                        <div className="bg-gray-100 text-gray-900 px-4 py-2 rounded-lg inline-block max-w-md whitespace-pre-wrap">
-                          <MessagePrimitive.Content />
+                    AssistantMessage: () => {
+                      const rawText = useMessage((state: any) => state.content)
+                        ?.find?.((part: any) => part?.type === 'text')?.text || '';
+                      const envelope = parseMessageEnvelope(rawText);
+                      const text = envelope?.content || rawText;
+                      const details = envelope?.details || extractDetailsFromContent(rawText);
+
+                      return (
+                        <div className="mb-4 text-left">
+                          <div className="bg-gray-100 text-gray-900 px-4 py-2 rounded-lg inline-block max-w-md whitespace-pre-wrap">
+                            <div>{text}</div>
+                            <ResponseDetailsPanel details={details} />
+                          </div>
                         </div>
-                      </div>
-                    )
+                      );
+                    }
                   }}
                 />
               </ThreadPrimitive.Viewport>
@@ -1074,7 +1363,7 @@ const CustomChatPage = () => {
     setInput('');
 
     try {
-      const content = await callAPI(input, settings, {
+      const response = await callAPI(input, settings, {
         onChunk: (partialText) => {
           const formattedPartial = settings.queryMode === 'all'
             ? partialText.replace('Results from', 'Custom Chat Results from')
@@ -1086,11 +1375,11 @@ const CustomChatPage = () => {
       });
 
       const formattedContent = settings.queryMode === 'all' 
-        ? content.replace('Results from', 'Custom Chat Results from')
-        : content;
+        ? response.content.replace('Results from', 'Custom Chat Results from')
+        : response.content;
       
       setMessages(prev => prev.map(message => (
-        message.id === assistantId ? { ...message, content: formattedContent } : message
+        message.id === assistantId ? { ...message, content: formattedContent, details: response.details } : message
       )));
     } catch (error) {
       setMessages(prev => prev.map(message => (
@@ -1151,6 +1440,7 @@ const CustomChatPage = () => {
                     <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Conversation History</div>
                   )}
                   {message.content}
+                  {message.role === 'assistant' && <ResponseDetailsPanel details={message.details} />}
                 </div>
               </div>
             ))}
