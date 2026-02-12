@@ -376,15 +376,16 @@ const callAPI = async (message: string, settings: APISettings, options: CallAPIO
 const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
   if (!details) return null;
 
-  const tokenText = details.tokenUsage?.total_tokens
+  const tokenText = details.tokenUsage?.total_tokens !== undefined
     ? `${details.tokenUsage.total_tokens} tokens`
     : null;
+  const keywords = details.keywords?.length ? details.keywords : ['No keywords'];
 
   return (
     <div className="mt-2 border-t border-gray-200 pt-2 text-xs text-gray-600">
-      {details.keywords?.length ? (
-        <div className="mb-2 flex flex-wrap gap-1">
-          {details.keywords.map((keyword) => (
+      <div className="mb-2 flex items-end justify-between gap-2">
+        <div className="flex flex-wrap gap-1">
+          {keywords.map((keyword) => (
             <button
               key={keyword}
               type="button"
@@ -394,9 +395,7 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
             </button>
           ))}
         </div>
-      ) : null}
 
-      <div className="flex items-end justify-end">
         {tokenText && <span className="font-medium text-gray-500">{tokenText}</span>}
       </div>
 

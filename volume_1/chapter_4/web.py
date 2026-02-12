@@ -49,30 +49,81 @@ def _supports_memory(manager) -> bool:
     )
 
 
+
+
+def _parse_structured_raw_response(raw_response):
+    if isinstance(raw_response, dict):
+        return raw_response
+    if not isinstance(raw_response, str):
+        return None
+
+    trimmed = raw_response.strip()
+    if not trimmed:
+        return None
+
+    try:
+        parsed = json.loads(trimmed)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        fenced = trimmed
+        if trimmed.startswith("```json") and trimmed.endswith("```"):
+            fenced = trimmed[len("```json"): -3].strip()
+            try:
+                parsed = json.loads(fenced)
+                return parsed if isinstance(parsed, dict) else None
+            except Exception:
+                return None
+        return None
+
+
+def _extract_answer_text(response_obj, raw_response):
+    if isinstance(response_obj, dict):
+        answer = response_obj.get("answer") or response_obj.get("distilled") or response_obj.get("summary")
+        if isinstance(answer, str) and answer.strip():
+            return answer
+    return normalize_response_text(raw_response)
+
 def _recover_structured_parse_error(result: dict) -> dict:
-    """Downgrade structured-parse failures to usable plain-text responses."""
-    if not isinstance(result, dict) or result.get("success"):
+    """Recover structured outputs without dropping fields like keywords."""
+    if not isinstance(result, dict):
+        return result
+
+    raw_response = result.get("raw_response")
+    parsed_response = _parse_structured_raw_response(raw_response)
+
+    if result.get("success"):
+        if parsed_response:
+            response = result.get("response")
+            metadata_notes = None
+            if isinstance(response, dict):
+                metadata_notes = (response.get("metadata") or {}).get("notes")
+            if isinstance(metadata_notes, str) and metadata_notes.startswith("Failed to parse structured JSON response"):
+                return {
+                    **result,
+                    "response": parsed_response,
+                    "raw_answer": _extract_answer_text(parsed_response, raw_response),
+                }
         return result
 
     error_message = str(result.get("error") or "")
-    raw_response = result.get("raw_response")
     if "Failed to parse structured JSON response" not in error_message or not raw_response:
         return result
 
-    fallback_text = normalize_response_text(raw_response)
+    recovered_response = parsed_response or {
+        "answer": normalize_response_text(raw_response),
+        "distilled": normalize_response_text(raw_response),
+        "metadata": {
+            "confidence": "low",
+            "notes": error_message,
+        },
+    }
+
     return {
         **result,
         "success": True,
         "error": None,
-        "response": {
-            "answer": fallback_text,
-            "distilled": fallback_text,
-            "metadata": {
-                "confidence": "low",
-                "notes": error_message,
-            },
-        },
-        "raw_answer": fallback_text,
+        "response": recovered_response,
+        "raw_answer": _extract_answer_text(recovered_response, raw_response),
     }
 
 

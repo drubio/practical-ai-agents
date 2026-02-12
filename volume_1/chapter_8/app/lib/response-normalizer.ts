@@ -20,6 +20,26 @@ export type ProcessedResponse = {
   details?: ResponseDetails;
 };
 
+const normalizeToObject = (value: any): Record<string, any> | undefined => {
+  if (!value) return undefined;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return undefined;
+
+  const parsed = parseJsonText(value);
+  return parsed && typeof parsed === 'object' ? parsed : undefined;
+};
+
+const extractKeywords = (...sources: any[]): string[] | undefined => {
+  const candidate = sources.find((source) => Array.isArray(source));
+  if (!candidate) return undefined;
+
+  const normalized = candidate
+    .map((keyword: unknown) => (typeof keyword === 'string' ? keyword.trim() : String(keyword ?? '').trim()))
+    .filter(Boolean);
+
+  return normalized.length ? normalized : undefined;
+};
+
 const shouldKeepNote = (note?: string): boolean => {
   if (!note) return false;
   const trimmed = note.trim();
@@ -114,15 +134,37 @@ export const extractTokenUsage = (data: any): TokenUsage | undefined => {
 export const buildDetails = (structured: any, data: any): ResponseDetails | undefined => {
   if (!structured && !data) return undefined;
 
-  const note = structured?.metadata?.notes;
+  const structuredData = normalizeToObject(structured)
+    || normalizeToObject(data?.response)
+    || normalizeToObject(data?.content)
+    || normalizeToObject(data?.answer)
+    || {};
+  const responseData = normalizeToObject(data?.response) || {};
+  const contentData = normalizeToObject(data?.content) || {};
+  const answerData = normalizeToObject(data?.answer) || {};
+
+  const note = structuredData?.metadata?.notes;
 
   const details: ResponseDetails = {
     provider: data?.provider,
     sessionId: data?.session_id || data?.sessionId,
-    summary: structured?.summary,
-    distilled: structured?.distilled,
-    keywords: Array.isArray(structured?.keywords) ? structured.keywords.filter(Boolean) : undefined,
-    confidence: structured?.metadata?.confidence,
+    summary: structuredData?.summary,
+    distilled: structuredData?.distilled,
+    keywords: extractKeywords(
+      structuredData?.keywords,
+      structuredData?.metadata?.keywords,
+      structuredData?.answer?.keywords,
+      responseData?.keywords,
+      responseData?.metadata?.keywords,
+      contentData?.keywords,
+      contentData?.metadata?.keywords,
+      answerData?.keywords,
+      data?.keywords,
+      data?.metadata?.keywords,
+      data?.response?.keywords,
+      data?.response?.metadata?.keywords
+    ),
+    confidence: structuredData?.metadata?.confidence,
     notes: shouldKeepNote(note) ? note : undefined,
     tokenUsage: extractTokenUsage(data)
   };

@@ -28,30 +28,89 @@ function supportsMemory(manager) {
     );
 }
 
+
+
+function parseStructuredRawResponse(rawResponse) {
+    if (rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse)) {
+        return rawResponse;
+    }
+    if (typeof rawResponse !== 'string') {
+        return null;
+    }
+
+    const trimmed = rawResponse.trim();
+    if (!trimmed) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(trimmed);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+        if (trimmed.startsWith('```json') && trimmed.endsWith('```')) {
+            try {
+                const parsed = JSON.parse(trimmed.slice(7, -3).trim());
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+            } catch {
+                return null;
+            }
+        }
+        return null;
+    }
+}
+
+function extractAnswerText(responseObj, rawResponse) {
+    if (responseObj && typeof responseObj === 'object') {
+        const answer = responseObj.answer || responseObj.distilled || responseObj.summary;
+        if (typeof answer === 'string' && answer.trim().length > 0) {
+            return answer;
+        }
+    }
+    return normalizeResponseText(rawResponse);
+}
+
 function recoverStructuredParseError(result) {
-    if (!result || result.success) {
+    if (!result) {
+        return result;
+    }
+
+    const rawResponse = result.rawResponse;
+    const parsedResponse = parseStructuredRawResponse(rawResponse);
+
+    if (result.success) {
+        if (parsedResponse && result.response && typeof result.response === 'object') {
+            const metadataNotes = result.response?.metadata?.notes;
+            if (typeof metadataNotes === 'string' && metadataNotes.startsWith('Failed to parse structured JSON response')) {
+                return {
+                    ...result,
+                    response: parsedResponse,
+                    rawAnswer: extractAnswerText(parsedResponse, rawResponse),
+                };
+            }
+        }
         return result;
     }
 
     const errorMessage = String(result.error || '');
-    if (!errorMessage.includes('Failed to parse structured JSON response') || !result.rawResponse) {
+    if (!errorMessage.includes('Failed to parse structured JSON response') || !rawResponse) {
         return result;
     }
 
-    const fallbackText = normalizeResponseText(result.rawResponse);
+    const recoveredResponse = parsedResponse || {
+        answer: normalizeResponseText(rawResponse),
+        distilled: normalizeResponseText(rawResponse),
+        metadata: {
+            confidence: 'low',
+            notes: errorMessage,
+        },
+    };
+
     return {
         ...result,
         success: true,
         error: null,
-        response: {
-            answer: fallbackText,
-            distilled: fallbackText,
-            metadata: {
-                confidence: 'low',
-                notes: errorMessage,
-            },
-        },
-        rawAnswer: fallbackText,
+        response: recoveredResponse,
+        rawAnswer: extractAnswerText(recoveredResponse, rawResponse),
     };
 }
 
