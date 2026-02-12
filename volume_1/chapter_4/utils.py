@@ -3,7 +3,9 @@ Common utilities and configurations shared across all frameworks
 """
 
 import os
+import ast
 import json
+import re
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 
@@ -62,6 +64,112 @@ def get_available_providers() -> List[str]:
         if get_api_key(provider_name):
             available.append(provider_name)
     return available
+
+
+def parse_structured_json_response(raw: Any) -> Dict[str, Any]:
+    """Parse structured model output into a JSON object with tolerant fallbacks."""
+    if raw is None:
+        content = ""
+    elif isinstance(raw, str):
+        content = raw.strip()
+    elif isinstance(raw, dict):
+        content = json.dumps(raw, ensure_ascii=False)
+    elif hasattr(raw, "content") and isinstance(raw.content, str):
+        content = raw.content.strip()
+    else:
+        content = str(raw).strip()
+
+    content_match = re.search(
+        r'content=(["\'])((?:\\.|(?!\1).)*)\1\s+additional_kwargs=',
+        content,
+        flags=re.DOTALL,
+    )
+    if content_match:
+        raw_quoted_content = f"{content_match.group(1)}{content_match.group(2)}{content_match.group(1)}"
+        try:
+            decoded = ast.literal_eval(raw_quoted_content)
+            if isinstance(decoded, str):
+                content = decoded.strip()
+        except Exception:
+            pass
+
+    if content.startswith("```json"):
+        content = content[7:]
+    if content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+    content = content.strip()
+
+    try:
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    # Some SDKs return list-like content blocks as Python repr strings.
+    if content.startswith("[") and content.endswith("]"):
+        try:
+            blocks = ast.literal_eval(content)
+            if isinstance(blocks, list):
+                for block in blocks:
+                    if isinstance(block, dict):
+                        maybe_text = block.get("text") or block.get("content")
+                        if isinstance(maybe_text, str) and maybe_text.strip():
+                            content = maybe_text.strip()
+                            if content.startswith("```json"):
+                                content = content[7:]
+                            if content.startswith("```"):
+                                content = content[3:]
+                            if content.endswith("```"):
+                                content = content[:-3]
+                            content = content.strip()
+                            break
+        except Exception:
+            pass
+
+    # Fallback: extract first complete JSON object from mixed wrapper text.
+    start = content.find("{")
+    if start == -1:
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            return parsed
+        raise ValueError("Parsed structured content is not a JSON object")
+
+    depth = 0
+    in_string = False
+    escape = False
+
+    for idx in range(start, len(content)):
+        ch = content[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                parsed = json.loads(content[start : idx + 1])
+                if isinstance(parsed, dict):
+                    return parsed
+                raise ValueError("Parsed structured content is not a JSON object")
+
+    parsed = json.loads(content)
+    if isinstance(parsed, dict):
+        return parsed
+    raise ValueError("Parsed structured content is not a JSON object")
 
 def get_user_parameters():
     """Get temperature and max_tokens from user input with validation"""

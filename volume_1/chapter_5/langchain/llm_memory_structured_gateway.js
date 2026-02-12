@@ -3,8 +3,7 @@
  */
 
 import { LangChainLLMManager as Chapter5LangChainManager } from './llm_memory_persist_gateway.js';
-import { interactiveCli } from '../../chapter_4/utils.js';
-import { normalizeResponseText } from '../../chapter_4/stream.js';
+import { interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 
 const STRUCTURED_TEMPLATE = `Given the topic below, provide:
 
@@ -31,14 +30,6 @@ class LangChainLLMManager extends Chapter5LangChainManager {
     constructor(memoryEnabled = true) {
         super(memoryEnabled);
         this.framework = 'LangChain+Structured JS';
-    }
-
-    _parseStructuredResponse(raw) {
-        let content = String(raw || '').trim();
-        if (content.startsWith('```json')) content = content.slice(7);
-        if (content.startsWith('```')) content = content.slice(3);
-        if (content.endsWith('```')) content = content.slice(0, -3);
-        return JSON.parse(content.trim());
     }
 
     _extractObjectFromText(rawResponse, key) {
@@ -130,9 +121,9 @@ class LangChainLLMManager extends Chapter5LangChainManager {
             return result;
         }
 
-        const rawResponse = normalizeResponseText(result.response);
+        const rawResponse = typeof result.response === 'string' ? result.response : String(result.response ?? '');
         try {
-            const parsed = this._parseStructuredResponse(rawResponse);
+            const parsed = parseStructuredJsonResponse(rawResponse);
             parsed.metadata = {
                 ...(parsed.metadata || {}),
                 ...this._buildMetadata(result, rawResponse),

@@ -46,6 +46,98 @@ function getSharedAsk() {
     return (prompt) => new Promise((resolve) => sharedRl.question(prompt, resolve));
 }
 
+
+
+export function parseStructuredJsonResponse(raw) {
+    let content = '';
+    if (raw == null) content = '';
+    else if (typeof raw === 'string') content = raw.trim();
+    else if (typeof raw === 'object' && typeof raw.content === 'string') content = raw.content.trim();
+    else if (typeof raw === 'object') content = JSON.stringify(raw);
+    else content = String(raw).trim();
+
+    const parts = content.match(/content=(["'])((?:\\.|(?!\1).)*)\1\s+additional_kwargs=/s);
+    if (parts) {
+        const quote = parts[1];
+        content = parts[2];
+        content = quote === "'" ? content.replace(/\\'/g, "'") : content.replace(/\\"/g, '"');
+        content = content.trim();
+    }
+
+    if (content.startsWith('```json')) content = content.slice(7);
+    if (content.startsWith('```')) content = content.slice(3);
+    if (content.endsWith('```')) content = content.slice(0, -3);
+    content = content.trim();
+
+    try {
+        const parsed = JSON.parse(content);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {}
+
+    // Some SDK responses are list-based content blocks serialized as repr-like text.
+    if (content.startsWith('[') && content.endsWith(']')) {
+        try {
+            const blocks = Function(`"use strict"; return (${content});`)();
+            if (Array.isArray(blocks)) {
+                for (const block of blocks) {
+                    if (block && typeof block === 'object') {
+                        const maybeText = block.text || block.content;
+                        if (typeof maybeText === 'string' && maybeText.trim()) {
+                            content = maybeText.trim();
+                            if (content.startsWith('```json')) content = content.slice(7);
+                            if (content.startsWith('```')) content = content.slice(3);
+                            if (content.endsWith('```')) content = content.slice(0, -3);
+                            content = content.trim();
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    // Fallback: parse first complete JSON object from mixed text.
+    const start = content.indexOf('{');
+    if (start === -1) {
+        const parsed = JSON.parse(content);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+        throw new Error('Parsed structured content is not a JSON object');
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = start; i < content.length; i += 1) {
+        const ch = content[i];
+        if (inString) {
+            if (escape) escape = false;
+            else if (ch === '\\') escape = true;
+            else if (ch === '"') inString = false;
+            continue;
+        }
+
+        if (ch === '"') {
+            inString = true;
+            continue;
+        }
+
+        if (ch === '{') depth += 1;
+        else if (ch === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                const parsed = JSON.parse(content.slice(start, i + 1));
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+                throw new Error('Parsed structured content is not a JSON object');
+            }
+        }
+    }
+
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    throw new Error('Parsed structured content is not a JSON object');
+}
+
 export async function getUserParameters(ask) {
     const tempInput = await ask('Temperature (0.0-2.0, default 0.7): ');
     let temperature = 0.7;

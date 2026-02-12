@@ -1,7 +1,6 @@
 """LLM Memory Structured Gateway - LlamaIndex with structured JSON responses."""
 
 import ast
-import json
 import os
 import sys
 from typing import Dict, Optional
@@ -13,8 +12,7 @@ sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CURRENT_DIR)
 
 from llm_memory_persist_gateway import LlamaIndexLLMManager as Chapter5LlamaIndexManager
-from utils import interactive_cli
-from stream import normalize_response_text
+from utils import interactive_cli, parse_structured_json_response
 
 
 STRUCTURED_TEMPLATE = """
@@ -47,18 +45,6 @@ class LlamaIndexLLMManager(Chapter5LlamaIndexManager):
     def __init__(self, memory_enabled: bool = True):
         super().__init__(memory_enabled=memory_enabled)
         self.framework = "LlamaIndex+Structured"
-
-    @staticmethod
-    def _parse_structured_response(raw: str):
-        content = raw.strip()
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        return json.loads(content.strip())
-
 
     @staticmethod
     def _extract_dict_from_text(raw_response: str, key: str) -> Optional[Dict]:
@@ -160,10 +146,10 @@ class LlamaIndexLLMManager(Chapter5LlamaIndexManager):
             return result
 
         original_response = result.get("response")
-        raw_response = normalize_response_text(original_response)
+        raw_response = original_response if isinstance(original_response, str) else str(original_response)
         metadata_source = original_response if isinstance(original_response, str) else str(original_response)
         try:
-            parsed = self._parse_structured_response(raw_response)
+            parsed = parse_structured_json_response(raw_response)
             parsed["metadata"] = {
                 **(parsed.get("metadata") or {}),
                 **self._build_metadata(result, metadata_source),
