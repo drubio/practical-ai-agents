@@ -6,14 +6,59 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { FileChatMessageHistory } from '@langchain/community/stores/message/file';
-import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
-import { RunnableWithMessageHistory } from '@langchain/core/runnables';
+import { InMemoryChatMessageHistory } from '../../chapter_4/node_modules/@langchain/core/chat_history.js';
+import {
+    mapChatMessagesToStoredMessages,
+    mapStoredMessagesToChatMessages,
+} from '../../chapter_4/node_modules/@langchain/core/messages.js';
+import { ChatPromptTemplate, MessagesPlaceholder } from '../../chapter_4/node_modules/@langchain/core/prompts.js';
+import { RunnableWithMessageHistory } from '../../chapter_4/node_modules/@langchain/core/runnables.js';
 import { LangChainLLMManager as Chapter4LangChainManager } from '../../chapter_4/langchain/llm_gateway.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+class PersistentFileChatMessageHistory extends InMemoryChatMessageHistory {
+    constructor(filePath) {
+        const messages = PersistentFileChatMessageHistory._loadMessages(filePath);
+        super(messages);
+        this.filePath = filePath;
+    }
+
+    static _loadMessages(filePath) {
+        try {
+            if (!fs.existsSync(filePath)) {
+                return [];
+            }
+            const raw = fs.readFileSync(filePath, 'utf8');
+            const stored = JSON.parse(raw);
+            return Array.isArray(stored) ? mapStoredMessagesToChatMessages(stored) : [];
+        } catch {
+            return [];
+        }
+    }
+
+    _persist() {
+        const stored = mapChatMessagesToStoredMessages(this.messages);
+        fs.writeFileSync(this.filePath, JSON.stringify(stored, null, 2), 'utf8');
+    }
+
+    async addMessage(message) {
+        await super.addMessage(message);
+        this._persist();
+    }
+
+    async addMessages(messages) {
+        await super.addMessages(messages);
+        this._persist();
+    }
+
+    async clear() {
+        await super.clear();
+        this._persist();
+    }
+}
 
 class LangChainLLMManager extends Chapter4LangChainManager {
     constructor(memoryEnabled = true) {
@@ -38,7 +83,7 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         const key = this._historyKey(provider, sessionId);
         if (!this.histories.has(key)) {
             const filePath = this._sessionFilePath(provider, sessionId);
-            this.histories.set(key, new FileChatMessageHistory({ filePath }));
+            this.histories.set(key, new PersistentFileChatMessageHistory(filePath));
         }
         return this.histories.get(key);
     }

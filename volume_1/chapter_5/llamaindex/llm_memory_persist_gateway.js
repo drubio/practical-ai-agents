@@ -6,7 +6,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { ChatMemoryBuffer, SimpleChatEngine, SimpleChatStore } from 'llamaindex';
+import { ChatMemoryBuffer } from '../../chapter_4/node_modules/@llamaindex/core/memory/dist/index.js';
+import { SimpleChatEngine } from '../../chapter_4/node_modules/@llamaindex/core/chat-engine/dist/index.js';
+import { SimpleChatStore } from '../../chapter_4/node_modules/@llamaindex/core/storage/chat-store/dist/index.js';
 import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_gateway.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
