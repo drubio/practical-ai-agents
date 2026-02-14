@@ -6,11 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { InMemoryChatMessageHistory } from '../../chapter_4/node_modules/@langchain/core/chat_history.js';
-import {
-    mapChatMessagesToStoredMessages,
-    mapStoredMessagesToChatMessages,
-} from '../../chapter_4/node_modules/@langchain/core/messages.js';
+import { FileSystemChatMessageHistory } from '../../chapter_4/node_modules/@langchain/community/stores/message/file_system.js';
 import { ChatPromptTemplate, MessagesPlaceholder } from '../../chapter_4/node_modules/@langchain/core/prompts.js';
 import { RunnableWithMessageHistory } from '../../chapter_4/node_modules/@langchain/core/runnables.js';
 import { LangChainLLMManager as Chapter4LangChainManager } from '../../chapter_4/langchain/llm_gateway.js';
@@ -18,47 +14,6 @@ import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-class PersistentFileChatMessageHistory extends InMemoryChatMessageHistory {
-    constructor(filePath) {
-        const messages = PersistentFileChatMessageHistory._loadMessages(filePath);
-        super(messages);
-        this.filePath = filePath;
-    }
-
-    static _loadMessages(filePath) {
-        try {
-            if (!fs.existsSync(filePath)) {
-                return [];
-            }
-            const raw = fs.readFileSync(filePath, 'utf8');
-            const stored = JSON.parse(raw);
-            return Array.isArray(stored) ? mapStoredMessagesToChatMessages(stored) : [];
-        } catch {
-            return [];
-        }
-    }
-
-    _persist() {
-        const stored = mapChatMessagesToStoredMessages(this.messages);
-        fs.writeFileSync(this.filePath, JSON.stringify(stored, null, 2), 'utf8');
-    }
-
-    async addMessage(message) {
-        await super.addMessage(message);
-        this._persist();
-    }
-
-    async addMessages(messages) {
-        await super.addMessages(messages);
-        this._persist();
-    }
-
-    async clear() {
-        await super.clear();
-        this._persist();
-    }
-}
 
 class LangChainLLMManager extends Chapter4LangChainManager {
     constructor(memoryEnabled = true) {
@@ -83,7 +38,7 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         const key = this._historyKey(provider, sessionId);
         if (!this.histories.has(key)) {
             const filePath = this._sessionFilePath(provider, sessionId);
-            this.histories.set(key, new PersistentFileChatMessageHistory(filePath));
+            this.histories.set(key, new FileSystemChatMessageHistory({ sessionId: `${provider}__${sessionId}`, userId: provider, filePath }));
         }
         return this.histories.get(key);
     }
@@ -188,8 +143,10 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         }
     }
 
-    getHistory(provider, sessionId = 'default') {
-        const turns = this._getHistory(provider, sessionId).messages.map((message) => {
+    async getHistory(provider, sessionId = 'default') {
+        const history = this._getHistory(provider, sessionId);
+        const messages = await history.getMessages();
+        const turns = messages.map((message) => {
             const additionalKwargs = message?.additional_kwargs ?? message?.additionalKwargs ?? {};
             const responseMetadata = message?.response_metadata ?? message?.responseMetadata ?? additionalKwargs?.response_metadata ?? null;
             const usageMetadata = message?.usage_metadata ?? message?.usageMetadata ?? additionalKwargs?.usage_metadata ?? null;
@@ -206,19 +163,18 @@ class LangChainLLMManager extends Chapter4LangChainManager {
 
     resetMemory(provider = null, sessionId = null) {
         const removedSessions = [];
-        const sessionsDir = path.join(__dirname, 'sessions');
 
         if (provider && sessionId) {
             const key = this._historyKey(provider, sessionId);
-            this.histories.delete(key);
             this.chains.delete(key);
+            this.histories.delete(key);
             removedSessions.push([provider, sessionId]);
         } else if (provider) {
             for (const key of Array.from(this.histories.keys())) {
                 const [p, s] = key.split('::');
                 if (p === provider) {
-                    this.histories.delete(key);
                     this.chains.delete(key);
+                    this.histories.delete(key);
                     removedSessions.push([p, s]);
                 }
             }
@@ -226,17 +182,18 @@ class LangChainLLMManager extends Chapter4LangChainManager {
             for (const key of Array.from(this.histories.keys())) {
                 const [p, s] = key.split('::');
                 if (s === sessionId) {
-                    this.histories.delete(key);
                     this.chains.delete(key);
+                    this.histories.delete(key);
                     removedSessions.push([p, s]);
                 }
             }
         } else {
-            this.histories.clear();
             this.chains.clear();
+            this.histories.clear();
             removedSessions.push('ALL');
         }
 
+        const sessionsDir = path.join(__dirname, 'sessions');
         if (removedSessions.length === 1 && removedSessions[0] === 'ALL') {
             if (fs.existsSync(sessionsDir)) {
                 for (const file of fs.readdirSync(sessionsDir)) {

@@ -358,7 +358,8 @@ function createWebApi(managerClassOrFactory) {
             return res.status(400).json({ error: 'Memory not supported by this manager' });
         }
         const { provider = 'openai', session_id = 'default', sessionId = null } = req.query;
-        return res.json(manager.getHistory(provider, sessionId ?? session_id ?? "default"));
+        const history = await Promise.resolve(manager.getHistory(provider, sessionId ?? session_id ?? "default"));
+        return res.json(history);
     });
 
     app.post('/reset-memory', async (req, res) => {
@@ -372,7 +373,8 @@ function createWebApi(managerClassOrFactory) {
         const querySessionId = req.query?.sessionId ?? req.query?.session_id ?? null;
         const provider = bodyProvider !== null ? bodyProvider : queryProvider;
         const sessionId = bodySessionId !== null ? bodySessionId : querySessionId;
-        return res.json(manager.resetMemory(provider, sessionId));
+        const result = await Promise.resolve(manager.resetMemory(provider, sessionId));
+        return res.json(result);
     });
 
     app.get('/health', async (_, res) => {

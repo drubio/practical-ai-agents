@@ -328,7 +328,7 @@ export async function interactiveCli(manager) {
                 if (!userInput) continue;
 
                 if (memorySupported && userInput.toLowerCase() === 'history') {
-                    const history = manager.getHistory(provider, sessionId);
+                    const history = await Promise.resolve(manager.getHistory(provider, sessionId));
                     console.log(`\n🧠 Memory for ${getDisplayName(provider)} (session: ${sessionId}):`);
                     for (const turn of history.turns) {
                         const role = (turn.role || 'unknown').toString();
@@ -339,7 +339,7 @@ export async function interactiveCli(manager) {
                 }
 
                 if (memorySupported && userInput.toLowerCase() === 'clear') {
-                    manager.resetMemory(provider, sessionId);
+                    await Promise.resolve(manager.resetMemory(provider, sessionId));
                     console.log(`✅ Memory cleared for session '${sessionId}'`);
                     continue;
                 }
