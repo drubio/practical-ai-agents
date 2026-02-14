@@ -357,10 +357,7 @@ function createWebApi(managerClassOrFactory) {
         if (!supportsMemory(manager)) {
             return res.status(400).json({ error: 'Memory not supported by this manager' });
         }
-        const { provider, session_id = 'default', sessionId = null } = req.query;
-        if (!provider) {
-            return res.status(400).json({ error: 'provider is required' });
-        }
+        const { provider = 'openai', session_id = 'default', sessionId = null } = req.query;
         return res.json(manager.getHistory(provider, sessionId ?? session_id ?? "default"));
     });
 

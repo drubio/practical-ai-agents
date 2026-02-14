@@ -63,7 +63,7 @@ class PersistentFileChatMessageHistory extends InMemoryChatMessageHistory {
 class LangChainLLMManager extends Chapter4LangChainManager {
     constructor(memoryEnabled = true) {
         super();
-        this.framework = 'LangChain+History JS';
+        this.framework = 'LangChain+Memory JS';
         this.memoryEnabled = memoryEnabled;
         this.histories = new Map();
         this.chains = new Map();
