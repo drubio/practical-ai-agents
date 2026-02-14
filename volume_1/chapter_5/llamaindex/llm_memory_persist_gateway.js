@@ -7,8 +7,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { ChatMemoryBuffer } from '../../chapter_4/node_modules/@llamaindex/core/memory/dist/index.js';
-import { SimpleChatEngine } from '../../chapter_4/node_modules/@llamaindex/core/chat-engine/dist/index.js';
-import { SimpleChatStore } from '../../chapter_4/node_modules/@llamaindex/core/storage/chat-store/dist/index.js';
 import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_gateway.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
@@ -20,9 +18,7 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         super();
         this.framework = 'LlamaIndex+History JS';
         this.memoryEnabled = memoryEnabled;
-        this.memories = new Map();
-        this.chatEngines = new Map();
-        this.chatStores = new Map();
+        this.sessions = new Map();
     }
 
     _historyKey(provider, sessionId) {
@@ -35,55 +31,45 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         return path.join(sessionsDir, `${provider}__${sessionId}.json`);
     }
 
-    _sessionStoreKey(provider, sessionId) {
-        return `${provider}__${sessionId}`;
+    _normalizeTurns(rawTurns) {
+        if (!Array.isArray(rawTurns)) return [];
+        return rawTurns
+            .map((turn) => ({
+                role: turn?.role ?? turn?.message?.role,
+                content: turn?.content ?? turn?.message?.content,
+            }))
+            .filter((turn) => typeof turn.role === 'string' && typeof turn.content === 'string');
     }
 
-    _getChatStore(provider, sessionId) {
+    _readSessionTurns(provider, sessionId) {
         const key = this._historyKey(provider, sessionId);
-        if (!this.chatStores.has(key)) {
-            const filePath = this._sessionFilePath(provider, sessionId);
-            const store = fs.existsSync(filePath)
-                ? SimpleChatStore.fromPersistPath(filePath)
-                : new SimpleChatStore();
-            this.chatStores.set(key, store);
+        if (this.sessions.has(key)) return this.sessions.get(key);
+
+        const filePath = this._sessionFilePath(provider, sessionId);
+        let turns = [];
+
+        if (fs.existsSync(filePath)) {
+            try {
+                const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                if (Array.isArray(payload)) {
+                    turns = this._normalizeTurns(payload);
+                } else if (Array.isArray(payload?.turns)) {
+                    turns = this._normalizeTurns(payload.turns);
+                }
+            } catch {
+                turns = [];
+            }
         }
-        return this.chatStores.get(key);
+
+        this.sessions.set(key, turns);
+        return turns;
     }
 
-    _getMemory(provider, sessionId) {
+    _persistSessionTurns(provider, sessionId) {
         const key = this._historyKey(provider, sessionId);
-        if (!this.memories.has(key)) {
-            const chatStore = this._getChatStore(provider, sessionId);
-            const memory = ChatMemoryBuffer.fromDefaults({
-                chatStore,
-                chatStoreKey: this._sessionStoreKey(provider, sessionId),
-            });
-            this.memories.set(key, memory);
-        }
-        return this.memories.get(key);
-    }
-
-    _persistMemory(provider, sessionId) {
-        const chatStore = this._getChatStore(provider, sessionId);
-        chatStore.persist(this._sessionFilePath(provider, sessionId));
-    }
-
-    _getChatEngine(provider, sessionId, temperature, maxTokens) {
-        const key = this._historyKey(provider, sessionId);
-        if (!this.chatEngines.has(key)) {
-            const client = this._createClient(provider, temperature, maxTokens);
-            const memory = this._getMemory(provider, sessionId);
-            const engine = SimpleChatEngine.fromDefaults({ llm: client, memory });
-            this.chatEngines.set(key, engine);
-        }
-        return this.chatEngines.get(key);
-    }
-
-    _memoryMessages(memory) {
-        if (typeof memory.getAll === 'function') return memory.getAll();
-        if (typeof memory.getMessages === 'function') return memory.getMessages();
-        return Array.isArray(memory.chatHistory) ? memory.chatHistory : [];
+        const turns = this.sessions.get(key) ?? [];
+        const filePath = this._sessionFilePath(provider, sessionId);
+        fs.writeFileSync(filePath, JSON.stringify({ turns }, null, 2), 'utf8');
     }
 
     async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
@@ -101,10 +87,16 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         const model = getDefaultModel(resolvedProvider);
 
         try {
-            const chatEngine = this._getChatEngine(resolvedProvider, sessionId, temperature, maxTokens);
-            const response = await chatEngine.chat(prompt);
-            const responseText = response?.response ?? this._extractText(response);
-            this._persistMemory(resolvedProvider, sessionId);
+            const turns = this._readSessionTurns(resolvedProvider, sessionId);
+            const messages = [...turns, { role: 'user', content: prompt }];
+            const client = this._createClient(resolvedProvider, temperature, maxTokens);
+
+            const result = await client.chat({ messages });
+            const responseText = this._extractText(result);
+
+            turns.push({ role: 'user', content: prompt });
+            turns.push({ role: 'assistant', content: responseText });
+            this._persistSessionTurns(resolvedProvider, sessionId);
 
             return { success: true, provider: resolvedProvider, model, prompt, response: responseText, temperature, maxTokens, sessionId };
         } catch (error) {
@@ -123,10 +115,7 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     }
 
     getHistory(provider, sessionId = 'default') {
-        const turns = this._memoryMessages(this._getMemory(provider, sessionId)).map((message) => ({
-            role: message.role ?? message?.message?.role,
-            content: message.content ?? message?.message?.content,
-        }));
+        const turns = [...this._readSessionTurns(provider, sessionId)];
         return { provider, sessionId, turns, count: turns.length };
     }
 
@@ -136,34 +125,26 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
 
         if (provider && sessionId) {
             const key = this._historyKey(provider, sessionId);
-            this.memories.delete(key);
-            this.chatEngines.delete(key);
-            this.chatStores.delete(key);
+            this.sessions.delete(key);
             removedSessions.push([provider, sessionId]);
         } else if (provider) {
-            for (const key of Array.from(this.memories.keys())) {
+            for (const key of Array.from(this.sessions.keys())) {
                 const [p, s] = key.split('::');
                 if (p === provider) {
-                    this.memories.delete(key);
-                    this.chatEngines.delete(key);
-                    this.chatStores.delete(key);
+                    this.sessions.delete(key);
                     removedSessions.push([p, s]);
                 }
             }
         } else if (sessionId) {
-            for (const key of Array.from(this.memories.keys())) {
+            for (const key of Array.from(this.sessions.keys())) {
                 const [p, s] = key.split('::');
                 if (s === sessionId) {
-                    this.memories.delete(key);
-                    this.chatEngines.delete(key);
-                    this.chatStores.delete(key);
+                    this.sessions.delete(key);
                     removedSessions.push([p, s]);
                 }
             }
         } else {
-            this.memories.clear();
-            this.chatEngines.clear();
-            this.chatStores.clear();
+            this.sessions.clear();
             removedSessions.push('ALL');
         }
 
