@@ -13,7 +13,7 @@ sys.path.append(CHAPTER_4_LLAMAINDEX)
 
 from llama_index.core.chat_engine import SimpleChatEngine
 from llama_index.core.llms import ChatMessage
-from llama_index.core.memory import ChatMemoryBuffer
+from llama_index.core.memory import Memory
 from llama_index.core.storage.chat_store import SimpleChatStore
 
 from llm_gateway import LlamaIndexLLMManager as Chapter4LlamaIndexManager
@@ -25,7 +25,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
 
     def __init__(self, memory_enabled: bool = True):
         self.memory_enabled = memory_enabled
-        self.memories: Dict[Tuple[str, str], ChatMemoryBuffer] = {}
+        self.memories: Dict[Tuple[str, str], Memory] = {}
         self.chat_engines: Dict[Tuple[str, str], SimpleChatEngine] = {}
         self.chat_stores: Dict[Tuple[str, str], SimpleChatStore] = {}
         super().__init__()
@@ -49,18 +49,22 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
         self.chat_stores[key] = chat_store
         return chat_store
 
-    def _get_memory(self, provider: str, session_id: str) -> ChatMemoryBuffer:
+    def _get_memory(self, provider: str, session_id: str) -> Memory:
         key = (provider, session_id)
         if key not in self.memories:
             chat_store = self._get_chat_store(provider, session_id)
-            self.memories[key] = ChatMemoryBuffer.from_defaults(
-                chat_store=chat_store,
-                chat_store_key=self._session_store_key(provider, session_id),
+            store_key = self._session_store_key(provider, session_id)
+            self.memories[key] = Memory.from_defaults(
+                session_id=store_key,
+                chat_history=list(chat_store.get_messages(store_key)),
             )
         return self.memories[key]
 
     def _persist_memory(self, provider: str, session_id: str):
+        store_key = self._session_store_key(provider, session_id)
+        messages = list(self._get_memory(provider, session_id).get_all())
         chat_store = self._get_chat_store(provider, session_id)
+        chat_store.set_messages(store_key, messages)
         chat_store.persist(persist_path=str(self._session_file_path(provider, session_id)))
 
     def _get_chat_engine(
@@ -74,7 +78,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
         return self.chat_engines[key]
 
     @staticmethod
-    def _memory_messages(memory: ChatMemoryBuffer) -> List[ChatMessage]:
+    def _memory_messages(memory: Memory) -> List[ChatMessage]:
         if hasattr(memory, "get_all"):
             return list(memory.get_all())
         if hasattr(memory, "get_messages"):

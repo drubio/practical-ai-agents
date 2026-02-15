@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { SimpleChatEngine } from '../../chapter_4/node_modules/@llamaindex/core/chat-engine/dist/index.js';
-import { createMemory } from '../../chapter_4/node_modules/@llamaindex/core/memory/dist/index.js';
+import { Memory } from '../../chapter_4/node_modules/@llamaindex/core/memory/dist/index.js';
 import { SimpleChatStore } from '../../chapter_4/node_modules/@llamaindex/core/storage/chat-store/dist/index.js';
 import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_gateway.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
@@ -72,7 +72,7 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         const key = this._sessionKey(provider, sessionId);
         if (!this.memories.has(key)) {
             const messages = this._getChatStore(provider, sessionId).getMessages(this._sessionStoreKey(provider, sessionId));
-            this.memories.set(key, createMemory(messages, llm ? { llm } : {}));
+            this.memories.set(key, new Memory(messages, llm ? { llm } : {}));
         }
         return this.memories.get(key);
     }
