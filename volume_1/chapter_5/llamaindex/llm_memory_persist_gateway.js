@@ -6,7 +6,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { ChatMemoryBuffer } from '../../chapter_4/node_modules/@llamaindex/core/memory/dist/index.js';
+import { SimpleChatEngine } from '../../chapter_4/node_modules/@llamaindex/core/chat-engine/dist/index.js';
+import { createMemory } from '../../chapter_4/node_modules/@llamaindex/core/memory/dist/index.js';
+import { SimpleChatStore } from '../../chapter_4/node_modules/@llamaindex/core/storage/chat-store/dist/index.js';
 import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_gateway.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
@@ -18,11 +20,17 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         super();
         this.framework = 'LlamaIndex+History JS';
         this.memoryEnabled = memoryEnabled;
-        this.sessions = new Map();
+        this.memories = new Map();
+        this.chatEngines = new Map();
+        this.chatStores = new Map();
     }
 
-    _historyKey(provider, sessionId) {
+    _sessionKey(provider, sessionId) {
         return `${provider}::${sessionId}`;
+    }
+
+    _sessionStoreKey(provider, sessionId) {
+        return `${provider}__${sessionId}`;
     }
 
     _sessionFilePath(provider, sessionId) {
@@ -31,45 +39,60 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         return path.join(sessionsDir, `${provider}__${sessionId}.json`);
     }
 
-    _normalizeTurns(rawTurns) {
-        if (!Array.isArray(rawTurns)) return [];
-        return rawTurns
-            .map((turn) => ({
-                role: turn?.role ?? turn?.message?.role,
-                content: turn?.content ?? turn?.message?.content,
-            }))
-            .filter((turn) => typeof turn.role === 'string' && typeof turn.content === 'string');
-    }
+    _getChatStore(provider, sessionId) {
+        const key = this._sessionKey(provider, sessionId);
+        if (this.chatStores.has(key)) {
+            return this.chatStores.get(key);
+        }
 
-    _readSessionTurns(provider, sessionId) {
-        const key = this._historyKey(provider, sessionId);
-        if (this.sessions.has(key)) return this.sessions.get(key);
-
+        const chatStore = new SimpleChatStore();
+        const storeKey = this._sessionStoreKey(provider, sessionId);
         const filePath = this._sessionFilePath(provider, sessionId);
-        let turns = [];
 
         if (fs.existsSync(filePath)) {
             try {
                 const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                if (Array.isArray(payload)) {
-                    turns = this._normalizeTurns(payload);
+                if (Array.isArray(payload?.messages)) {
+                    chatStore.setMessages(storeKey, payload.messages);
                 } else if (Array.isArray(payload?.turns)) {
-                    turns = this._normalizeTurns(payload.turns);
+                    chatStore.setMessages(storeKey, payload.turns);
+                } else if (Array.isArray(payload)) {
+                    chatStore.setMessages(storeKey, payload);
                 }
             } catch {
-                turns = [];
+                chatStore.setMessages(storeKey, []);
             }
         }
 
-        this.sessions.set(key, turns);
-        return turns;
+        this.chatStores.set(key, chatStore);
+        return chatStore;
     }
 
-    _persistSessionTurns(provider, sessionId) {
-        const key = this._historyKey(provider, sessionId);
-        const turns = this.sessions.get(key) ?? [];
+    _getMemory(provider, sessionId, llm = null) {
+        const key = this._sessionKey(provider, sessionId);
+        if (!this.memories.has(key)) {
+            const messages = this._getChatStore(provider, sessionId).getMessages(this._sessionStoreKey(provider, sessionId));
+            this.memories.set(key, createMemory(messages, llm ? { llm } : {}));
+        }
+        return this.memories.get(key);
+    }
+
+    async _persistMemory(provider, sessionId) {
+        const storeKey = this._sessionStoreKey(provider, sessionId);
+        const messages = await this._getMemory(provider, sessionId).get({ type: 'llamaindex' });
+        this._getChatStore(provider, sessionId).setMessages(storeKey, messages);
         const filePath = this._sessionFilePath(provider, sessionId);
-        fs.writeFileSync(filePath, JSON.stringify({ turns }, null, 2), 'utf8');
+        fs.writeFileSync(filePath, JSON.stringify({ messages }, null, 2), 'utf8');
+    }
+
+    _getChatEngine(provider, sessionId, temperature, maxTokens) {
+        const key = this._sessionKey(provider, sessionId);
+        if (!this.chatEngines.has(key)) {
+            const client = this._createClient(provider, temperature, maxTokens);
+            const memory = this._getMemory(provider, sessionId, client);
+            this.chatEngines.set(key, new SimpleChatEngine({ llm: client, memory }));
+        }
+        return this.chatEngines.get(key);
     }
 
     async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
@@ -87,16 +110,10 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         const model = getDefaultModel(resolvedProvider);
 
         try {
-            const turns = this._readSessionTurns(resolvedProvider, sessionId);
-            const messages = [...turns, { role: 'user', content: prompt }];
-            const client = this._createClient(resolvedProvider, temperature, maxTokens);
-
-            const result = await client.chat({ messages });
-            const responseText = this._extractText(result);
-
-            turns.push({ role: 'user', content: prompt });
-            turns.push({ role: 'assistant', content: responseText });
-            this._persistSessionTurns(resolvedProvider, sessionId);
+            const chatEngine = this._getChatEngine(resolvedProvider, sessionId, temperature, maxTokens);
+            const result = await chatEngine.chat({ message: prompt });
+            const responseText = result?.response ?? this._extractText(result);
+            await this._persistMemory(resolvedProvider, sessionId);
 
             return { success: true, provider: resolvedProvider, model, prompt, response: responseText, temperature, maxTokens, sessionId };
         } catch (error) {
@@ -115,7 +132,9 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     }
 
     getHistory(provider, sessionId = 'default') {
-        const turns = [...this._readSessionTurns(provider, sessionId)];
+        const turns = this._getChatStore(provider, sessionId)
+            .getMessages(this._sessionStoreKey(provider, sessionId))
+            .map((message) => ({ role: String(message.role), content: message.content }));
         return { provider, sessionId, turns, count: turns.length };
     }
 
@@ -124,27 +143,35 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         const sessionsDir = path.join(__dirname, 'sessions');
 
         if (provider && sessionId) {
-            const key = this._historyKey(provider, sessionId);
-            this.sessions.delete(key);
+            const key = this._sessionKey(provider, sessionId);
+            this.memories.delete(key);
+            this.chatEngines.delete(key);
+            this.chatStores.delete(key);
             removedSessions.push([provider, sessionId]);
         } else if (provider) {
-            for (const key of Array.from(this.sessions.keys())) {
+            for (const key of Array.from(this.memories.keys())) {
                 const [p, s] = key.split('::');
                 if (p === provider) {
-                    this.sessions.delete(key);
+                    this.memories.delete(key);
+                    this.chatEngines.delete(key);
+                    this.chatStores.delete(key);
                     removedSessions.push([p, s]);
                 }
             }
         } else if (sessionId) {
-            for (const key of Array.from(this.sessions.keys())) {
+            for (const key of Array.from(this.memories.keys())) {
                 const [p, s] = key.split('::');
                 if (s === sessionId) {
-                    this.sessions.delete(key);
+                    this.memories.delete(key);
+                    this.chatEngines.delete(key);
+                    this.chatStores.delete(key);
                     removedSessions.push([p, s]);
                 }
             }
         } else {
-            this.sessions.clear();
+            this.memories.clear();
+            this.chatEngines.clear();
+            this.chatStores.clear();
             removedSessions.push('ALL');
         }
 
