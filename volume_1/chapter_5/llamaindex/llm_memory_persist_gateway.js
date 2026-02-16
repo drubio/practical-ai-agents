@@ -68,11 +68,20 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         return chatStore;
     }
 
-    _getMemory(provider, sessionId, llm = null) {
+    _getMemory(provider, sessionId) {
         const key = this._sessionKey(provider, sessionId);
         if (!this.memories.has(key)) {
-            const messages = this._getChatStore(provider, sessionId).getMessages(this._sessionStoreKey(provider, sessionId));
-            this.memories.set(key, new Memory(messages, llm ? { llm } : {}));
+            const storeKey = this._sessionStoreKey(provider, sessionId);
+            const chatHistory = [...this._getChatStore(provider, sessionId).getMessages(storeKey)];
+
+            // Python parity:
+            // Memory.from_defaults(
+            //     session_id=store_key,
+            //     chat_history=list(chat_store.get_messages(store_key)),
+            // )
+            // The JS Memory API does not expose `from_defaults` / `session_id`,
+            // so we instantiate with the same chat history payload.
+            this.memories.set(key, new Memory(chatHistory));
         }
         return this.memories.get(key);
     }
@@ -89,7 +98,7 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         const key = this._sessionKey(provider, sessionId);
         if (!this.chatEngines.has(key)) {
             const client = this._createClient(provider, temperature, maxTokens);
-            const memory = this._getMemory(provider, sessionId, client);
+            const memory = this._getMemory(provider, sessionId);
             this.chatEngines.set(key, new SimpleChatEngine({ llm: client, memory }));
         }
         return this.chatEngines.get(key);
