@@ -115,7 +115,8 @@ class LangChainLLMManager extends Chapter5LangChainManager {
     }
 
     async askQuestion(topic, provider = null, template = STRUCTURED_TEMPLATE, maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
-        const result = await super.askQuestion(topic, provider, template, maxTokens, temperature, sessionId);
+        const effectiveTemplate = template === '{topic}' ? STRUCTURED_TEMPLATE : template;
+        const result = await super.askQuestion(topic, provider, effectiveTemplate, maxTokens, temperature, sessionId);
 
         if (!result.success) {
             return result;
