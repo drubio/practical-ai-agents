@@ -1,27 +1,39 @@
-# LLM Structured Gateway
+# Chapter 6: Retrieval Memory Gateway
 
-This chapter extends Chapter 5's memory-enabled gateways with **structured JSON output**.
+Chapter 6 upgrades the Chapter 5 memory gateways from **full-history replay** to **retrieval-based memory**.
 
-It provides cross-framework (**LangChain**, **LlamaIndex**) and dual-language (**Python**, **JavaScript**) implementations that:
+It includes:
+- **LangChain** and **LlamaIndex** implementations
+- **Python** and **JavaScript** versions for each framework
+- CLI + Web modes (same as earlier chapters)
 
-- Reuse Chapter 4 base provider/client setup and shared CLI/Web helpers
-- Reuse Chapter 5 persistent session-memory behavior
-- Add Chapter 6 structured prompt + JSON parsing on top
+## What's new vs earlier chapters
 
-Just like earlier chapters, each script can run in:
-- **Command line mode**
-- **Web API mode**
+### vs Chapter 4 (basic gateway)
+- Adds conversational memory support through Chapter 5 managers.
+- Adds retrieval selection so prompts include only relevant prior turns.
+
+### vs Chapter 5 (memory + persistence + structured output)
+- Stops replaying the entire conversation history into each prompt.
+- Scores stored memory turns by token overlap with the current query.
+- Selects top-`k` relevant snippets and injects only those snippets into the current prompt.
+- Reports retrieval metadata (`retrieved_messages_count`, token savings estimates, etc.).
+- Keeps persistent session memory behavior inherited from Chapter 5.
+
+### Robust structured-response behavior (Py + JS)
+- If the CLI passes `'{topic}'`, Chapter 6 retrieval scripts normalize to `STRUCTURED_TEMPLATE` so structured JSON instructions are still used.
+- If a provider returns non-JSON text, parsers now fall back to a safe structured payload instead of hard-failing.
 
 ## Project structure
 
 ```text
 chapter_6/
 ├── langchain/
-│   ├── llm_structured_gateway.py
-│   └── llm_structured_gateway.js
+│   ├── llm_memory_retrieval_gateway.py
+│   └── llm_memory_retrieval_gateway.js
 ├── llamaindex/
-│   ├── llm_structured_gateway.py
-│   └── llm_structured_gateway.js
+│   ├── llm_memory_retrieval_gateway.py
+│   └── llm_memory_retrieval_gateway.js
 └── README.md
 ```
 
@@ -29,16 +41,14 @@ chapter_6/
 
 | Framework | Python | JavaScript |
 |---|---|---|
-| **LangChain** | `langchain/llm_structured_gateway.py` | `langchain/llm_structured_gateway.js` |
-| **LlamaIndex** | `llamaindex/llm_structured_gateway.py` | `llamaindex/llm_structured_gateway.js` |
+| LangChain | `langchain/llm_memory_retrieval_gateway.py` | `langchain/llm_memory_retrieval_gateway.js` |
+| LlamaIndex | `llamaindex/llm_memory_retrieval_gateway.py` | `llamaindex/llm_memory_retrieval_gateway.js` |
 
 ## Dependencies and environment
 
-Chapter 6 builds on Chapter 4 and 5:
-
-- Chapter 4 shared utilities and web server helpers
-- Chapter 5 memory + persistence managers
-- Chapter 4 `.env` for API keys
+Chapter 6 reuses:
+- Chapter 4 provider setup, shared CLI/web utilities, and `.env`
+- Chapter 5 memory/session persistence foundations
 
 Set keys in `volume_1/chapter_4/.env`:
 
@@ -51,48 +61,46 @@ XAI_API_KEY=your-xai-key
 
 ## Usage
 
-Run commands from `volume_1/chapter_6`.
+Run from `volume_1/chapter_6`.
 
-### Command line mode
+### CLI mode
 
 #### Python
 
 ```bash
-python langchain/llm_structured_gateway.py
-python llamaindex/llm_structured_gateway.py
+python langchain/llm_memory_retrieval_gateway.py
+python llamaindex/llm_memory_retrieval_gateway.py
 ```
 
 #### JavaScript
 
 ```bash
-node langchain/llm_structured_gateway.js
-node llamaindex/llm_structured_gateway.js
+node langchain/llm_memory_retrieval_gateway.js
+node llamaindex/llm_memory_retrieval_gateway.js
 ```
 
-### Web API mode
+### Web mode
 
 ```bash
-python langchain/llm_structured_gateway.py web
-node llamaindex/llm_structured_gateway.js web
+python langchain/llm_memory_retrieval_gateway.py web
+python llamaindex/llm_memory_retrieval_gateway.py web
+node langchain/llm_memory_retrieval_gateway.js web
+node llamaindex/llm_memory_retrieval_gateway.js web
 ```
 
-## Structured response format
+## Retrieval metadata
 
-Both Chapter 6 managers request and parse this JSON shape:
-
-```json
-{
-  "answer": "direct answer",
-  "summary": "question summary",
-  "keywords": ["keyword1", "keyword2"],
-  "distilled": "short distilled form"
-}
-```
-
-On success, `response` contains the parsed JSON object and `raw_answer`/`rawAnswer` contains the extracted answer field.
+Successful responses include structured output plus retrieval diagnostics in metadata, including:
+- `history_messages_available`
+- `retrieved_messages_count`
+- `retrieved_messages`
+- `tokens_with_memory_retrieval`
+- `tokens_without_memory_retrieval`
+- `estimated_tokens_saved`
+- `estimated_token_reduction_percent`
 
 ## Notes
 
-- Session memory remains isolated by `provider` + `session_id`.
-- Persistence behavior (read/write/reset of session files) is inherited from Chapter 5.
-- If a model returns non-JSON output, the manager returns a parsing error with the original raw response.
+- Session memory remains isolated by provider + session id.
+- Retrieval memory still persists turns to session files through Chapter 5 persistence hooks.
+- Retrieval reduces prompt size pressure while preserving relevant context.

@@ -78,8 +78,9 @@ class LangChainLLMManager(Chapter5StructuredManager):
         temperature: float = 0.7,
         session_id: str = "default",
     ) -> Dict:
+        effective_template = STRUCTURED_TEMPLATE if template == "{topic}" else template
         provider = self._resolve_provider(provider)
-        base_prompt = template.format(topic=topic)
+        base_prompt = effective_template.format(topic=topic)
 
         if not provider:
             return {
@@ -100,7 +101,7 @@ class LangChainLLMManager(Chapter5StructuredManager):
             if retrieved_context
             else topic
         )
-        retrieval_prompt = template.format(topic=retrieval_augmented_topic)
+        retrieval_prompt = effective_template.format(topic=retrieval_augmented_topic)
 
         full_history_context = "\n".join(
             f"[{getattr(msg, 'type', 'unknown')}] {getattr(msg, 'content', '')}" for msg in messages
@@ -134,7 +135,20 @@ class LangChainLLMManager(Chapter5StructuredManager):
                 "usage_metadata": usage_metadata,
             }
 
-            parsed = parse_structured_json_response(raw_response)
+            try:
+                parsed = parse_structured_json_response(raw_response)
+            except Exception:
+                parsed = {
+                    "answer": raw_response,
+                    "summary": "Model returned plain-text output instead of strict JSON.",
+                    "keywords": [],
+                    "distilled": raw_response,
+                    "metadata": {
+                        "confidence": "low",
+                        "notes": "Structured parser fallback applied for non-JSON response.",
+                    },
+                }
+
             parsed["metadata"] = {
                 **(parsed.get("metadata") or {}),
                 **self._build_metadata(result_payload, raw_response),

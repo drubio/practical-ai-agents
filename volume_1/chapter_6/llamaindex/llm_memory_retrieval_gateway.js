@@ -2,50 +2,193 @@
  * LLM Retrieval Memory Gateway - LlamaIndex JS with selective memory replay.
  */
 
-import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager } from '../../chapter_5/llamaindex/llm_memory_structured_gateway.js';
-import { interactiveCli } from '../../chapter_4/utils.js';
-
-const RETRIEVAL_TEMPLATE = `Use the selected memory snippets and answer the topic.
-
-Selected Memory:
-{memory_context}
-
-Topic: {topic}`;
+import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/llm_memory_structured_gateway.js';
+import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 
 class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
-    constructor(memoryEnabled = true, memoryWindow = 6) {
-        super(memoryEnabled);
-        this.framework = 'LlamaIndex+RetrievalMemory JS';
-        this.memoryWindow = memoryWindow;
+    constructor(memoryEnabled = true, retrievalK = 4) {
+        // Disable inherited full-memory chat engine replay. Chapter 6 builds retrieval prompts directly.
+        super(false);
+        this.framework = 'LlamaIndex+Memory+Retrieval JS';
+        this.retrievalMemoryEnabled = memoryEnabled;
+        this.retrievalK = Math.max(1, retrievalK);
     }
 
-    _scoreTurn(turn, queryTerms) {
-        const text = String(turn?.content || '').toLowerCase();
-        return queryTerms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
+    _estimateTokens(text) {
+        if (!text) return 0;
+        return Math.max(1, Math.floor(String(text).length / 4));
     }
 
-    _selectMemoryContext(provider, sessionId, topic) {
-        const history = this.getHistory(provider, sessionId)?.turns || [];
-        if (!history.length) return [];
-
-        const queryTerms = topic
-            .toLowerCase()
-            .split(/\s+/)
-            .filter((term) => term.length > 2);
-
-        return [...history]
-            .sort((a, b) => this._scoreTurn(b, queryTerms) - this._scoreTurn(a, queryTerms))
-            .slice(0, this.memoryWindow);
+    _tokenize(text) {
+        return new Set(String(text || '').toLowerCase().match(/[a-zA-Z0-9_]+/g) || []);
     }
 
-    async askQuestion(topic, provider = null, template = RETRIEVAL_TEMPLATE, maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
+    _scoreMessage(queryTokens, content) {
+        const contentTokens = this._tokenize(content);
+        if (queryTokens.size === 0 || contentTokens.size === 0) return 0;
+        let score = 0;
+        for (const token of queryTokens) {
+            if (contentTokens.has(token)) score += 1;
+        }
+        return score;
+    }
+
+    async _getMemoryMessages(provider, sessionId) {
+        const memory = this._getMemory(provider, sessionId);
+        const messagePayload = await memory.get({ type: 'llamaindex' });
+        return Array.isArray(messagePayload) ? messagePayload : [];
+    }
+
+    _selectRetrievedMessages(topic, messages) {
+        const queryTokens = this._tokenize(topic);
+        const scored = [];
+
+        messages.forEach((msg, idx) => {
+            const content = String(msg?.content ?? '');
+            if (!content) return;
+            const score = this._scoreMessage(queryTokens, content);
+            if (score > 0) scored.push({ score, idx, msg });
+        });
+
+        if (scored.length === 0) return [];
+
+        scored.sort((a, b) => (b.score - a.score) || (a.idx - b.idx));
+        const topChronological = scored
+            .slice(0, this.retrievalK)
+            .sort((a, b) => a.idx - b.idx);
+
+        return topChronological.map(({ score, msg }) => ({
+            role: String(msg?.role ?? 'unknown'),
+            content: String(msg?.content ?? ''),
+            relevance_score: score,
+        }));
+    }
+
+    async _appendToMemory(provider, sessionId, role, content) {
+        const memory = this._getMemory(provider, sessionId);
+        if (typeof memory.put === 'function') {
+            await memory.put({ role, content });
+        }
+    }
+
+    async askQuestion(topic, provider = null, template = STRUCTURED_TEMPLATE, maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
+        const effectiveTemplate = template === '{topic}' ? STRUCTURED_TEMPLATE : template;
         const resolvedProvider = this._resolveProvider(provider);
-        const selectedTurns = resolvedProvider ? this._selectMemoryContext(resolvedProvider, sessionId, topic) : [];
-        const memoryContext = selectedTurns.map((turn) => `- ${turn.role}: ${turn.content}`).join('\n') || '(none)';
-        const prompt = template.replace('{memory_context}', memoryContext).replace('{topic}', topic);
+        const basePrompt = effectiveTemplate.replace('{topic}', topic);
 
-        const result = await super.askQuestion(topic, provider, prompt, maxTokens, temperature, sessionId);
-        return { ...result, selectedMemoryTurns: selectedTurns, memoryWindow: this.memoryWindow };
+        if (!resolvedProvider) {
+            return {
+                success: false,
+                error: 'No providers available',
+                provider: 'none',
+                model: 'none',
+                prompt: basePrompt,
+                response: null,
+            };
+        }
+
+        const messages = this.retrievalMemoryEnabled
+            ? await this._getMemoryMessages(resolvedProvider, sessionId)
+            : [];
+        const retrieved = this.retrievalMemoryEnabled
+            ? this._selectRetrievedMessages(topic, messages)
+            : [];
+
+        const retrievedContext = retrieved.map((item) => `[${item.role}] ${item.content}`).join('\n');
+        const retrievalAugmentedTopic = retrievedContext
+            ? `Relevant memory snippets:\n${retrievedContext}\n\nCurrent user topic: ${topic}`
+            : topic;
+        const retrievalPrompt = effectiveTemplate.replace('{topic}', retrievalAugmentedTopic);
+
+        const fullHistoryContext = messages
+            .map((msg) => `[${String(msg?.role ?? 'unknown')}] ${String(msg?.content ?? '')}`)
+            .join('\n');
+        const promptWithoutRetrieval = fullHistoryContext
+            ? `${fullHistoryContext}\n\nCurrent user topic: ${topic}`
+            : topic;
+
+        const tokensWithRetrieval = this._estimateTokens(retrievalPrompt);
+        const tokensWithoutRetrieval = this._estimateTokens(promptWithoutRetrieval);
+        const estimatedSaved = Math.max(0, tokensWithoutRetrieval - tokensWithRetrieval);
+        const reductionPercent = tokensWithoutRetrieval > 0
+            ? Number(((estimatedSaved / tokensWithoutRetrieval) * 100).toFixed(2))
+            : 0;
+
+        try {
+            const client = this._createClient(resolvedProvider, temperature, maxTokens);
+            const result = await client.chat({
+                messages: [{ role: 'user', content: retrievalPrompt }],
+            });
+            const rawResponse = this._extractText(result);
+
+            const metadataPayload = {
+                provider: resolvedProvider,
+                model: getDefaultModel(resolvedProvider),
+                sessionId,
+                temperature,
+                maxTokens,
+            };
+
+            let parsed;
+            try {
+                parsed = parseStructuredJsonResponse(rawResponse);
+            } catch {
+                parsed = {
+                    answer: rawResponse,
+                    summary: 'Model returned plain-text output instead of strict JSON.',
+                    keywords: [],
+                    distilled: rawResponse,
+                    metadata: {
+                        confidence: 'low',
+                        notes: 'Structured parser fallback applied for non-JSON response.',
+                    },
+                };
+            }
+
+            parsed.metadata = {
+                ...(parsed.metadata || {}),
+                ...this._buildMetadata(metadataPayload, rawResponse),
+                retrieval: {
+                    history_messages_available: messages.length,
+                    retrieved_messages_count: retrieved.length,
+                    retrieved_messages: retrieved,
+                    tokens_with_memory_retrieval: tokensWithRetrieval,
+                    tokens_without_memory_retrieval: tokensWithoutRetrieval,
+                    estimated_tokens_saved: estimatedSaved,
+                    estimated_token_reduction_percent: reductionPercent,
+                },
+            };
+
+            if (this.retrievalMemoryEnabled) {
+                await this._appendToMemory(resolvedProvider, sessionId, 'user', topic);
+                await this._appendToMemory(resolvedProvider, sessionId, 'assistant', rawResponse);
+                await this._persistMemory(resolvedProvider, sessionId);
+            }
+
+            return {
+                success: true,
+                provider: resolvedProvider,
+                model: getDefaultModel(resolvedProvider),
+                prompt: retrievalPrompt,
+                response: parsed,
+                rawAnswer: parsed.answer ?? rawResponse,
+                temperature,
+                maxTokens,
+                sessionId,
+            };
+        } catch (error) {
+            return {
+                success: false,
+                provider: resolvedProvider,
+                model: getDefaultModel(resolvedProvider),
+                prompt: retrievalPrompt,
+                error: error.message,
+                response: null,
+                temperature,
+                maxTokens,
+                sessionId,
+            };
+        }
     }
 }
 

@@ -58,8 +58,9 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
     }
 
     async askQuestion(topic, provider = null, template = STRUCTURED_TEMPLATE, maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
+        const effectiveTemplate = template === '{topic}' ? STRUCTURED_TEMPLATE : template;
         const resolvedProvider = this._resolveProvider(provider);
-        const basePrompt = template.replace('{topic}', topic);
+        const basePrompt = effectiveTemplate.replace('{topic}', topic);
 
         if (!resolvedProvider) {
             return {
@@ -83,7 +84,7 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
         const retrievalAugmentedTopic = retrievedContext
             ? `Relevant memory snippets:\n${retrievedContext}\n\nCurrent user topic: ${topic}`
             : topic;
-        const retrievalPrompt = template.replace('{topic}', retrievalAugmentedTopic);
+        const retrievalPrompt = effectiveTemplate.replace('{topic}', retrievalAugmentedTopic);
 
         const fullHistoryContext = messages
             .map((msg) => `[${msg?._getType?.() ?? msg?.getType?.() ?? msg?.type ?? 'unknown'}] ${String(msg?.content ?? '')}`)
@@ -118,7 +119,21 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
                 usage_metadata: usageMetadata,
             };
 
-            const parsed = parseStructuredJsonResponse(rawResponse);
+            let parsed;
+            try {
+                parsed = parseStructuredJsonResponse(rawResponse);
+            } catch {
+                parsed = {
+                    answer: rawResponse,
+                    summary: 'Model returned plain-text output instead of strict JSON.',
+                    keywords: [],
+                    distilled: rawResponse,
+                    metadata: {
+                        confidence: 'low',
+                        notes: 'Structured parser fallback applied for non-JSON response.',
+                    },
+                };
+            }
             parsed.metadata = {
                 ...(parsed.metadata || {}),
                 ...this._buildMetadata(metadataPayload, rawResponse),
