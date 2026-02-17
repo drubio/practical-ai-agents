@@ -1,8 +1,8 @@
 """LLM Tools Gateway - LlamaIndex (Chapter 7).
 
-Builds on Chapter 6 manager hierarchy:
+Builds directly on Chapter 6 retrieval-memory manager hierarchy:
 Chapter 4 (base providers) -> Chapter 5 (memory/persistence) ->
-Chapter 6 (structured patterns) -> Chapter 7 (tool use).
+Chapter 6 (retrieval memory + structured output) -> Chapter 7 (tool use).
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import json
 import os
 import re
 import sys
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from llama_index.core.llms import ChatMessage
 
@@ -23,7 +23,7 @@ sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CHAPTER_6_LLAMAINDEX)
 sys.path.append(CHAPTER_7_ROOT)
 
-from llm_structured_gateway import LlamaIndexLLMManager as Chapter6LlamaIndexManager
+from llm_memory_retrieval_gateway import LlamaIndexLLMManager as Chapter6LlamaIndexManager
 from tools import build_tools_prompt, run_tool
 from utils import get_default_model, interactive_cli
 
@@ -33,7 +33,7 @@ You are a helpful assistant with access to external tools.
 Available tools:
 {tools}
 
-For every response, return strict JSON with this shape:
+Return strict JSON:
 {{
   "tool_call": null OR {{"name": "tool_name", "arguments": {{"arg": "value"}}}},
   "final_answer": "string"
@@ -41,7 +41,7 @@ For every response, return strict JSON with this shape:
 
 Rules:
 - If no tool is needed, set tool_call to null.
-- If a tool is needed, set tool_call and keep final_answer short (what you expect to answer after tool execution).
+- If a tool is needed, set tool_call and keep final_answer short.
 - Return JSON only.
 
 User topic: {topic}
@@ -63,11 +63,11 @@ Return strict JSON:
 
 
 class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
-    """Chapter 7 LlamaIndex manager with simple JSON-driven tool execution."""
+    """Chapter 7 LlamaIndex manager with retrieval-aware tool orchestration."""
 
-    def __init__(self, memory_enabled: bool = True):
-        super().__init__(memory_enabled=memory_enabled)
-        self.framework = "LlamaIndex+Tools"
+    def __init__(self, memory_enabled: bool = True, retrieval_k: int = 4):
+        super().__init__(memory_enabled=memory_enabled, retrieval_k=retrieval_k)
+        self.framework = "LlamaIndex+Memory+Retrieval+Tools"
 
     @staticmethod
     def _extract_json_object(raw: str) -> Dict:
@@ -88,11 +88,44 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
                 raise
             return json.loads(match.group(0))
 
-    def _invoke_json_step(self, provider: str, prompt: str, temperature: float, max_tokens: int) -> Dict:
+    def _invoke_json_step(self, provider: str, prompt: str, temperature: float, max_tokens: int) -> Tuple[Dict, object]:
         client = self._create_client(provider, temperature=temperature, max_tokens=max_tokens)
         result = client.chat([ChatMessage(role="user", content=prompt)])
         text = self._extract_text(result)
-        return self._extract_json_object(text)
+        return self._extract_json_object(text), result
+
+    def _build_retrieval_context(self, provider: str, topic: str, session_id: str) -> Tuple[str, Dict[str, object]]:
+        memory = self._get_memory(provider, session_id) if self.retrieval_memory_enabled else None
+        messages = self._memory_messages(memory) if memory else []
+        retrieved = self._select_retrieved_messages(topic, messages) if self.retrieval_memory_enabled else []
+
+        retrieved_context = "\n".join(f"[{item['role']}] {item['content']}" for item in retrieved)
+        retrieval_augmented_topic = (
+            f"Relevant memory snippets:\n{retrieved_context}\n\nCurrent user topic: {topic}" if retrieved_context else topic
+        )
+
+        full_history_context = "\n".join(
+            f"[{getattr(msg, 'role', 'unknown')}] {getattr(msg, 'content', '')}" for msg in messages
+        )
+        prompt_without_retrieval = (
+            f"{full_history_context}\n\nCurrent user topic: {topic}" if full_history_context else topic
+        )
+
+        tokens_with_retrieval = self._estimate_tokens(retrieval_augmented_topic)
+        tokens_without_retrieval = self._estimate_tokens(prompt_without_retrieval)
+        estimated_saved = max(0, tokens_without_retrieval - tokens_with_retrieval)
+        reduction_percent = round((estimated_saved / tokens_without_retrieval) * 100, 2) if tokens_without_retrieval else 0.0
+
+        retrieval_metadata = {
+            "history_messages_available": len(messages),
+            "retrieved_messages_count": len(retrieved),
+            "retrieved_messages": retrieved,
+            "tokens_with_memory_retrieval": tokens_with_retrieval,
+            "tokens_without_memory_retrieval": tokens_without_retrieval,
+            "estimated_tokens_saved": estimated_saved,
+            "estimated_token_reduction_percent": reduction_percent,
+        }
+        return retrieval_augmented_topic, retrieval_metadata
 
     def ask_question(
         self,
@@ -103,8 +136,8 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
         temperature: float = 0.2,
         session_id: str = "default",
     ) -> Dict:
-        prompt = template.format(topic=topic, tools=build_tools_prompt())
         provider = self._resolve_provider(provider)
+        prompt = template.format(topic=topic, tools=build_tools_prompt())
 
         if not provider:
             return {
@@ -117,9 +150,11 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
             }
 
         model = get_default_model(provider)
+        retrieval_topic, retrieval_metadata = self._build_retrieval_context(provider, topic, session_id)
+        retrieval_prompt = template.format(topic=retrieval_topic, tools=build_tools_prompt())
 
         try:
-            first_step = self._invoke_json_step(provider, prompt, temperature=temperature, max_tokens=max_tokens)
+            first_step, _ = self._invoke_json_step(provider, retrieval_prompt, temperature=temperature, max_tokens=max_tokens)
             tool_call = first_step.get("tool_call")
             final_answer = str(first_step.get("final_answer", "")).strip()
 
@@ -131,25 +166,53 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
                     tool_args = {}
 
                 tool_output = run_tool(tool_name, tool_args)
-
                 follow_up_prompt = FOLLOW_UP_TEMPLATE.format(
                     topic=topic,
                     tool_call=json.dumps(tool_call, ensure_ascii=False),
                     tool_output=tool_output,
                 )
-                second_step = self._invoke_json_step(provider, follow_up_prompt, temperature=temperature, max_tokens=max_tokens)
+                second_step, _ = self._invoke_json_step(provider, follow_up_prompt, temperature=temperature, max_tokens=max_tokens)
                 final_answer = str(second_step.get("final_answer", final_answer)).strip() or final_answer
+
+            raw_response = json.dumps(
+                {
+                    "tool_call": tool_call,
+                    "tool_output": tool_output,
+                    "final_answer": final_answer,
+                },
+                ensure_ascii=False,
+            )
+
+            payload = {
+                "tool_call": tool_call,
+                "tool_output": tool_output,
+                "final_answer": final_answer,
+                "metadata": {
+                    **self._build_metadata(
+                        {
+                            "provider": provider,
+                            "model": model,
+                            "session_id": session_id,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens,
+                        },
+                        raw_response,
+                    ),
+                    "retrieval": retrieval_metadata,
+                },
+            }
+
+            if self.retrieval_memory_enabled:
+                self._append_to_memory(provider, session_id, "user", topic)
+                self._append_to_memory(provider, session_id, "assistant", raw_response)
+                self._persist_memory(provider, session_id)
 
             return {
                 "success": True,
                 "provider": provider,
                 "model": model,
-                "prompt": prompt,
-                "response": {
-                    "tool_call": tool_call,
-                    "tool_output": tool_output,
-                    "final_answer": final_answer,
-                },
+                "prompt": retrieval_prompt,
+                "response": payload,
                 "raw_answer": final_answer,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
@@ -160,7 +223,7 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
                 "success": False,
                 "provider": provider,
                 "model": model,
-                "prompt": prompt,
+                "prompt": retrieval_prompt,
                 "error": str(exc),
                 "response": None,
                 "temperature": temperature,

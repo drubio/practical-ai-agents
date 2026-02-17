@@ -6,7 +6,7 @@ It provides cross-framework (**LangChain**, **LlamaIndex**) and dual-language (*
 
 - Reuse Chapter 4 base provider/client setup and shared CLI/Web helpers
 - Reuse Chapter 5 memory + persistence base behavior through Chapter 6 managers
-- Reuse Chapter 6 structured-response pattern
+- Reuse Chapter 6 retrieval-memory + structured-response pattern
 - Add Chapter 7 tool orchestration (model decides tool call, tool executes, model synthesizes final answer)
 
 Just like earlier chapters, each script can run in:
@@ -43,7 +43,7 @@ Chapter 7 builds on Chapter 4/5/6:
 
 - Chapter 4 shared utilities and web server helpers
 - Chapter 5 memory + persistence foundations
-- Chapter 6 structured manager classes
+- Chapter 6 retrieval-memory manager classes
 - Chapter 7 tool utilities (`tools.py`, `tools.js`)
 
 Set API keys in `volume_1/chapter_4/.env`:
@@ -93,8 +93,26 @@ node llamaindex/llm_tools_gateway.js
 
 ```bash
 python langchain/llm_tools_gateway.py web
+python llamaindex/llm_tools_gateway.py web
+node langchain/llm_tools_gateway.js web
 node llamaindex/llm_tools_gateway.js web
 ```
+
+
+## Integration with Chapters 4-6
+
+Each Chapter 7 gateway now subclasses its Chapter 6 retrieval manager directly, so every Chapter 6 behavior remains active:
+
+- provider setup + CLI/web helpers from Chapter 4
+- session memory persistence from Chapter 5
+- retrieval-based memory selection and retrieval diagnostics from Chapter 6
+- Chapter 7 two-step tool loop layered on top
+
+This keeps the chapter progression consistent across:
+- LangChain Python
+- LangChain JavaScript
+- LlamaIndex Python
+- LlamaIndex JavaScript
 
 ## Tool orchestration pattern
 
