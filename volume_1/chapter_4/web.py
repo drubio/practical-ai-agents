@@ -42,6 +42,7 @@ class ResetMemoryRequest(BaseModel):
 
 
 def _supports_memory(manager) -> bool:
+    """True when manager replays full chat history into prompts."""
     return bool(
         getattr(manager, "memory_enabled", False)
         and hasattr(manager, "get_history")
@@ -49,6 +50,18 @@ def _supports_memory(manager) -> bool:
     )
 
 
+def _supports_memory_retrieval(manager) -> bool:
+    """True when manager supports retrieval-based memory context."""
+    return bool(
+        getattr(manager, "retrieval_memory_enabled", False)
+        and hasattr(manager, "get_history")
+        and hasattr(manager, "reset_memory")
+    )
+
+
+def _supports_session_memory(manager) -> bool:
+    """True when any session-based memory mode (full replay or retrieval) is available."""
+    return _supports_memory(manager) or _supports_memory_retrieval(manager)
 
 
 def _parse_structured_raw_response(raw_response):
@@ -178,6 +191,7 @@ def create_web_api(manager_class):
             "framework": manager.framework,
             "streaming": True,
             "memory": _supports_memory(manager),
+            "memory_retrieval": _supports_memory_retrieval(manager),
         }
 
     @app.post("/query")
@@ -192,7 +206,7 @@ def create_web_api(manager_class):
                     "temperature": request.temperature
                 }
                 effective_session_id = request.sessionId or request.session_id or "default"
-                if _supports_memory(manager):
+                if _supports_session_memory(manager):
                     args["session_id"] = effective_session_id
 
                 result = _recover_structured_parse_error(manager.ask_question(**args))
@@ -236,7 +250,7 @@ def create_web_api(manager_class):
                         "temperature": request.temperature,
                     }
                     effective_session_id = request.sessionId or request.session_id or "default"
-                    if _supports_memory(manager):
+                    if _supports_session_memory(manager):
                         args["session_id"] = effective_session_id
 
                     result = _recover_structured_parse_error(manager.ask_question(**args))
@@ -308,8 +322,8 @@ def create_web_api(manager_class):
 
     @app.get("/history")
     async def get_history(provider: str = "openai", session_id: str = "default"):
-        if not _supports_memory(manager):
-            raise HTTPException(status_code=400, detail="Memory not supported by this manager")
+        if not _supports_session_memory(manager):
+            raise HTTPException(status_code=400, detail="Session memory not supported by this manager")
         return manager.get_history(provider, session_id)
 
     @app.post("/reset-memory")
@@ -318,8 +332,8 @@ def create_web_api(manager_class):
         provider: Optional[str] = None,
         session_id: Optional[str] = None,
     ):
-        if not _supports_memory(manager):
-            raise HTTPException(status_code=400, detail="Memory not supported by this manager")
+        if not _supports_session_memory(manager):
+            raise HTTPException(status_code=400, detail="Session memory not supported by this manager")
         body_provider = request.provider if request else None
         body_session_id = (request.sessionId or request.session_id) if request else None
         effective_provider = body_provider if body_provider is not None else provider

@@ -21,6 +21,7 @@ async function captureConsoleOutputAsync(fn) {
 }
 
 function supportsMemory(manager) {
+    // Full chat-history replay memory mode.
     return Boolean(
         manager?.memoryEnabled
         && typeof manager.getHistory === 'function'
@@ -28,7 +29,18 @@ function supportsMemory(manager) {
     );
 }
 
+function supportsMemoryRetrieval(manager) {
+    // Retrieval-based memory mode.
+    return Boolean(
+        manager?.retrievalMemoryEnabled
+        && typeof manager.getHistory === 'function'
+        && typeof manager.resetMemory === 'function'
+    );
+}
 
+function supportsSessionMemory(manager) {
+    return supportsMemory(manager) || supportsMemoryRetrieval(manager);
+}
 
 function parseStructuredRawResponse(rawResponse) {
     if (rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse)) {
@@ -174,6 +186,7 @@ function createWebApi(managerClassOrFactory) {
             framework: manager.framework,
             streaming: true,
             memory: supportsMemory(manager),
+            memory_retrieval: supportsMemoryRetrieval(manager),
         });
     });
 
@@ -195,7 +208,7 @@ function createWebApi(managerClassOrFactory) {
 
             const effectiveSessionId = sessionId ?? session_id ?? 'default';
             const { result, logs } = await captureConsoleOutputAsync(async () => {
-                if (supportsMemory(manager)) {
+                if (supportsSessionMemory(manager)) {
                     return recoverStructuredParseError(
                         await manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId)
                     );
@@ -253,7 +266,7 @@ function createWebApi(managerClassOrFactory) {
 
             const effectiveSessionId = sessionId ?? session_id ?? 'default';
             const { result } = await captureConsoleOutputAsync(async () => {
-                if (supportsMemory(manager)) {
+                if (supportsSessionMemory(manager)) {
                     return recoverStructuredParseError(
                         await manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId)
                     );
@@ -354,8 +367,8 @@ function createWebApi(managerClassOrFactory) {
     });
 
     app.get('/history', async (req, res) => {
-        if (!supportsMemory(manager)) {
-            return res.status(400).json({ error: 'Memory not supported by this manager' });
+        if (!supportsSessionMemory(manager)) {
+            return res.status(400).json({ error: 'Session memory not supported by this manager' });
         }
         const { provider = 'openai', session_id = 'default', sessionId = null } = req.query;
         const history = await Promise.resolve(manager.getHistory(provider, sessionId ?? session_id ?? "default"));
@@ -363,8 +376,8 @@ function createWebApi(managerClassOrFactory) {
     });
 
     app.post('/reset-memory', async (req, res) => {
-        if (!supportsMemory(manager)) {
-            return res.status(400).json({ error: 'Memory not supported by this manager' });
+        if (!supportsSessionMemory(manager)) {
+            return res.status(400).json({ error: 'Session memory not supported by this manager' });
         }
         const body = req.body || {};
         const bodyProvider = body.provider ?? null;

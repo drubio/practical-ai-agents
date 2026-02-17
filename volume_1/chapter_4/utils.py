@@ -346,12 +346,19 @@ def interactive_cli(manager: BaseLLMManager):
     query_all = input("Query ALL providers or select one? (all/one): ").strip().lower()
 
     # Determine memory compatibility once (kept in sync with JS logic)
-    memory_supported = (
+    full_memory_supported = (
         getattr(manager, "memory_enabled", False) is True
         and hasattr(manager, "ask_question")
         and hasattr(manager, "get_history")
         and hasattr(manager, "reset_memory")
     )
+    retrieval_memory_supported = (
+        getattr(manager, "retrieval_memory_enabled", False) is True
+        and hasattr(manager, "ask_question")
+        and hasattr(manager, "get_history")
+        and hasattr(manager, "reset_memory")
+    )
+    memory_supported = full_memory_supported or retrieval_memory_supported
 
     if query_all in ["all", "a", ""]:
         question = input("Enter your question: ")

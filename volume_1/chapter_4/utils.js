@@ -280,12 +280,19 @@ export async function interactiveCli(manager) {
         console.log(`\nAvailable: ${availableProviders.map((p) => getDisplayName(p)).join(', ')}`);
         const mode = (await ask('Query ALL providers or select one? (all/one): ')).trim().toLowerCase();
 
-        const memorySupported = Boolean(
+        const fullMemorySupported = Boolean(
             manager.memoryEnabled
             && typeof manager.askQuestion === 'function'
             && typeof manager.getHistory === 'function'
             && typeof manager.resetMemory === 'function'
         );
+        const retrievalMemorySupported = Boolean(
+            manager.retrievalMemoryEnabled
+            && typeof manager.askQuestion === 'function'
+            && typeof manager.getHistory === 'function'
+            && typeof manager.resetMemory === 'function'
+        );
+        const memorySupported = fullMemorySupported || retrievalMemorySupported;
 
         if (['all', 'a', ''].includes(mode)) {
             const question = await ask('Enter your question: ');

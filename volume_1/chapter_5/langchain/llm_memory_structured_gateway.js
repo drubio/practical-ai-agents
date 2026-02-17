@@ -5,7 +5,7 @@
 import { LangChainLLMManager as Chapter5LangChainManager } from './llm_memory_persist_gateway.js';
 import { interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 
-const STRUCTURED_TEMPLATE = `Given the topic below, provide:
+export const STRUCTURED_TEMPLATE = `Given the topic below, provide:
 
 1. A direct factual answer (if possible)
 2. A summary of what the question is about
