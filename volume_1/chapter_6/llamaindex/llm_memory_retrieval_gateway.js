@@ -64,13 +64,6 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         }));
     }
 
-    async _appendToMemory(provider, sessionId, role, content) {
-        const memory = this._getMemory(provider, sessionId);
-        if (typeof memory.put === 'function') {
-            await memory.put({ role, content });
-        }
-    }
-
     async askQuestion(topic, provider = null, template = STRUCTURED_TEMPLATE, maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
         const effectiveTemplate = template === '{topic}' ? STRUCTURED_TEMPLATE : template;
         const resolvedProvider = this._resolveProvider(provider);

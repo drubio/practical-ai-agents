@@ -86,6 +86,15 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         return this.memories.get(key);
     }
 
+    async _appendToMemory(provider, sessionId, role, content) {
+        const memory = this._getMemory(provider, sessionId);
+        if (typeof memory.add === 'function') {
+            await memory.add({ role, content });
+        } else if (typeof memory.put === 'function') {
+            await memory.put({ role, content });
+        }
+    }
+
     async _persistMemory(provider, sessionId) {
         const storeKey = this._sessionStoreKey(provider, sessionId);
         const messages = await this._getMemory(provider, sessionId).get({ type: 'llamaindex' });
