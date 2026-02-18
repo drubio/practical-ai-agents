@@ -7,6 +7,7 @@
 
 import { LlamaIndexLLMManager as Chapter6LlamaIndexManager } from '../../chapter_6/llamaindex/llm_memory_retrieval_gateway.js';
 import { interactiveCli, getDefaultModel } from '../../chapter_4/utils.js';
+import { normalizeResponseText } from '../../chapter_4/stream.js';
 import { buildToolsPrompt, runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
@@ -61,11 +62,47 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
         }
     }
 
+
+    _buildFallbackToolPayload(rawText) {
+        const fallbackAnswer = normalizeResponseText(rawText).trim();
+        if (!fallbackAnswer) {
+            throw new Error('No JSON object found in model response');
+        }
+        return {
+            tool_call: null,
+            final_answer: fallbackAnswer,
+        };
+    }
+
+    _normalizeToolPayload(rawPayload, rawText) {
+        if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+            return this._buildFallbackToolPayload(rawText);
+        }
+
+        const toolCall = rawPayload.tool_call;
+        const finalAnswer = rawPayload.final_answer;
+
+        if (typeof finalAnswer === 'string' && finalAnswer.trim()) {
+            return {
+                tool_call: toolCall && typeof toolCall === 'object' ? toolCall : null,
+                final_answer: finalAnswer.trim(),
+            };
+        }
+
+        return this._buildFallbackToolPayload(rawText);
+    }
+
     async _invokeJsonStep(provider, prompt, temperature, maxTokens) {
         const client = this._createClient(provider, temperature, maxTokens);
         const result = await client.chat({ messages: [{ role: 'user', content: prompt }] });
         const text = this._extractText(result);
-        return this._extractJsonObject(text);
+
+        try {
+            const payload = this._extractJsonObject(text);
+            return { payload: this._normalizeToolPayload(payload, text), result };
+        } catch {
+            return { payload: this._buildFallbackToolPayload(text), result };
+        }
     }
 
     async _buildRetrievalContext(provider, topic, sessionId) {
@@ -109,6 +146,23 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
         };
     }
 
+
+    _shouldForceWikipediaTool(topic, toolCall) {
+        if (toolCall && typeof toolCall === 'object' && toolCall.name) return false;
+        const text = String(topic || '').toLowerCase();
+        if (!text.trim()) return false;
+
+        const creativeSignals = [
+            'poem', 'story', 'fiction', 'brainstorm', 'imagine', 'creative writing', 'roleplay', 'joke',
+        ];
+        if (creativeSignals.some((k) => text.includes(k))) return false;
+
+        const factualSignals = [
+            'what is', 'who is', 'when did', 'where is', 'why', 'how', 'define', 'history', 'date', 'science',
+        ];
+        return factualSignals.some((k) => text.includes(k)) || text.split(/\s+/).length >= 3;
+    }
+
     async askQuestion(topic, provider = null, template = TOOLS_TEMPLATE, maxTokens = 1000, temperature = 0.2, sessionId = 'default') {
         const resolvedProvider = this._resolveProvider(provider);
         const basePrompt = template.replace('{topic}', topic).replace('{tools}', buildToolsPrompt());
@@ -129,33 +183,41 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
         const model = getDefaultModel(resolvedProvider);
 
         try {
-            const firstStep = await this._invokeJsonStep(resolvedProvider, prompt, temperature, maxTokens);
+            const { payload: firstStep } = await this._invokeJsonStep(resolvedProvider, prompt, temperature, maxTokens);
             const toolCall = firstStep.tool_call;
             let finalAnswer = String(firstStep.final_answer || '').trim();
             let toolOutput = null;
 
-            if (toolCall && typeof toolCall === 'object' && toolCall.name) {
-                const toolName = String(toolCall.name);
-                const toolArgs = toolCall.arguments && typeof toolCall.arguments === 'object' ? toolCall.arguments : {};
-                toolOutput = runTool(toolName, toolArgs);
+            let effectiveToolCall = toolCall;
+            if (this._shouldForceWikipediaTool(topic, effectiveToolCall)) {
+                effectiveToolCall = {
+                    name: 'get_wikipedia_evidence_pack',
+                    arguments: { query: topic },
+                };
+            }
+
+            if (effectiveToolCall && typeof effectiveToolCall === 'object' && effectiveToolCall.name) {
+                const toolName = String(effectiveToolCall.name);
+                const toolArgs = effectiveToolCall.arguments && typeof effectiveToolCall.arguments === 'object' ? effectiveToolCall.arguments : {};
+                toolOutput = await runTool(toolName, toolArgs);
 
                 const followUpPrompt = FOLLOW_UP_TEMPLATE
                     .replace('{topic}', topic)
-                    .replace('{tool_call}', JSON.stringify(toolCall))
+                    .replace('{tool_call}', JSON.stringify(effectiveToolCall))
                     .replace('{tool_output}', String(toolOutput));
 
-                const secondStep = await this._invokeJsonStep(resolvedProvider, followUpPrompt, temperature, maxTokens);
+                const { payload: secondStep } = await this._invokeJsonStep(resolvedProvider, followUpPrompt, temperature, maxTokens);
                 finalAnswer = String(secondStep.final_answer || finalAnswer).trim() || finalAnswer;
             }
 
             const rawResponse = JSON.stringify({
-                tool_call: toolCall ?? null,
+                tool_call: effectiveToolCall ?? null,
                 tool_output: toolOutput,
                 final_answer: finalAnswer,
             });
 
             const responsePayload = {
-                tool_call: toolCall ?? null,
+                tool_call: effectiveToolCall ?? null,
                 tool_output: toolOutput,
                 final_answer: finalAnswer,
                 metadata: {

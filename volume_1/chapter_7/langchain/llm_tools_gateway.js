@@ -8,7 +8,7 @@
 import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/llm_memory_retrieval_gateway.js';
 import { interactiveCli, getDefaultModel, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { normalizeResponseText } from '../../chapter_4/stream.js';
-import { build_tools_prompt as buildToolsPrompt, run_tool as runTool } from '../tools.js';
+import { buildToolsPrompt, runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
 
@@ -135,6 +135,23 @@ class LangChainLLMManager extends Chapter6LangChainManager {
         };
     }
 
+
+    _shouldForceWikipediaTool(topic, toolCall) {
+        if (toolCall && typeof toolCall === 'object' && toolCall.name) return false;
+        const text = String(topic || '').toLowerCase();
+        if (!text.trim()) return false;
+
+        const creativeSignals = [
+            'poem', 'story', 'fiction', 'brainstorm', 'imagine', 'creative writing', 'roleplay', 'joke',
+        ];
+        if (creativeSignals.some((k) => text.includes(k))) return false;
+
+        const factualSignals = [
+            'what is', 'who is', 'when did', 'where is', 'why', 'how', 'define', 'history', 'date', 'science',
+        ];
+        return factualSignals.some((k) => text.includes(k)) || text.split(/\s+/).length >= 3;
+    }
+
     async askQuestion(topic, provider = null, template = TOOLS_TEMPLATE, maxTokens = 1000, temperature = 0.2, sessionId = 'default') {
         const resolvedProvider = this._resolveProvider(provider);
         const basePrompt = template.replace('{topic}', topic).replace('{tools}', buildToolsPrompt());
@@ -160,14 +177,22 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             let finalAnswer = String(firstStep.final_answer || '').trim();
             let toolOutput = null;
 
-            if (toolCall && typeof toolCall === 'object' && toolCall.name) {
-                const toolName = String(toolCall.name);
-                const toolArgs = toolCall.arguments && typeof toolCall.arguments === 'object' ? toolCall.arguments : {};
+            let effectiveToolCall = toolCall;
+            if (this._shouldForceWikipediaTool(topic, effectiveToolCall)) {
+                effectiveToolCall = {
+                    name: 'get_wikipedia_evidence_pack',
+                    arguments: { query: topic },
+                };
+            }
+
+            if (effectiveToolCall && typeof effectiveToolCall === 'object' && effectiveToolCall.name) {
+                const toolName = String(effectiveToolCall.name);
+                const toolArgs = effectiveToolCall.arguments && typeof effectiveToolCall.arguments === 'object' ? effectiveToolCall.arguments : {};
                 toolOutput = await runTool(toolName, toolArgs);
 
                 const followUpPrompt = FOLLOW_UP_TEMPLATE
                     .replace('{topic}', topic)
-                    .replace('{tool_call}', JSON.stringify(toolCall))
+                    .replace('{tool_call}', JSON.stringify(effectiveToolCall))
                     .replace('{tool_output}', String(toolOutput));
 
                 const { payload: secondStep } = await this._invokeJsonStep(resolvedProvider, followUpPrompt, temperature, maxTokens);
@@ -175,7 +200,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             }
 
             const rawResponse = JSON.stringify({
-                tool_call: toolCall ?? null,
+                tool_call: effectiveToolCall ?? null,
                 tool_output: toolOutput,
                 final_answer: finalAnswer,
             });
@@ -185,7 +210,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             const tokenUsage = this._extractTokenUsage(responseMetadata, usageMetadata);
 
             const responsePayload = {
-                tool_call: toolCall ?? null,
+                tool_call: effectiveToolCall ?? null,
                 tool_output: toolOutput,
                 final_answer: finalAnswer,
                 metadata: {

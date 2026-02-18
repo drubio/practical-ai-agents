@@ -364,7 +364,7 @@ function list_tools() {
   return TOOL_DEFINITIONS;
 }
 
-function build_tools_prompt() {
+function buildToolsPrompt() {
   const lines = [];
   for (const tool of TOOL_DEFINITIONS) {
     const params = Object.entries(tool.parameters)
@@ -375,13 +375,14 @@ function build_tools_prompt() {
   return lines.join('\n');
 }
 
+
 /**
  * Dispatch to available tools by name.
  * @param {string} action
  * @param {Record<string, any>} [parameters]
  * @returns {Promise<string>} tool output (string)
  */
-async function run_tool(action, parameters = {}) {
+async function runTool(action, parameters = {}) {
   const p = parameters || {};
   switch (action) {
     case 'format_markdown_to_html':
@@ -412,10 +413,11 @@ async function run_tool(action, parameters = {}) {
   }
 }
 
+
 export {
   list_tools,
-  build_tools_prompt,
-  run_tool,
+  buildToolsPrompt,
+  runTool,
   format_markdown_to_html,
   get_datetime,
   get_wikipedia_evidence_pack,

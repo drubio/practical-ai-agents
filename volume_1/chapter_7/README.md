@@ -147,8 +147,8 @@ Current tools shared by Python/JS utilities:
 Both utility modules expose:
 
 - tool definitions metadata (`TOOL_DEFINITIONS`)
-- a dispatcher (`run_tool` / `runTool`)
-- a prompt helper (`build_tools_prompt` / `buildToolsPrompt`)
+- a dispatcher (`runTool`)
+- a prompt helper (`buildToolsPrompt`)
 
 ## Notes
 
