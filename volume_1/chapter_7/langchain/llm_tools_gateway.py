@@ -38,12 +38,15 @@ Return strict JSON:
 }}
 
 Rules:
-- If no tool is needed, set tool_call to null.
-- If a tool is needed, set tool_call and keep final_answer short.
+- DEFAULT BEHAVIOR: For most user queries, first call "get_wikipedia_evidence_pack" with arguments {{"query": <user topic>}}.
+  This is especially important for topics involving factual claims, names, dates, definitions, history, science, places, people, events, or "what is/why/how" questions.
+- Only set tool_call to null if the user request is purely creative writing, brainstorming fiction, or personal preference with no need for sources.
+- If you call a tool, keep final_answer short and say you will synthesize after seeing the tool output.
 - Return JSON only.
 
 User topic: {topic}
 """.strip()
+
 
 FOLLOW_UP_TEMPLATE = """
 You already requested a tool and now have the result.

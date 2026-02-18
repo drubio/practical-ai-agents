@@ -1,15 +1,5 @@
 {
-  "name": "chapter-7-tools",
-  "version": "1.0.0",
-  "description": "Chapter 7 tool gateway examples for LangChain and LlamaIndex",
-  "type": "module",
-  "scripts": {
-    "langchain": "node langchain/llm_tools_gateway.js",
-    "llamaindex": "node llamaindex/llm_tools_gateway.js",
-    "langchain:web": "node langchain/llm_tools_gateway.js web",
-    "llamaindex:web": "node llamaindex/llm_tools_gateway.js web"
-  },
-  "dependencies": {
-    "marked": "^15.0.12"
-  }
+  "name": "chapter-7-llm-tools-js",
+  "private": true,
+  "type": "module"
 }

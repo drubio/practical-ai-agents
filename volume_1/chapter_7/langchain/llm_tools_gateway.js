@@ -7,7 +7,7 @@
 
 import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/llm_memory_retrieval_gateway.js';
 import { interactiveCli, getDefaultModel } from '../../chapter_4/utils.js';
-import { buildToolsPrompt, runTool } from '../tools.js';
+import { build_tools_prompt as buildToolsPrompt, run_tool as runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
 
@@ -21,8 +21,10 @@ Return strict JSON:
 }
 
 Rules:
-- If no tool is needed, set tool_call to null.
-- If a tool is needed, set tool_call and keep final_answer short.
+- DEFAULT BEHAVIOR: For most user queries, first call "get_wikipedia_evidence_pack" with arguments {{"query": <user topic>}}.
+  This is especially important for topics involving factual claims, names, dates, definitions, history, science, places, people, events, or "what is/why/how" questions.
+- Only set tool_call to null if the user request is purely creative writing, brainstorming fiction, or personal preference with no need for sources.
+- If you call a tool, keep final_answer short and say you will synthesize after seeing the tool output.
 - Return JSON only.
 
 User topic: {topic}`;
