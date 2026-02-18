@@ -20,7 +20,27 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
     }
 
     _tokenize(text) {
-        return new Set(String(text || '').toLowerCase().match(/[a-zA-Z0-9_]+/g) || []);
+        const stopWords = new Set([
+            'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'for', 'from', 'how',
+            'i', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'was',
+            'we', 'what', 'when', 'where', 'which', 'who', 'why', 'with', 'you',
+        ]);
+        const tokens = String(text || '').toLowerCase().match(/[a-zA-Z0-9_]+/g) || [];
+        return new Set(tokens.filter((token) => token.length > 2 && !stopWords.has(token)));
+    }
+
+    _isFollowUpQuery(topic) {
+        const normalized = String(topic || '').trim().toLowerCase();
+        const followUpPrefixes = [
+            'what about',
+            'how about',
+            'what else',
+            'and what',
+            'and how',
+            'also',
+            'follow up',
+        ];
+        return followUpPrefixes.some((prefix) => normalized.startsWith(prefix));
     }
 
     _scoreMessage(queryTokens, content) {
@@ -34,13 +54,27 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
     }
 
     _selectRetrievedMessages(topic, messages) {
+        if (this._isFollowUpQuery(topic)) {
+            return messages
+                .slice(-this.retrievalK)
+                .filter((msg) => String(msg?.content ?? '').length > 0)
+                .map((msg) => ({
+                    role: msg?._getType?.() ?? msg?.getType?.() ?? msg?.type ?? msg?.role ?? 'unknown',
+                    content: String(msg?.content ?? ''),
+                    relevance_score: 1,
+                }));
+        }
+
         const queryTokens = this._tokenize(topic);
+        if (queryTokens.size === 0) return [];
+
         const scored = [];
         messages.forEach((msg, idx) => {
             const content = String(msg?.content ?? '');
             if (!content) return;
             const score = this._scoreMessage(queryTokens, content);
-            if (score > 0) scored.push({ score, idx, msg });
+            const overlapRatio = score / queryTokens.size;
+            if (score >= 2 || overlapRatio >= 0.5) scored.push({ score, idx, msg });
         });
 
         if (scored.length === 0) return [];

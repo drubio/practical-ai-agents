@@ -35,7 +35,57 @@ class LangChainLLMManager(Chapter5StructuredManager):
 
     @staticmethod
     def _tokenize(text: str) -> set:
-        return set(re.findall(r"[a-zA-Z0-9_]+", text.lower()))
+        stop_words = {
+            "a",
+            "an",
+            "and",
+            "are",
+            "as",
+            "at",
+            "be",
+            "but",
+            "by",
+            "for",
+            "from",
+            "how",
+            "i",
+            "in",
+            "is",
+            "it",
+            "of",
+            "on",
+            "or",
+            "that",
+            "the",
+            "this",
+            "to",
+            "was",
+            "we",
+            "what",
+            "when",
+            "where",
+            "which",
+            "who",
+            "why",
+            "with",
+            "you",
+        }
+        tokens = set(re.findall(r"[a-zA-Z0-9_]+", text.lower()))
+        return {token for token in tokens if len(token) > 2 and token not in stop_words}
+
+    @staticmethod
+    def _is_follow_up_query(topic: str) -> bool:
+        normalized = topic.strip().lower()
+        follow_up_prefixes = (
+            "what about",
+            "how about",
+            "what else",
+            "and what",
+            "and how",
+            "also",
+            "follow up",
+        )
+        return normalized.startswith(follow_up_prefixes)
 
     def _score_message(self, query_tokens: set, content: str) -> int:
         content_tokens = self._tokenize(content)
@@ -44,14 +94,30 @@ class LangChainLLMManager(Chapter5StructuredManager):
         return len(query_tokens.intersection(content_tokens))
 
     def _select_retrieved_messages(self, topic: str, messages: List) -> List[Dict[str, str]]:
+        if self._is_follow_up_query(topic):
+            tail = messages[-self.retrieval_k :]
+            return [
+                {
+                    "role": getattr(msg, "type", "unknown"),
+                    "content": str(getattr(msg, "content", "")),
+                    "relevance_score": 1,
+                }
+                for msg in tail
+                if getattr(msg, "content", "")
+            ]
+
         query_tokens = self._tokenize(topic)
+        if not query_tokens:
+            return []
+
         scored = []
         for idx, msg in enumerate(messages):
             content = getattr(msg, "content", "")
             if not content:
                 continue
             score = self._score_message(query_tokens, str(content))
-            if score > 0:
+            overlap_ratio = score / len(query_tokens)
+            if score >= 2 or overlap_ratio >= 0.5:
                 scored.append((score, idx, msg))
 
         if not scored:
