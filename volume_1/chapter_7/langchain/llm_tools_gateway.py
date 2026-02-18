@@ -127,6 +127,44 @@ class LangChainLLMManager(Chapter6LangChainManager):
         }
         return retrieval_augmented_topic, retrieval_metadata
 
+
+    def _safe_reset_corrupt_history(self, provider: str, session_id: str) -> None:
+        session_path = self._session_file_path(provider, session_id)
+        if not session_path.exists():
+            return
+
+        backup_path = session_path.with_suffix(f"{session_path.suffix}.corrupt")
+        try:
+            if backup_path.exists():
+                backup_path.unlink()
+            session_path.replace(backup_path)
+        except Exception:
+            # If backup move fails, continue by overwriting in place.
+            pass
+
+        session_path.write_text("[]", encoding="utf-8")
+
+    def _get_history(self, provider: str, session_id: str):
+        history = super()._get_history(provider, session_id)
+        try:
+            _ = history.messages
+            return history
+        except Exception as exc:
+            message = str(exc)
+            known_corruption_signals = (
+                "string indices must be integers",
+                "Expecting value",
+                "JSON",
+            )
+            if not any(signal in message for signal in known_corruption_signals):
+                raise
+
+            self.histories.pop((provider, session_id), None)
+            self._safe_reset_corrupt_history(provider, session_id)
+            repaired_history = super()._get_history(provider, session_id)
+            _ = repaired_history.messages
+            return repaired_history
+
     def ask_question(
         self,
         topic: str,

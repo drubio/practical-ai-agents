@@ -6,7 +6,8 @@
  */
 
 import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/llm_memory_retrieval_gateway.js';
-import { interactiveCli, getDefaultModel } from '../../chapter_4/utils.js';
+import { interactiveCli, getDefaultModel, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
+import { normalizeResponseText } from '../../chapter_4/stream.js';
 import { build_tools_prompt as buildToolsPrompt, run_tool as runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
@@ -48,26 +49,49 @@ class LangChainLLMManager extends Chapter6LangChainManager {
     }
 
     _extractJsonObject(raw) {
-        let text = String(raw || '').trim();
-        if (text.startsWith('```json')) text = text.slice(7);
-        if (text.startsWith('```')) text = text.slice(3);
-        if (text.endsWith('```')) text = text.slice(0, -3);
-        text = text.trim();
+        return parseStructuredJsonResponse(raw);
+    }
 
-        try {
-            return JSON.parse(text);
-        } catch {
-            const match = text.match(/\{[\s\S]*\}/);
-            if (!match) throw new Error('No JSON object found in model response');
-            return JSON.parse(match[0]);
+    _buildFallbackToolPayload(rawText) {
+        const fallbackAnswer = normalizeResponseText(rawText).trim();
+        if (!fallbackAnswer) {
+            throw new Error('No JSON object found in model response');
         }
+        return {
+            tool_call: null,
+            final_answer: fallbackAnswer,
+        };
+    }
+
+    _normalizeToolPayload(rawPayload, rawText) {
+        if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+            return this._buildFallbackToolPayload(rawText);
+        }
+
+        const toolCall = rawPayload.tool_call;
+        const finalAnswer = rawPayload.final_answer;
+
+        if (typeof finalAnswer === 'string' && finalAnswer.trim()) {
+            return {
+                tool_call: toolCall && typeof toolCall === 'object' ? toolCall : null,
+                final_answer: finalAnswer.trim(),
+            };
+        }
+
+        return this._buildFallbackToolPayload(rawText);
     }
 
     async _invokeJsonStep(provider, prompt, temperature, maxTokens) {
         const client = this._createClient(provider, temperature, maxTokens);
         const result = await client.invoke(this._buildMessages(prompt));
         const text = this._extractText(provider, result);
-        return { payload: this._extractJsonObject(text), result };
+
+        try {
+            const payload = this._extractJsonObject(text);
+            return { payload: this._normalizeToolPayload(payload, text), result };
+        } catch {
+            return { payload: this._buildFallbackToolPayload(text), result };
+        }
     }
 
     async _buildRetrievalContext(provider, topic, sessionId) {
@@ -139,7 +163,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             if (toolCall && typeof toolCall === 'object' && toolCall.name) {
                 const toolName = String(toolCall.name);
                 const toolArgs = toolCall.arguments && typeof toolCall.arguments === 'object' ? toolCall.arguments : {};
-                toolOutput = runTool(toolName, toolArgs);
+                toolOutput = await runTool(toolName, toolArgs);
 
                 const followUpPrompt = FOLLOW_UP_TEMPLATE
                     .replace('{topic}', topic)
