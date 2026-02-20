@@ -1,9 +1,11 @@
 """Chapter 6 retrieval memory gateway for LangChain."""
 
 import os
-import re
 import sys
 from typing import Dict, List, Optional
+
+from langchain_core.documents import Document
+from langchain_community.retrievers import BM25Retriever
 
 CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
 CHAPTER_5_LANGCHAIN = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_5", "langchain"))
@@ -70,8 +72,15 @@ class LangChainLLMManager(Chapter5StructuredManager):
             "with",
             "you",
         }
-        tokens = set(re.findall(r"[a-zA-Z0-9_]+", text.lower()))
+        normalized = ''.join(ch.lower() if ch.isalnum() or ch == '_' else ' ' for ch in text)
+        tokens = set(normalized.split())
         return {token for token in tokens if len(token) > 2 and token not in stop_words}
+
+    def _score_message(self, query_tokens: set, content: str) -> int:
+        content_tokens = self._tokenize(content)
+        if not query_tokens or not content_tokens:
+            return 0
+        return len(query_tokens.intersection(content_tokens))
 
     @staticmethod
     def _is_follow_up_query(topic: str) -> bool:
@@ -87,12 +96,6 @@ class LangChainLLMManager(Chapter5StructuredManager):
         )
         return normalized.startswith(follow_up_prefixes)
 
-    def _score_message(self, query_tokens: set, content: str) -> int:
-        content_tokens = self._tokenize(content)
-        if not query_tokens or not content_tokens:
-            return 0
-        return len(query_tokens.intersection(content_tokens))
-
     def _select_retrieved_messages(self, topic: str, messages: List) -> List[Dict[str, str]]:
         if self._is_follow_up_query(topic):
             tail = messages[-self.retrieval_k :]
@@ -100,11 +103,33 @@ class LangChainLLMManager(Chapter5StructuredManager):
                 {
                     "role": getattr(msg, "type", "unknown"),
                     "content": str(getattr(msg, "content", "")),
-                    "relevance_score": 1,
                 }
                 for msg in tail
                 if getattr(msg, "content", "")
             ]
+
+        documents = []
+        for idx, msg in enumerate(messages):
+            content = str(getattr(msg, "content", "") or "")
+            if not content:
+                continue
+            role = getattr(msg, "type", "unknown")
+            documents.append(Document(page_content=content, metadata={"idx": idx, "role": role}))
+
+        if documents:
+            retriever = BM25Retriever.from_documents(documents, k=self.retrieval_k, include_score=True)
+            retrieved_docs = retriever.invoke(topic)
+            scored_docs = [doc for doc in retrieved_docs if float(doc.metadata.get("bm25Score", 0)) > 0]
+            if scored_docs:
+                top = sorted(scored_docs, key=lambda doc: doc.metadata.get("idx", 0))
+                return [
+                    {
+                        "role": str(doc.metadata.get("role", "unknown")),
+                        "content": str(doc.page_content),
+                        "relevance_score": float(doc.metadata.get("bm25Score", 0)),
+                    }
+                    for doc in top
+                ]
 
         query_tokens = self._tokenize(topic)
         if not query_tokens:
@@ -123,7 +148,6 @@ class LangChainLLMManager(Chapter5StructuredManager):
         if not scored:
             return []
 
-        # Keep most relevant messages, then restore chronological order.
         scored.sort(key=lambda item: (-item[0], item[1]))
         top = sorted(scored[: self.retrieval_k], key=lambda item: item[1])
         return [
