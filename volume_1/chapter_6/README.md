@@ -15,9 +15,9 @@ It includes:
 
 ### vs Chapter 5 (memory + persistence + structured output)
 - Stops replaying the entire conversation history into each prompt.
-- Scores stored memory turns by token overlap with the current query.
-- Selects top-`k` relevant snippets and injects only those snippets into the current prompt.
-- Reports retrieval metadata (`retrieved_messages_count`, token savings estimates, etc.).
+- Uses BM25 retrieval to select top-`k` relevant snippets for prompt injection.
+- Combines BM25 with lexical-overlap gating, then falls back to overlap-only matching when BM25 is weak.
+- Uses framework/native tokenizers for token-count estimates in retrieval metadata (`retrieved_messages_count`, token savings estimates, etc.); JS uses a provider-agnostic BPE baseline tokenizer.
 - Keeps persistent session memory behavior inherited from Chapter 5.
 
 ### Robust structured-response behavior (Py + JS)

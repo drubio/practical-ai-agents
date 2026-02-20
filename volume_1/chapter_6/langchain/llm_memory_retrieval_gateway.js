@@ -6,6 +6,7 @@ import { LangChainLLMManager as Chapter5StructuredLangChainManager, STRUCTURED_T
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { Document } from '../../chapter_4/node_modules/@langchain/core/documents.js';
 import { BM25Retriever } from '../../chapter_4/node_modules/@langchain/community/retrievers/bm25.js';
+import { getEncoding } from '../../chapter_4/node_modules/js-tiktoken/dist/index.js';
 
 class LangChainLLMManager extends Chapter5StructuredLangChainManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
@@ -14,11 +15,13 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
         this.framework = 'LangChain+Memory+Retrieval JS';
         this.retrievalMemoryEnabled = memoryEnabled;
         this.retrievalK = Math.max(1, retrievalK);
+        // Provider-agnostic tokenizer baseline (GPT-2 BPE), without model/provider mapping.
+        this.tokenizer = getEncoding('gpt2');
     }
 
     _estimateTokens(text) {
         if (!text) return 0;
-        return Math.max(1, Math.floor(String(text).length / 4));
+        return this.tokenizer.encode(String(text)).length;
     }
 
     _tokenize(text) {
@@ -31,7 +34,7 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
         return new Set(tokens.filter((token) => token.length > 2 && !stopWords.has(token)));
     }
 
-    _scoreMessage(queryTokens, content) {
+    _overlapScore(queryTokens, content) {
         const contentTokens = this._tokenize(content);
         if (queryTokens.size === 0 || contentTokens.size === 0) return 0;
         let score = 0;
@@ -41,30 +44,9 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
         return score;
     }
 
-    _isFollowUpQuery(topic) {
-        const normalized = String(topic || '').trim().toLowerCase();
-        const followUpPrefixes = [
-            'what about',
-            'how about',
-            'what else',
-            'and what',
-            'and how',
-            'also',
-            'follow up',
-        ];
-        return followUpPrefixes.some((prefix) => normalized.startsWith(prefix));
-    }
-
     async _selectRetrievedMessages(topic, messages) {
-        if (this._isFollowUpQuery(topic)) {
-            return messages
-                .slice(-this.retrievalK)
-                .filter((msg) => String(msg?.content ?? '').length > 0)
-                .map((msg) => ({
-                    role: msg?._getType?.() ?? msg?.getType?.() ?? msg?.type ?? msg?.role ?? 'unknown',
-                    content: String(msg?.content ?? ''),
-                }));
-        }
+        const queryTokens = this._tokenize(topic);
+        if (queryTokens.size === 0) return [];
 
         const docs = messages
             .map((msg, idx) => {
@@ -80,38 +62,35 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
             })
             .filter(Boolean);
 
-        if (docs.length === 0) return [];
+        if (docs.length > 0) {
+            const retriever = BM25Retriever.fromDocuments(docs, { k: this.retrievalK, includeScore: true });
+            const retrievedDocs = await retriever.invoke(topic);
+            const strongDocs = retrievedDocs.filter((doc) => {
+                const bm25 = Number(doc?.metadata?.bm25Score ?? 0);
+                if (bm25 <= 0) return false;
+                const overlap = this._overlapScore(queryTokens, String(doc?.pageContent ?? ''));
+                const overlapRatio = overlap / queryTokens.size;
+                return overlap >= 2 || overlapRatio >= 0.4;
+            });
 
-        const retriever = BM25Retriever.fromDocuments(docs, { k: this.retrievalK, includeScore: true });
-        const retrievedDocs = await retriever.invoke(topic);
-        const queryTokens = this._tokenize(topic);
-        if (queryTokens.size === 0) return [];
-
-        const positiveDocs = retrievedDocs.filter((doc) => Number(doc?.metadata?.bm25Score ?? 0) > 0);
-        const highSignalBm25Docs = positiveDocs.filter((doc) => {
-            const content = String(doc?.pageContent ?? '');
-            const overlapScore = this._scoreMessage(queryTokens, content);
-            const overlapRatio = overlapScore / queryTokens.size;
-            return overlapScore >= 2 || overlapRatio >= 0.5;
-        });
-
-        if (highSignalBm25Docs.length > 0) {
-            return highSignalBm25Docs
-                .sort((a, b) => (a?.metadata?.idx ?? 0) - (b?.metadata?.idx ?? 0))
-                .map((doc) => ({
-                    role: doc?.metadata?.role ?? 'unknown',
-                    content: String(doc?.pageContent ?? ''),
-                    relevance_score: Number(doc?.metadata?.bm25Score ?? 0),
-                }));
+            if (strongDocs.length > 0) {
+                return strongDocs
+                    .sort((a, b) => (a?.metadata?.idx ?? 0) - (b?.metadata?.idx ?? 0))
+                    .map((doc) => ({
+                        role: doc?.metadata?.role ?? 'unknown',
+                        content: String(doc?.pageContent ?? ''),
+                        relevance_score: Number(doc?.metadata?.bm25Score ?? 0),
+                    }));
+            }
         }
 
         const fallbackScored = [];
         messages.forEach((msg, idx) => {
             const content = String(msg?.content ?? '');
             if (!content) return;
-            const score = this._scoreMessage(queryTokens, content);
+            const score = this._overlapScore(queryTokens, content);
             const overlapRatio = score / queryTokens.size;
-            if (score >= 2 || overlapRatio >= 0.5) fallbackScored.push({ score, idx, msg });
+            if (score >= 2 || overlapRatio >= 0.4) fallbackScored.push({ score, idx, msg });
         });
 
         return fallbackScored

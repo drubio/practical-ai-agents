@@ -12,6 +12,7 @@ sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CHAPTER_5_LLAMAINDEX)
 
 from llama_index.core.llms import ChatMessage
+from llama_index.core.utils import get_tokenizer
 from rank_bm25 import BM25Okapi
 
 from llm_memory_structured_gateway import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
@@ -27,89 +28,37 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
         self.retrieval_memory_enabled = memory_enabled
         self.retrieval_k = max(1, retrieval_k)
         self.framework = "LlamaIndex+Memory+Retrieval"
+        self._tokenizer = get_tokenizer()
 
-    @staticmethod
-    def _estimate_tokens(text: str) -> int:
+    def _estimate_tokens(self, text: str) -> int:
         if not text:
             return 0
-        return max(1, int(len(text) / 4))
-
-    @staticmethod
-    def _tokenize(text: str) -> set:
-        stop_words = {
-            "a",
-            "an",
-            "and",
-            "are",
-            "as",
-            "at",
-            "be",
-            "but",
-            "by",
-            "for",
-            "from",
-            "how",
-            "i",
-            "in",
-            "is",
-            "it",
-            "of",
-            "on",
-            "or",
-            "that",
-            "the",
-            "this",
-            "to",
-            "was",
-            "we",
-            "what",
-            "when",
-            "where",
-            "which",
-            "who",
-            "why",
-            "with",
-            "you",
-        }
-        tokens = set(re.findall(r"[a-zA-Z0-9_]+", text.lower()))
-        return {token for token in tokens if len(token) > 2 and token not in stop_words}
-
-    @staticmethod
-    def _is_follow_up_query(topic: str) -> bool:
-        normalized = topic.strip().lower()
-        follow_up_prefixes = (
-            "what about",
-            "how about",
-            "what else",
-            "and what",
-            "and how",
-            "also",
-            "follow up",
-        )
-        return normalized.startswith(follow_up_prefixes)
-
-    def _score_message(self, query_tokens: set, content: str) -> int:
-        content_tokens = self._tokenize(content)
-        if not query_tokens or not content_tokens:
-            return 0
-        return len(query_tokens.intersection(content_tokens))
+        return len(self._tokenizer(text))
 
     @staticmethod
     def _normalize_bm25_tokens(text: str) -> List[str]:
         return re.findall(r"[a-zA-Z0-9_]+", str(text).lower())
 
+    @staticmethod
+    def _tokenize(text: str) -> set:
+        stop_words = {
+            "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "how",
+            "i", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "was",
+            "we", "what", "when", "where", "which", "who", "why", "with", "you",
+        }
+        tokens = set(re.findall(r"[a-zA-Z0-9_]+", str(text).lower()))
+        return {token for token in tokens if len(token) > 2 and token not in stop_words}
+
+    def _overlap_score(self, query_tokens: set, content: str) -> int:
+        content_tokens = self._tokenize(content)
+        if not query_tokens or not content_tokens:
+            return 0
+        return len(query_tokens.intersection(content_tokens))
+
     def _select_retrieved_messages(self, topic: str, messages: List[ChatMessage]) -> List[Dict[str, str]]:
-        if self._is_follow_up_query(topic):
-            tail = messages[-self.retrieval_k :]
-            return [
-                {
-                    "role": str(getattr(msg, "role", "unknown")),
-                    "content": str(getattr(msg, "content", "")),
-                    "relevance_score": 1,
-                }
-                for msg in tail
-                if getattr(msg, "content", "")
-            ]
+        query_tokens = self._tokenize(topic)
+        if not query_tokens:
+            return []
 
         message_records = []
         for idx, msg in enumerate(messages):
@@ -126,23 +75,22 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             )
 
         query_terms = self._normalize_bm25_tokens(topic)
-        query_tokens = self._tokenize(topic)
-        if message_records and query_terms and query_tokens:
+        if message_records and query_terms:
             bm25 = BM25Okapi([record["tokens"] for record in message_records])
             scores = bm25.get_scores(query_terms)
-
-            candidates = []
+            strong = []
             for idx, score in enumerate(scores):
-                if float(score) <= 0:
+                bm25_score = float(score)
+                if bm25_score <= 0:
                     continue
                 record = message_records[idx]
-                overlap_score = self._score_message(query_tokens, record["content"])
-                overlap_ratio = overlap_score / len(query_tokens)
-                if overlap_score >= 2 or overlap_ratio >= 0.5:
-                    candidates.append((float(score), record))
+                overlap = self._overlap_score(query_tokens, record["content"])
+                overlap_ratio = overlap / len(query_tokens)
+                if overlap >= 2 or overlap_ratio >= 0.4:
+                    strong.append((bm25_score, record))
 
-            if candidates:
-                top = sorted(candidates, key=lambda item: (-item[0], item[1]["idx"]))[: self.retrieval_k]
+            if strong:
+                top = sorted(strong, key=lambda item: (-item[0], item[1]["idx"]))[: self.retrieval_k]
                 chronological = sorted(top, key=lambda item: item[1]["idx"])
                 return [
                     {
@@ -153,24 +101,21 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
                     for score, record in chronological
                 ]
 
-        if not query_tokens:
-            return []
-
-        scored = []
+        fallback = []
         for idx, msg in enumerate(messages):
-            content = getattr(msg, "content", "")
+            content = str(getattr(msg, "content", "") or "")
             if not content:
                 continue
-            score = self._score_message(query_tokens, str(content))
+            score = self._overlap_score(query_tokens, content)
             overlap_ratio = score / len(query_tokens)
-            if score >= 2 or overlap_ratio >= 0.5:
-                scored.append((score, idx, msg))
+            if score >= 2 or overlap_ratio >= 0.4:
+                fallback.append((score, idx, msg))
 
-        if not scored:
+        if not fallback:
             return []
 
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        top = sorted(scored[: self.retrieval_k], key=lambda item: item[1])
+        fallback.sort(key=lambda item: (-item[0], item[1]))
+        top = sorted(fallback[: self.retrieval_k], key=lambda item: item[1])
         return [
             {
                 "role": str(getattr(msg, "role", "unknown")),

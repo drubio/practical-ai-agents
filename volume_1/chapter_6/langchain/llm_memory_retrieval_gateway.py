@@ -1,10 +1,13 @@
 """Chapter 6 retrieval memory gateway for LangChain."""
 
 import os
+import re
 import sys
 from typing import Dict, List, Optional
 
 from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_community.retrievers import BM25Retriever
 
 CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
@@ -33,80 +36,28 @@ class LangChainLLMManager(Chapter5StructuredManager):
     def _estimate_tokens(text: str) -> int:
         if not text:
             return 0
-        return max(1, int(len(text) / 4))
+        return int(count_tokens_approximately([HumanMessage(content=text)]))
 
     @staticmethod
     def _tokenize(text: str) -> set:
         stop_words = {
-            "a",
-            "an",
-            "and",
-            "are",
-            "as",
-            "at",
-            "be",
-            "but",
-            "by",
-            "for",
-            "from",
-            "how",
-            "i",
-            "in",
-            "is",
-            "it",
-            "of",
-            "on",
-            "or",
-            "that",
-            "the",
-            "this",
-            "to",
-            "was",
-            "we",
-            "what",
-            "when",
-            "where",
-            "which",
-            "who",
-            "why",
-            "with",
-            "you",
+            "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "how",
+            "i", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "was",
+            "we", "what", "when", "where", "which", "who", "why", "with", "you",
         }
-        normalized = ''.join(ch.lower() if ch.isalnum() or ch == '_' else ' ' for ch in text)
-        tokens = set(normalized.split())
+        tokens = set(re.findall(r"[a-zA-Z0-9_]+", str(text).lower()))
         return {token for token in tokens if len(token) > 2 and token not in stop_words}
 
-    def _score_message(self, query_tokens: set, content: str) -> int:
+    def _overlap_score(self, query_tokens: set, content: str) -> int:
         content_tokens = self._tokenize(content)
         if not query_tokens or not content_tokens:
             return 0
         return len(query_tokens.intersection(content_tokens))
 
-    @staticmethod
-    def _is_follow_up_query(topic: str) -> bool:
-        normalized = topic.strip().lower()
-        follow_up_prefixes = (
-            "what about",
-            "how about",
-            "what else",
-            "and what",
-            "and how",
-            "also",
-            "follow up",
-        )
-        return normalized.startswith(follow_up_prefixes)
-
     def _select_retrieved_messages(self, topic: str, messages: List) -> List[Dict[str, str]]:
-        if self._is_follow_up_query(topic):
-            tail = messages[-self.retrieval_k :]
-            return [
-                {
-                    "role": getattr(msg, "type", "unknown"),
-                    "content": str(getattr(msg, "content", "")),
-                }
-                for msg in tail
-                if getattr(msg, "content", "")
-            ]
+        query_tokens = self._tokenize(topic)
+        if not query_tokens:
+            return []
 
         documents = []
         for idx, msg in enumerate(messages):
@@ -119,9 +70,18 @@ class LangChainLLMManager(Chapter5StructuredManager):
         if documents:
             retriever = BM25Retriever.from_documents(documents, k=self.retrieval_k, include_score=True)
             retrieved_docs = retriever.invoke(topic)
-            scored_docs = [doc for doc in retrieved_docs if float(doc.metadata.get("bm25Score", 0)) > 0]
-            if scored_docs:
-                top = sorted(scored_docs, key=lambda doc: doc.metadata.get("idx", 0))
+            strong_docs = []
+            for doc in retrieved_docs:
+                bm25 = float(doc.metadata.get("bm25Score", 0))
+                if bm25 <= 0:
+                    continue
+                overlap = self._overlap_score(query_tokens, str(doc.page_content))
+                overlap_ratio = overlap / len(query_tokens)
+                if overlap >= 2 or overlap_ratio >= 0.4:
+                    strong_docs.append(doc)
+
+            if strong_docs:
+                top = sorted(strong_docs, key=lambda doc: doc.metadata.get("idx", 0))
                 return [
                     {
                         "role": str(doc.metadata.get("role", "unknown")),
@@ -131,25 +91,21 @@ class LangChainLLMManager(Chapter5StructuredManager):
                     for doc in top
                 ]
 
-        query_tokens = self._tokenize(topic)
-        if not query_tokens:
-            return []
-
-        scored = []
+        fallback = []
         for idx, msg in enumerate(messages):
-            content = getattr(msg, "content", "")
+            content = str(getattr(msg, "content", "") or "")
             if not content:
                 continue
-            score = self._score_message(query_tokens, str(content))
-            overlap_ratio = score / len(query_tokens)
-            if score >= 2 or overlap_ratio >= 0.5:
-                scored.append((score, idx, msg))
+            overlap = self._overlap_score(query_tokens, content)
+            overlap_ratio = overlap / len(query_tokens)
+            if overlap >= 2 or overlap_ratio >= 0.4:
+                fallback.append((overlap, idx, msg))
 
-        if not scored:
+        if not fallback:
             return []
 
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        top = sorted(scored[: self.retrieval_k], key=lambda item: item[1])
+        fallback.sort(key=lambda item: (-item[0], item[1]))
+        top = sorted(fallback[: self.retrieval_k], key=lambda item: item[1])
         return [
             {
                 "role": getattr(msg, "type", "unknown"),

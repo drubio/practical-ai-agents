@@ -4,6 +4,7 @@
 
 import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/llm_memory_structured_gateway.js';
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
+import { getEncoding } from '../../chapter_4/node_modules/js-tiktoken/dist/index.js';
 
 class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
@@ -12,11 +13,17 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         this.framework = 'LlamaIndex+Memory+Retrieval JS';
         this.retrievalMemoryEnabled = memoryEnabled;
         this.retrievalK = Math.max(1, retrievalK);
+        // Provider-agnostic tokenizer baseline (GPT-2 BPE), without model/provider mapping.
+        this.tokenizer = getEncoding('gpt2');
     }
 
     _estimateTokens(text) {
         if (!text) return 0;
-        return Math.max(1, Math.floor(String(text).length / 4));
+        return this.tokenizer.encode(String(text)).length;
+    }
+
+    _normalizeBm25Tokens(text) {
+        return String(text || '').toLowerCase().match(/[a-zA-Z0-9_]+/g) || [];
     }
 
     _tokenize(text) {
@@ -25,25 +32,11 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
             'i', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'was',
             'we', 'what', 'when', 'where', 'which', 'who', 'why', 'with', 'you',
         ]);
-        const tokens = String(text || '').toLowerCase().match(/[a-zA-Z0-9_]+/g) || [];
+        const tokens = String(text || '').toLowerCase().match(/[a-z0-9_]+/g) || [];
         return new Set(tokens.filter((token) => token.length > 2 && !stopWords.has(token)));
     }
 
-    _isFollowUpQuery(topic) {
-        const normalized = String(topic || '').trim().toLowerCase();
-        const followUpPrefixes = [
-            'what about',
-            'how about',
-            'what else',
-            'and what',
-            'and how',
-            'also',
-            'follow up',
-        ];
-        return followUpPrefixes.some((prefix) => normalized.startsWith(prefix));
-    }
-
-    _scoreMessage(queryTokens, content) {
+    _overlapScore(queryTokens, content) {
         const contentTokens = this._tokenize(content);
         if (queryTokens.size === 0 || contentTokens.size === 0) return 0;
         let score = 0;
@@ -53,10 +46,6 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         return score;
     }
 
-    _normalizeBm25Tokens(text) {
-        return String(text || '').toLowerCase().match(/[a-zA-Z0-9_]+/g) || [];
-    }
-
     async _getMemoryMessages(provider, sessionId) {
         const memory = this._getMemory(provider, sessionId);
         const messagePayload = await memory.get({ type: 'llamaindex' });
@@ -64,19 +53,10 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
     }
 
     _selectRetrievedMessages(topic, messages) {
-        if (this._isFollowUpQuery(topic)) {
-            return messages
-                .slice(-this.retrievalK)
-                .filter((msg) => String(msg?.content ?? '').length > 0)
-                .map((msg) => ({
-                    role: msg?._getType?.() ?? msg?.getType?.() ?? msg?.type ?? msg?.role ?? 'unknown',
-                    content: String(msg?.content ?? ''),
-                    relevance_score: 1,
-                }));
-        }
-
         const queryTerms = this._normalizeBm25Tokens(topic);
         const queryTokens = this._tokenize(topic);
+        if (queryTokens.size === 0) return [];
+
         const candidates = [];
 
         messages.forEach((msg, idx) => {
@@ -91,7 +71,7 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
             });
         });
 
-        if (candidates.length > 0 && queryTerms.length > 0 && queryTokens.size > 0) {
+        if (candidates.length > 0 && queryTerms.length > 0) {
             const avgDocLength = candidates.reduce((sum, item) => sum + item.tokens.length, 0) / candidates.length;
             const tokenDocFreq = new Map();
             candidates.forEach((item) => {
@@ -121,10 +101,9 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
                         bm25Score += idf * ((tf * (k1 + 1)) / denominator);
                     });
 
-                    const overlapScore = this._scoreMessage(queryTokens, item.content);
-                    const overlapRatio = overlapScore / queryTokens.size;
-                    const hasSignal = overlapScore >= 2 || overlapRatio >= 0.5;
-
+                    const overlap = this._overlapScore(queryTokens, item.content);
+                    const overlapRatio = overlap / queryTokens.size;
+                    const hasSignal = overlap >= 2 || overlapRatio >= 0.4;
                     return { ...item, bm25Score, hasSignal };
                 })
                 .filter((item) => item.bm25Score > 0 && item.hasSignal)
@@ -142,30 +121,24 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
             }
         }
 
-        if (queryTokens.size === 0) return [];
-
-        const scored = [];
-
+        const fallback = [];
         messages.forEach((msg, idx) => {
             const content = String(msg?.content ?? '');
             if (!content) return;
-            const score = this._scoreMessage(queryTokens, content);
+            const score = this._overlapScore(queryTokens, content);
             const overlapRatio = score / queryTokens.size;
-            if (score >= 2 || overlapRatio >= 0.5) scored.push({ score, idx, msg });
+            if (score >= 2 || overlapRatio >= 0.4) fallback.push({ score, idx, msg });
         });
 
-        if (scored.length === 0) return [];
-
-        scored.sort((a, b) => (b.score - a.score) || (a.idx - b.idx));
-        const topChronological = scored
+        return fallback
+            .sort((a, b2) => (b2.score - a.score) || (a.idx - b2.idx))
             .slice(0, this.retrievalK)
-            .sort((a, b) => a.idx - b.idx);
-
-        return topChronological.map(({ score, msg }) => ({
-            role: String(msg?.role ?? 'unknown'),
-            content: String(msg?.content ?? ''),
-            relevance_score: score,
-        }));
+            .sort((a, b2) => a.idx - b2.idx)
+            .map(({ score, msg }) => ({
+                role: String(msg?.role ?? 'unknown'),
+                content: String(msg?.content ?? ''),
+                relevance_score: score,
+            }));
     }
 
     async askQuestion(topic, provider = null, template = STRUCTURED_TEMPLATE, maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
