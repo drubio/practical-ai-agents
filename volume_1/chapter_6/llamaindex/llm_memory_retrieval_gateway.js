@@ -53,6 +53,10 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         return score;
     }
 
+    _normalizeBm25Tokens(text) {
+        return String(text || '').toLowerCase().match(/[a-zA-Z0-9_]+/g) || [];
+    }
+
     async _getMemoryMessages(provider, sessionId) {
         const memory = this._getMemory(provider, sessionId);
         const messagePayload = await memory.get({ type: 'llamaindex' });
@@ -71,7 +75,73 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
                 }));
         }
 
+        const queryTerms = this._normalizeBm25Tokens(topic);
         const queryTokens = this._tokenize(topic);
+        const candidates = [];
+
+        messages.forEach((msg, idx) => {
+            const content = String(msg?.content ?? '');
+            if (!content) return;
+            const role = msg?._getType?.() ?? msg?.getType?.() ?? msg?.type ?? msg?.role ?? 'unknown';
+            candidates.push({
+                idx,
+                role: String(role),
+                content,
+                tokens: this._normalizeBm25Tokens(content),
+            });
+        });
+
+        if (candidates.length > 0 && queryTerms.length > 0 && queryTokens.size > 0) {
+            const avgDocLength = candidates.reduce((sum, item) => sum + item.tokens.length, 0) / candidates.length;
+            const tokenDocFreq = new Map();
+            candidates.forEach((item) => {
+                const uniqueTokens = new Set(item.tokens);
+                uniqueTokens.forEach((token) => {
+                    tokenDocFreq.set(token, (tokenDocFreq.get(token) || 0) + 1);
+                });
+            });
+
+            const k1 = 1.5;
+            const b = 0.75;
+            const bm25Scored = candidates
+                .map((item) => {
+                    const termFrequency = new Map();
+                    item.tokens.forEach((token) => {
+                        termFrequency.set(token, (termFrequency.get(token) || 0) + 1);
+                    });
+
+                    let bm25Score = 0;
+                    queryTerms.forEach((term) => {
+                        const tf = termFrequency.get(term) || 0;
+                        if (tf === 0) return;
+
+                        const docFreq = tokenDocFreq.get(term) || 0;
+                        const idf = Math.log(1 + (candidates.length - docFreq + 0.5) / (docFreq + 0.5));
+                        const denominator = tf + k1 * (1 - b + b * (item.tokens.length / (avgDocLength || 1)));
+                        bm25Score += idf * ((tf * (k1 + 1)) / denominator);
+                    });
+
+                    const overlapScore = this._scoreMessage(queryTokens, item.content);
+                    const overlapRatio = overlapScore / queryTokens.size;
+                    const hasSignal = overlapScore >= 2 || overlapRatio >= 0.5;
+
+                    return { ...item, bm25Score, hasSignal };
+                })
+                .filter((item) => item.bm25Score > 0 && item.hasSignal)
+                .sort((a, b2) => (b2.bm25Score - a.bm25Score) || (a.idx - b2.idx));
+
+            if (bm25Scored.length > 0) {
+                return bm25Scored
+                    .slice(0, this.retrievalK)
+                    .sort((a, b2) => a.idx - b2.idx)
+                    .map((item) => ({
+                        role: item.role,
+                        content: item.content,
+                        relevance_score: Number(item.bm25Score.toFixed(6)),
+                    }));
+            }
+        }
+
         if (queryTokens.size === 0) return [];
 
         const scored = [];

@@ -12,6 +12,7 @@ sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CHAPTER_5_LLAMAINDEX)
 
 from llama_index.core.llms import ChatMessage
+from rank_bm25 import BM25Okapi
 
 from llm_memory_structured_gateway import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
 from utils import get_default_model, interactive_cli, parse_structured_json_response
@@ -93,6 +94,10 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             return 0
         return len(query_tokens.intersection(content_tokens))
 
+    @staticmethod
+    def _normalize_bm25_tokens(text: str) -> List[str]:
+        return re.findall(r"[a-zA-Z0-9_]+", str(text).lower())
+
     def _select_retrieved_messages(self, topic: str, messages: List[ChatMessage]) -> List[Dict[str, str]]:
         if self._is_follow_up_query(topic):
             tail = messages[-self.retrieval_k :]
@@ -106,7 +111,48 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
                 if getattr(msg, "content", "")
             ]
 
+        message_records = []
+        for idx, msg in enumerate(messages):
+            content = str(getattr(msg, "content", "") or "")
+            if not content:
+                continue
+            message_records.append(
+                {
+                    "idx": idx,
+                    "role": str(getattr(msg, "role", "unknown")),
+                    "content": content,
+                    "tokens": self._normalize_bm25_tokens(content),
+                }
+            )
+
+        query_terms = self._normalize_bm25_tokens(topic)
         query_tokens = self._tokenize(topic)
+        if message_records and query_terms and query_tokens:
+            bm25 = BM25Okapi([record["tokens"] for record in message_records])
+            scores = bm25.get_scores(query_terms)
+
+            candidates = []
+            for idx, score in enumerate(scores):
+                if float(score) <= 0:
+                    continue
+                record = message_records[idx]
+                overlap_score = self._score_message(query_tokens, record["content"])
+                overlap_ratio = overlap_score / len(query_tokens)
+                if overlap_score >= 2 or overlap_ratio >= 0.5:
+                    candidates.append((float(score), record))
+
+            if candidates:
+                top = sorted(candidates, key=lambda item: (-item[0], item[1]["idx"]))[: self.retrieval_k]
+                chronological = sorted(top, key=lambda item: item[1]["idx"])
+                return [
+                    {
+                        "role": record["role"],
+                        "content": record["content"],
+                        "relevance_score": score,
+                    }
+                    for score, record in chronological
+                ]
+
         if not query_tokens:
             return []
 
