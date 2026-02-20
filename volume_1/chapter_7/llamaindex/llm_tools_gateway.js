@@ -147,6 +147,16 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
     }
 
 
+
+    _normalizeWikipediaQuery(topic) {
+        const text = String(topic || '').trim();
+        if (!text) return text;
+        return text
+            .replace(/^\s*(what\s+is|who\s+is|where\s+is|when\s+did|when\s+was|why\s+is|how\s+is)\s+/i, '')
+            .replace(/[?]+$/g, '')
+            .trim();
+    }
+
     _shouldForceWikipediaTool(topic, toolCall) {
         if (toolCall && typeof toolCall === 'object' && toolCall.name) return false;
         const text = String(topic || '').toLowerCase();
@@ -192,7 +202,7 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
             if (this._shouldForceWikipediaTool(topic, effectiveToolCall)) {
                 effectiveToolCall = {
                     name: 'get_wikipedia_evidence_pack',
-                    arguments: { query: topic },
+                    arguments: { query: this._normalizeWikipediaQuery(topic) || topic },
                 };
             }
 

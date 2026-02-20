@@ -101,7 +101,8 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             messages = await history.getMessages();
         }
 
-        const retrieved = this.retrievalMemoryEnabled ? this._selectRetrievedMessages(topic, messages) : [];
+        const retrievedResult = this.retrievalMemoryEnabled ? await this._selectRetrievedMessages(topic, messages) : [];
+        const retrieved = Array.isArray(retrievedResult) ? retrievedResult : [];
         const retrievedContext = retrieved.map((item) => `[${item.role}] ${item.content}`).join('\n');
         const retrievalAugmentedTopic = retrievedContext
             ? `Relevant memory snippets:\n${retrievedContext}\n\nCurrent user topic: ${topic}`
@@ -135,6 +136,16 @@ class LangChainLLMManager extends Chapter6LangChainManager {
         };
     }
 
+
+
+    _normalizeWikipediaQuery(topic) {
+        const text = String(topic || '').trim();
+        if (!text) return text;
+        return text
+            .replace(/^\s*(what\s+is|who\s+is|where\s+is|when\s+did|when\s+was|why\s+is|how\s+is)\s+/i, '')
+            .replace(/[?]+$/g, '')
+            .trim();
+    }
 
     _shouldForceWikipediaTool(topic, toolCall) {
         if (toolCall && typeof toolCall === 'object' && toolCall.name) return false;
@@ -181,7 +192,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             if (this._shouldForceWikipediaTool(topic, effectiveToolCall)) {
                 effectiveToolCall = {
                     name: 'get_wikipedia_evidence_pack',
-                    arguments: { query: topic },
+                    arguments: { query: this._normalizeWikipediaQuery(topic) || topic },
                 };
             }
 

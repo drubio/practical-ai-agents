@@ -141,14 +141,13 @@ All Chapter 7 gateways follow the same two-step JSON tool loop:
 
 Current tools shared by Python/JS utilities:
 
-- `format_markdown_to_html` — convert markdown into HTML
-- `get_datetime` — return current time in a given timezone
+- `get_wikipedia_evidence_pack` — fetch Wikipedia summary + references + Wikimedia media
 
 Both utility modules expose:
 
 - tool definitions metadata (`TOOL_DEFINITIONS`)
-- a dispatcher (`runTool`)
-- a prompt helper (`buildToolsPrompt`)
+- a dispatcher (`run_tool` in Python / `runTool` in JS)
+- a prompt helper (`build_tools_prompt` in Python / `buildToolsPrompt` in JS)
 
 ## Notes
 
