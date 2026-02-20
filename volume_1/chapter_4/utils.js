@@ -186,8 +186,8 @@ export async function getUserChoice(options, prompt, ask) {
     console.log(`\n${prompt}`);
     options.forEach((option, i) => console.log(`${i + 1}. ${option}`));
     while (true) {
-        const answer = await ask(`Select an option (1-${options.length}): `);
-        const choice = parseInt(answer, 10) - 1;
+        const answer = (await ask(`Select an option (1-${options.length}, default 1): `)).trim();
+        const choice = (answer === '' ? 1 : parseInt(answer, 10)) - 1;
         if (choice >= 0 && choice < options.length) return choice;
         console.log('Invalid selection. Please try again.');
     }
@@ -277,8 +277,13 @@ export async function interactiveCli(manager) {
         const { temperature, maxTokens } = await getUserParameters(ask);
         console.log(`\nUsing temperature: ${temperature}, max tokens: ${maxTokens}`);
 
-        console.log(`\nAvailable: ${availableProviders.map((p) => getDisplayName(p)).join(', ')}`);
-        const mode = (await ask('Query ALL providers or select one? (all/one): ')).trim().toLowerCase();
+        const sortedProviders = [...availableProviders].sort((a, b) => {
+            if (a === 'openai') return -1;
+            if (b === 'openai') return 1;
+            return getDisplayName(a).localeCompare(getDisplayName(b));
+        });
+        console.log(`\nAvailable providers: ${sortedProviders.map((p) => getDisplayName(p)).join(', ')}`);
+        const mode = ((await ask('Query ALL providers or select one? (all/one, default one): ')).trim().toLowerCase() || 'one');
 
         const fullMemorySupported = Boolean(
             manager.memoryEnabled
@@ -310,9 +315,9 @@ export async function interactiveCli(manager) {
                 saveResponseToFile(results, formatFilename(question, manager.framework.toLowerCase()));
             }
         } else {
-            const names = availableProviders.map((p) => getDisplayName(p));
+            const names = sortedProviders.map((p) => getDisplayName(p));
             const choice = await getUserChoice(names, 'Select a provider:', ask);
-            const provider = availableProviders[choice];
+            const provider = sortedProviders[choice];
 
             let sessionId = 'default';
             if (memorySupported) {

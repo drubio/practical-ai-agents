@@ -245,7 +245,8 @@ def get_user_choice(options: List[str], prompt: str) -> int:
     
     while True:
         try:
-            choice = int(input(f"Select an option (1-{len(options)}): ")) - 1
+            raw_choice = input(f"Select an option (1-{len(options)}, default 1): ").strip()
+            choice = (int(raw_choice) if raw_choice else 1) - 1
             if 0 <= choice < len(options):
                 return choice
             else:
@@ -342,8 +343,9 @@ def interactive_cli(manager: BaseLLMManager):
     temperature, max_tokens = get_user_parameters()
     print(f"\nUsing temperature: {temperature}, max tokens: {max_tokens}")
 
+    available_providers = sorted(available_providers, key=lambda provider: (provider != "openai", get_display_name(provider)))
     print(f"\nAvailable providers: {', '.join([get_display_name(p) for p in available_providers])}")
-    query_all = input("Query ALL providers or select one? (all/one): ").strip().lower()
+    query_all = input("Query ALL providers or select one? (all/one, default one): ").strip().lower() or "one"
 
     # Determine memory compatibility once (kept in sync with JS logic)
     full_memory_supported = (
