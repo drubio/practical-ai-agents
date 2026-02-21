@@ -60,6 +60,10 @@ type ResponseDetails = {
   confidence?: string;
   notes?: string;
   tokenUsage?: TokenUsage;
+  tokensWithMemoryRetrieval?: number;
+  tokensWithoutMemoryRetrieval?: number;
+  estimatedTokensSaved?: number;
+  estimatedTokenReductionPercent?: number;
 };
 
 type ProcessedResponse = {
@@ -380,6 +384,9 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
     ? `${details.tokenUsage.total_tokens} tokens`
     : null;
   const keywords = details.keywords?.length ? details.keywords : [];
+  const tokenSavingsText = details.estimatedTokenReductionPercent !== undefined
+    ? `Tokens saved: ${details.estimatedTokenReductionPercent}%`
+    : null;
 
   return (
     <div className="mt-2 border-t border-gray-200 pt-2 text-xs text-gray-600">
@@ -396,10 +403,13 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
           ))}
         </div>
 
-        {tokenText && <span className="font-medium text-gray-500">{tokenText}</span>}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {tokenText && <span className="font-medium text-gray-500">{tokenText}</span>}
+          {tokenSavingsText && <span className="font-medium text-gray-500">{tokenSavingsText}</span>}
+        </div>
       </div>
 
-      {(details.summary || details.distilled || details.notes || details.confidence || details.provider || details.sessionId) && (
+      {(details.summary || details.distilled || details.notes || details.confidence || details.provider || details.sessionId || details.tokensWithMemoryRetrieval !== undefined || details.tokensWithoutMemoryRetrieval !== undefined || details.estimatedTokensSaved !== undefined || details.estimatedTokenReductionPercent !== undefined) && (
         <details className="mt-2">
           <summary className="cursor-pointer text-gray-500 hover:text-gray-700">More response details</summary>
           <div className="mt-1 space-y-1 text-gray-700">
@@ -414,6 +424,18 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
             )}
             {details.tokenUsage?.completion_tokens !== undefined && (
               <div><span className="font-semibold">Completion tokens:</span> {details.tokenUsage.completion_tokens}</div>
+            )}
+            {details.tokensWithMemoryRetrieval !== undefined && (
+              <div><span className="font-semibold">Tokens with memory retrieval:</span> {details.tokensWithMemoryRetrieval}</div>
+            )}
+            {details.tokensWithoutMemoryRetrieval !== undefined && (
+              <div><span className="font-semibold">Tokens without memory retrieval:</span> {details.tokensWithoutMemoryRetrieval}</div>
+            )}
+            {details.estimatedTokensSaved !== undefined && (
+              <div><span className="font-semibold">Estimated tokens saved:</span> {details.estimatedTokensSaved}</div>
+            )}
+            {details.estimatedTokenReductionPercent !== undefined && (
+              <div><span className="font-semibold">Estimated token reduction savings :</span> {details.estimatedTokenReductionPercent}%</div>
             )}
           </div>
         </details>

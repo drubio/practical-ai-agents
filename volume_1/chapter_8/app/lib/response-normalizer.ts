@@ -13,6 +13,10 @@ export type ResponseDetails = {
   confidence?: string;
   notes?: string;
   tokenUsage?: TokenUsage;
+  tokensWithMemoryRetrieval?: number;
+  tokensWithoutMemoryRetrieval?: number;
+  estimatedTokensSaved?: number;
+  estimatedTokenReductionPercent?: number;
 };
 
 export type ProcessedResponse = {
@@ -142,6 +146,15 @@ export const buildDetails = (structured: any, data: any): ResponseDetails | unde
   const responseData = normalizeToObject(data?.response) || {};
   const contentData = normalizeToObject(data?.content) || {};
   const answerData = normalizeToObject(data?.answer) || {};
+  const retrievalData = normalizeToObject(
+    structuredData?.metadata?.retrieval
+    || responseData?.metadata?.retrieval
+    || contentData?.metadata?.retrieval
+    || answerData?.metadata?.retrieval
+    || data?.metadata?.retrieval
+    || data?.response?.metadata?.retrieval
+    || data?.retrieval
+  ) || {};
 
   const note = structuredData?.metadata?.notes;
 
@@ -166,7 +179,11 @@ export const buildDetails = (structured: any, data: any): ResponseDetails | unde
     ),
     confidence: structuredData?.metadata?.confidence,
     notes: shouldKeepNote(note) ? note : undefined,
-    tokenUsage: extractTokenUsage(data)
+    tokenUsage: extractTokenUsage(data),
+    tokensWithMemoryRetrieval: retrievalData?.tokens_with_memory_retrieval,
+    tokensWithoutMemoryRetrieval: retrievalData?.tokens_without_memory_retrieval,
+    estimatedTokensSaved: retrievalData?.estimated_tokens_saved,
+    estimatedTokenReductionPercent: retrievalData?.estimated_token_reduction_percent
   };
 
   return Object.values(details).some((value) => value !== undefined) ? details : undefined;
@@ -183,7 +200,11 @@ export const mergeDetails = (base?: ResponseDetails, fallback?: ResponseDetails)
     keywords: (base?.keywords && base.keywords.length ? base.keywords : fallback?.keywords),
     confidence: base?.confidence || fallback?.confidence,
     notes: base?.notes || fallback?.notes,
-    tokenUsage: base?.tokenUsage || fallback?.tokenUsage
+    tokenUsage: base?.tokenUsage || fallback?.tokenUsage,
+    tokensWithMemoryRetrieval: base?.tokensWithMemoryRetrieval ?? fallback?.tokensWithMemoryRetrieval,
+    tokensWithoutMemoryRetrieval: base?.tokensWithoutMemoryRetrieval ?? fallback?.tokensWithoutMemoryRetrieval,
+    estimatedTokensSaved: base?.estimatedTokensSaved ?? fallback?.estimatedTokensSaved,
+    estimatedTokenReductionPercent: base?.estimatedTokenReductionPercent ?? fallback?.estimatedTokenReductionPercent
   };
 
   return Object.values(merged).some((value) => value !== undefined) ? merged : undefined;
