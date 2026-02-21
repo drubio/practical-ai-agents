@@ -5,7 +5,7 @@
 
 import express from 'express';
 import cors from 'cors';
-import { getDisplayName, getDefaultModel } from './utils.js';
+import { getDisplayName, getDefaultModel, parseStructuredJsonResponse } from './utils.js';
 import { chunkText, normalizeResponseText } from './stream.js';
 
 async function captureConsoleOutputAsync(fn) {
@@ -43,30 +43,13 @@ function supportsSessionMemory(manager) {
 }
 
 function parseStructuredRawResponse(rawResponse) {
-    if (rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse)) {
-        return rawResponse;
-    }
-    if (typeof rawResponse !== 'string') {
+    if (typeof rawResponse === 'undefined' || rawResponse === null) {
         return null;
     }
-
-    const trimmed = rawResponse.trim();
-    if (!trimmed) {
-        return null;
-    }
-
     try {
-        const parsed = JSON.parse(trimmed);
+        const parsed = parseStructuredJsonResponse(rawResponse);
         return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
     } catch {
-        if (trimmed.startsWith('```json') && trimmed.endsWith('```')) {
-            try {
-                const parsed = JSON.parse(trimmed.slice(7, -3).trim());
-                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-            } catch {
-                return null;
-            }
-        }
         return null;
     }
 }

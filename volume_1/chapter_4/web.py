@@ -14,6 +14,7 @@ from contextlib import redirect_stdout
 import json
 
 from stream import iter_text_chunks, normalize_response_text
+from utils import parse_structured_json_response
 
 
 class QueryRequest(BaseModel):
@@ -65,27 +66,12 @@ def _supports_session_memory(manager) -> bool:
 
 
 def _parse_structured_raw_response(raw_response):
-    if isinstance(raw_response, dict):
-        return raw_response
-    if not isinstance(raw_response, str):
+    if raw_response is None:
         return None
-
-    trimmed = raw_response.strip()
-    if not trimmed:
-        return None
-
     try:
-        parsed = json.loads(trimmed)
+        parsed = parse_structured_json_response(raw_response)
         return parsed if isinstance(parsed, dict) else None
     except Exception:
-        fenced = trimmed
-        if trimmed.startswith("```json") and trimmed.endswith("```"):
-            fenced = trimmed[len("```json"): -3].strip()
-            try:
-                parsed = json.loads(fenced)
-                return parsed if isinstance(parsed, dict) else None
-            except Exception:
-                return None
         return None
 
 

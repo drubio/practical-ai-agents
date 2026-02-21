@@ -140,7 +140,8 @@ class LlamaIndexLLMManager(Chapter5LlamaIndexManager):
         temperature: float = 0.7,
         session_id: str = "default",
     ) -> Dict:
-        result = super().ask_question(topic, provider, template, max_tokens, temperature, session_id)
+        effective_template = STRUCTURED_TEMPLATE if template == "{topic}" else template
+        result = super().ask_question(topic, provider, effective_template, max_tokens, temperature, session_id)
 
         if not result.get("success"):
             return result
