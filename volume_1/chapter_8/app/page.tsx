@@ -379,7 +379,7 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
   const tokenText = details.tokenUsage?.total_tokens !== undefined
     ? `${details.tokenUsage.total_tokens} tokens`
     : null;
-  const keywords = details.keywords?.length ? details.keywords : ['No keywords'];
+  const keywords = details.keywords?.length ? details.keywords : [];
 
   return (
     <div className="mt-2 border-t border-gray-200 pt-2 text-xs text-gray-600">
