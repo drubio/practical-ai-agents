@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Settings } from 'lucide-react';
 import {
   buildDetails,
@@ -223,80 +223,97 @@ const useAPISettings = () => {
     sessionId: 'default', // Added session ID support
     responseMode: 'stream' // stream | standard
   });
+  const failedHealthChecksRef = useRef(0);
+
+  const markApiHealthy = () => {
+    failedHealthChecksRef.current = 0;
+    setApiStatus('online');
+  };
+
+  const markApiCheckFailure = () => {
+    failedHealthChecksRef.current += 1;
+    if (failedHealthChecksRef.current >= 3) {
+      setApiStatus('offline');
+      return;
+    }
+
+    setApiStatus((prev) => (prev === 'online' ? 'online' : 'checking'));
+  };
 
   const checkApiStatus = async () => {
     try {
-      // Check main status endpoint
       const statusResponse = await fetch(`${GATEWAY_API_BASE}/`, {
         method: 'GET',
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(8000)
       });
-      
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        
-        // Check providers endpoint
+
+      if (!statusResponse.ok) {
+        markApiCheckFailure();
+        return;
+      }
+
+      const statusData = await statusResponse.json();
+
+      let providersData: { providers?: Provider[]; framework?: string } | null = null;
+      try {
         const providersResponse = await fetch(`${GATEWAY_API_BASE}/providers`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(8000)
+        });
+
+        if (providersResponse.ok) {
+          providersData = await providersResponse.json();
+        }
+      } catch (_) {
+        providersData = null;
+      }
+
+      if (providersData?.providers?.length) {
+        setProviders(providersData.providers);
+
+        const providerNames = providersData.providers.map((provider: Provider) => provider.name);
+        const defaultProvider = providerNames.includes('openai') ? 'openai' : providersData.providers[0].name;
+        setSettings((prev) => {
+          if (providerNames.includes(prev.selectedProvider)) {
+            return prev;
+          }
+
+          return { ...prev, selectedProvider: defaultProvider };
+        });
+      }
+
+      let capabilitiesData = null;
+      try {
+        const capabilitiesResponse = await fetch(`${GATEWAY_API_BASE}/capabilities`, {
           method: 'GET',
           signal: AbortSignal.timeout(5000)
         });
-        
-        if (providersResponse.ok) {
-          const providersData = await providersResponse.json();
-          setProviders(providersData.providers || []);
-          setApiStatus('online');
-          
-          // Detect API capabilities
-          let capabilitiesData = null;
-          try {
-            const capabilitiesResponse = await fetch(`${GATEWAY_API_BASE}/capabilities`, {
-              method: 'GET',
-              signal: AbortSignal.timeout(3000)
-            });
-            if (capabilitiesResponse.ok) {
-              capabilitiesData = await capabilitiesResponse.json();
-            }
-          } catch (_) {
-            capabilitiesData = null;
-          }
-
-          const memoryEnabled = Boolean(
-            statusData.framework?.includes('History')
-            || statusData?.memory
-            || statusData?.memory_retrieval
-            || capabilitiesData?.memory
-            || capabilitiesData?.memory_retrieval
-          );
-
-          setApiCapabilities({
-            hasMemory: memoryEnabled,
-            hasHistory: memoryEnabled,
-            framework: statusData.framework || providersData.framework || '',
-            hasStreaming: Boolean(capabilitiesData?.streaming)
-          });
-          
-          if (providersData.providers?.length > 0) {
-            const providerNames = providersData.providers.map((provider: Provider) => provider.name);
-            const defaultProvider = providerNames.includes('openai') ? 'openai' : providersData.providers[0].name;
-            setSettings(prev => ({ ...prev, selectedProvider: defaultProvider }));
-          }
-
-          setSettings(prev => (
-            prev.responseMode === 'stream' && !capabilitiesData?.streaming
-              ? { ...prev, responseMode: 'standard' }
-              : prev
-          ));
-        } else {
-          setApiStatus('offline');
+        if (capabilitiesResponse.ok) {
+          capabilitiesData = await capabilitiesResponse.json();
         }
-      } else {
-        setApiStatus('offline');
+      } catch (_) {
+        capabilitiesData = null;
       }
-    } catch (error) {
-      setProviders([]);
-      setApiStatus('offline');
-      setApiCapabilities({ hasMemory: false, hasHistory: false, framework: '', hasStreaming: false });
-      setSettings(prev => ({ ...prev, responseMode: 'standard' }));
+
+      const memoryEnabled = Boolean(
+        statusData.framework?.includes('History')
+        || statusData?.memory
+        || statusData?.memory_retrieval
+        || capabilitiesData?.memory
+        || capabilitiesData?.memory_retrieval
+      );
+
+      setApiCapabilities((prev) => ({
+        hasMemory: memoryEnabled,
+        hasHistory: memoryEnabled,
+        framework: statusData.framework || providersData?.framework || '',
+        hasStreaming: capabilitiesData ? Boolean(capabilitiesData?.streaming) : prev.hasStreaming
+      }));
+
+      markApiHealthy();
+    } catch (_) {
+      markApiCheckFailure();
+      // Keep current user-selected settings sticky even if API health check fails.
     }
   };
 
