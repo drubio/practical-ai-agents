@@ -7,19 +7,19 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union
 import uvicorn
 import io
 from contextlib import redirect_stdout
 import json
 
 from stream import iter_text_chunks, normalize_response_text
-from utils import parse_structured_json_response
+from utils import parse_structured_json_response, get_all_providers
 
 
 class QueryRequest(BaseModel):
     topic: str
-    provider: Optional[str] = None
+    provider: Optional[Union[str, int]] = None
     template: str = "{topic}"
     max_tokens: int = 1000
     temperature: float = 0.7
@@ -37,7 +37,7 @@ class QueryAllRequest(BaseModel):
 
 
 class ResetMemoryRequest(BaseModel):
-    provider: Optional[str] = None
+    provider: Optional[Union[str, int]] = None
     session_id: Optional[str] = None
     sessionId: Optional[str] = None
 
@@ -126,6 +126,79 @@ def _recover_structured_parse_error(result: dict) -> dict:
     }
 
 
+def _provider_selection_map(manager):
+    """Build the same provider ordering used by the CLI selection prompt."""
+    from utils import get_display_name
+
+    available = manager.get_available_providers()
+    sorted_providers = sorted(available, key=lambda provider: (provider != "openai", get_display_name(provider)))
+    return {str(index): provider for index, provider in enumerate(sorted_providers, start=1)}
+
+
+def _normalize_provider_input(manager, provider: Optional[Union[str, int]]):
+    """Accept provider numbers (CLI style) and provider keywords (web style)."""
+    if provider is None:
+        return None
+
+    provider_map = _provider_selection_map(manager)
+    available = {name.lower() for name in manager.get_available_providers()}
+    configured = {name.lower() for name in get_all_providers()}
+
+    if isinstance(provider, int):
+        return provider_map.get(str(provider))
+
+    candidate = str(provider).strip()
+    if not candidate:
+        return None
+
+    if candidate in provider_map:
+        return provider_map[candidate]
+
+    lowered = candidate.lower()
+    if lowered in available or lowered in configured:
+        return lowered
+
+    return candidate
+
+
+
+
+def _result_value(result: dict, *keys, default=None):
+    for key in keys:
+        if isinstance(result, dict) and key in result and result.get(key) is not None:
+            return result.get(key)
+    return default
+
+
+
+
+def _is_corrupt_history_error(exc: Exception) -> bool:
+    message = str(exc)
+    signals = (
+        "string indices must be integers",
+        "Expecting value",
+        "JSON",
+    )
+    return any(signal in message for signal in signals)
+
+
+def _ask_question_with_recovery(manager, args: dict, session_id: Optional[str]):
+    """Run manager.ask_question with a one-time session-memory recovery retry."""
+    try:
+        return manager.ask_question(**args)
+    except Exception as exc:
+        if not _supports_session_memory(manager) or not _is_corrupt_history_error(exc):
+            raise
+
+        provider = args.get("provider")
+        try:
+            manager.reset_memory(provider, session_id)
+        except Exception:
+            raise exc
+
+        return manager.ask_question(**args)
+
+
 def create_web_api(manager_class):
     app = FastAPI(
         title="LLM Service API",
@@ -186,7 +259,7 @@ def create_web_api(manager_class):
             with redirect_stdout(io.StringIO()):
                 args = {
                     "topic": request.topic,
-                    "provider": request.provider,
+                    "provider": _normalize_provider_input(manager, request.provider),
                     "template": request.template,
                     "max_tokens": request.max_tokens,
                     "temperature": request.temperature
@@ -195,7 +268,10 @@ def create_web_api(manager_class):
                 if _supports_session_memory(manager):
                     args["session_id"] = effective_session_id
 
-                result = _recover_structured_parse_error(manager.ask_question(**args))
+                result = _recover_structured_parse_error(_ask_question_with_recovery(manager, args, effective_session_id))
+
+            if not isinstance(result, dict):
+                raise HTTPException(status_code=500, detail="Manager returned a non-dict response")
 
             if not result.get("success"):
                 raise HTTPException(status_code=400, detail=result.get("error", "Query failed"))
@@ -206,16 +282,16 @@ def create_web_api(manager_class):
             return {
                 "success": True,
                 "framework": manager.framework,
-                "provider": result["provider"],
-                "model": result["model"],
+                "provider": _result_value(result, "provider", default="unknown"),
+                "model": _result_value(result, "model", default=""),
                 "response": content,
                 "parameters": {
-                    "temperature": result["temperature"],
-                    "max_tokens": result["max_tokens"],
+                    "temperature": _result_value(result, "temperature"),
+                    "max_tokens": _result_value(result, "max_tokens", "maxTokens"),
                     "template": request.template
                 },
-                "prompt": result["prompt"],
-                "session_id": result.get("session_id", effective_session_id)
+                "prompt": _result_value(result, "prompt", default=request.template.format(topic=request.topic)),
+                "session_id": _result_value(result, "session_id", "sessionId", default=effective_session_id)
             }
 
         except HTTPException:
@@ -230,7 +306,7 @@ def create_web_api(manager_class):
                 with redirect_stdout(io.StringIO()):
                     args = {
                         "topic": request.topic,
-                        "provider": request.provider,
+                        "provider": _normalize_provider_input(manager, request.provider),
                         "template": request.template,
                         "max_tokens": request.max_tokens,
                         "temperature": request.temperature,
@@ -239,7 +315,12 @@ def create_web_api(manager_class):
                     if _supports_session_memory(manager):
                         args["session_id"] = effective_session_id
 
-                    result = _recover_structured_parse_error(manager.ask_question(**args))
+                    result = _recover_structured_parse_error(_ask_question_with_recovery(manager, args, effective_session_id))
+
+                if not isinstance(result, dict):
+                    error_payload = {"type": "error", "error": "Manager returned a non-dict response"}
+                    yield f"data: {json.dumps(error_payload)}\n\n"
+                    return
 
                 if not result.get("success"):
                     error_payload = {"type": "error", "error": result.get("error", "Query failed")}
@@ -254,11 +335,11 @@ def create_web_api(manager_class):
 
                 done_payload = {
                     "type": "done",
-                    "provider": result.get("provider"),
-                    "model": result.get("model"),
+                    "provider": _result_value(result, "provider"),
+                    "model": _result_value(result, "model"),
                     "response": raw_response if isinstance(raw_response, dict) else None,
-                    "token_usage": result.get("token_usage"),
-                    "session_id": result.get("session_id") or effective_session_id,
+                    "token_usage": _result_value(result, "token_usage", "tokenUsage"),
+                    "session_id": _result_value(result, "session_id", "sessionId", default=effective_session_id),
                 }
                 yield f"data: {json.dumps(done_payload)}\n\n"
             except Exception as e:
@@ -278,26 +359,46 @@ def create_web_api(manager_class):
                     temperature=request.temperature
                 )
 
+            if not isinstance(result, dict):
+                raise HTTPException(status_code=500, detail="Manager returned a non-dict response")
+
             if not result.get("success"):
                 raise HTTPException(status_code=400, detail=result.get("error", "Query failed"))
 
+            responses = result.get("responses")
+            if not isinstance(responses, dict):
+                raise HTTPException(status_code=500, detail="Manager returned invalid responses payload")
+
             clean_responses = {}
-            for provider, res in result["responses"].items():
-                content = res.get("response") if isinstance(res.get("response"), (dict, list)) else normalize_response_text(res.get("response"))
+            for provider, res in responses.items():
+                if not isinstance(res, dict):
+                    clean_responses[provider] = {
+                        "success": False,
+                        "model": "",
+                        "response": normalize_response_text(res),
+                        "parameters": {
+                            "temperature": None,
+                            "max_tokens": None,
+                        },
+                    }
+                    continue
+
+                raw_content = _result_value(res, "response")
+                content = raw_content if isinstance(raw_content, (dict, list)) else normalize_response_text(raw_content)
                 clean_responses[provider] = {
-                    "success": res["success"],
-                    "model": res.get("model", ""),
+                    "success": bool(_result_value(res, "success", default=False)),
+                    "model": _result_value(res, "model", default=""),
                     "response": content,
                     "parameters": {
-                        "temperature": res.get("temperature"),
-                        "max_tokens": res.get("max_tokens")
+                        "temperature": _result_value(res, "temperature"),
+                        "max_tokens": _result_value(res, "max_tokens", "maxTokens"),
                     }
                 }
 
             return {
                 "success": True,
                 "framework": manager.framework,
-                "prompt": result["prompt"],
+                "prompt": _result_value(result, "prompt", default=request.template.format(topic=request.topic)),
                 "responses": clean_responses
             }
 

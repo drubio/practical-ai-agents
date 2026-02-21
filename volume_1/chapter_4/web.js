@@ -5,7 +5,7 @@
 
 import express from 'express';
 import cors from 'cors';
-import { getDisplayName, getDefaultModel, parseStructuredJsonResponse } from './utils.js';
+import { getAllProviders, getDisplayName, getDefaultModel, parseStructuredJsonResponse } from './utils.js';
 import { chunkText, normalizeResponseText } from './stream.js';
 
 async function captureConsoleOutputAsync(fn) {
@@ -109,6 +109,46 @@ function recoverStructuredParseError(result) {
     };
 }
 
+
+function providerSelectionMap(manager) {
+    const sortedProviders = [...manager.getAvailableProviders()].sort((a, b) => {
+        if (a === 'openai') return -1;
+        if (b === 'openai') return 1;
+        return getDisplayName(a).localeCompare(getDisplayName(b));
+    });
+    return Object.fromEntries(sortedProviders.map((provider, index) => [String(index + 1), provider]));
+}
+
+function normalizeProviderInput(manager, provider) {
+    if (provider === null || typeof provider === 'undefined') {
+        return null;
+    }
+
+    const providerMap = providerSelectionMap(manager);
+    const available = new Set(manager.getAvailableProviders().map((p) => String(p).toLowerCase()));
+    const configured = new Set(getAllProviders().map((p) => String(p).toLowerCase()));
+
+    if (typeof provider === 'number') {
+        return providerMap[String(provider)] ?? null;
+    }
+
+    const candidate = String(provider).trim();
+    if (!candidate) {
+        return null;
+    }
+
+    if (candidate in providerMap) {
+        return providerMap[candidate];
+    }
+
+    const lowered = candidate.toLowerCase();
+    if (available.has(lowered) || configured.has(lowered)) {
+        return lowered;
+    }
+
+    return candidate;
+}
+
 function buildManager(managerClassOrFactory) {
     if (typeof managerClassOrFactory !== 'function') {
         throw new Error('Invalid manager class/factory provided');
@@ -193,11 +233,11 @@ function createWebApi(managerClassOrFactory) {
             const { result, logs } = await captureConsoleOutputAsync(async () => {
                 if (supportsSessionMemory(manager)) {
                     return recoverStructuredParseError(
-                        await manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId)
+                        await manager.askQuestion(topic, normalizeProviderInput(manager, provider), template, max_tokens, temperature, effectiveSessionId)
                     );
                 }
                 return recoverStructuredParseError(
-                    await manager.askQuestion(topic, provider, template, max_tokens, temperature)
+                    await manager.askQuestion(topic, normalizeProviderInput(manager, provider), template, max_tokens, temperature)
                 );
             });
 
@@ -251,11 +291,11 @@ function createWebApi(managerClassOrFactory) {
             const { result } = await captureConsoleOutputAsync(async () => {
                 if (supportsSessionMemory(manager)) {
                     return recoverStructuredParseError(
-                        await manager.askQuestion(topic, provider, template, max_tokens, temperature, effectiveSessionId)
+                        await manager.askQuestion(topic, normalizeProviderInput(manager, provider), template, max_tokens, temperature, effectiveSessionId)
                     );
                 }
                 return recoverStructuredParseError(
-                    await manager.askQuestion(topic, provider, template, max_tokens, temperature)
+                    await manager.askQuestion(topic, normalizeProviderInput(manager, provider), template, max_tokens, temperature)
                 );
             });
 
@@ -354,7 +394,8 @@ function createWebApi(managerClassOrFactory) {
             return res.status(400).json({ error: 'Session memory not supported by this manager' });
         }
         const { provider = 'openai', session_id = 'default', sessionId = null } = req.query;
-        const history = await Promise.resolve(manager.getHistory(provider, sessionId ?? session_id ?? "default"));
+        const normalizedProvider = normalizeProviderInput(manager, provider);
+        const history = await Promise.resolve(manager.getHistory(normalizedProvider || "openai", sessionId ?? session_id ?? "default"));
         return res.json(history);
     });
 
@@ -369,7 +410,8 @@ function createWebApi(managerClassOrFactory) {
         const querySessionId = req.query?.sessionId ?? req.query?.session_id ?? null;
         const provider = bodyProvider !== null ? bodyProvider : queryProvider;
         const sessionId = bodySessionId !== null ? bodySessionId : querySessionId;
-        const result = await Promise.resolve(manager.resetMemory(provider, sessionId));
+        const normalizedProvider = normalizeProviderInput(manager, provider);
+        const result = await Promise.resolve(manager.resetMemory(normalizedProvider, sessionId));
         return res.json(result);
     });
 
