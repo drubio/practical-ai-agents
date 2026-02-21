@@ -127,6 +127,13 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
         }
         return retrieval_augmented_topic, retrieval_metadata
 
+    @staticmethod
+    def _resolve_tools_template(template: Optional[str]) -> str:
+        candidate = (template or "").strip()
+        if not candidate or candidate == "{topic}" or "{tools}" not in candidate:
+            return TOOLS_TEMPLATE
+        return template
+
     def ask_question(
         self,
         topic: str,
@@ -136,6 +143,7 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
         temperature: float = 0.2,
         session_id: str = "default",
     ) -> Dict:
+        template = self._resolve_tools_template(template)
         provider = self._resolve_provider(provider)
         prompt = template.format(topic=topic, tools=build_tools_prompt())
 

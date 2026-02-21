@@ -165,6 +165,13 @@ class LangChainLLMManager(Chapter6LangChainManager):
             _ = repaired_history.messages
             return repaired_history
 
+    @staticmethod
+    def _resolve_tools_template(template: Optional[str]) -> str:
+        candidate = (template or "").strip()
+        if not candidate or candidate == "{topic}" or "{tools}" not in candidate:
+            return TOOLS_TEMPLATE
+        return template
+
     def ask_question(
         self,
         topic: str,
@@ -174,6 +181,7 @@ class LangChainLLMManager(Chapter6LangChainManager):
         temperature: float = 0.2,
         session_id: str = "default",
     ) -> Dict:
+        template = self._resolve_tools_template(template)
         provider = self._resolve_provider(provider)
         prompt = template.format(topic=topic, tools=build_tools_prompt())
 

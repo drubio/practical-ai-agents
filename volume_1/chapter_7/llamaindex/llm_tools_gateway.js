@@ -148,6 +148,14 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
 
 
 
+    _resolveToolsTemplate(template) {
+        const candidate = String(template ?? '').trim();
+        if (!candidate || candidate === '{topic}' || !candidate.includes('{tools}')) {
+            return TOOLS_TEMPLATE;
+        }
+        return template;
+    }
+
     _normalizeWikipediaQuery(topic) {
         const text = String(topic || '').trim();
         if (!text) return text;
@@ -174,6 +182,7 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
     }
 
     async askQuestion(topic, provider = null, template = TOOLS_TEMPLATE, maxTokens = 1000, temperature = 0.2, sessionId = 'default') {
+        template = this._resolveToolsTemplate(template);
         const resolvedProvider = this._resolveProvider(provider);
         const basePrompt = template.replace('{topic}', topic).replace('{tools}', buildToolsPrompt());
 
