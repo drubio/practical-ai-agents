@@ -17,6 +17,9 @@ export type ResponseDetails = {
   tokensWithoutMemoryRetrieval?: number;
   estimatedTokensSaved?: number;
   estimatedTokenReductionPercent?: number;
+  wikipediaSummary?: string;
+  wikipediaUrl?: string;
+  wikipediaImages?: string[];
 };
 
 export type ProcessedResponse = {
@@ -42,6 +45,24 @@ const extractKeywords = (...sources: any[]): string[] | undefined => {
     .filter(Boolean);
 
   return normalized.length ? normalized : undefined;
+};
+
+
+const extractMediaUrls = (media: any): string[] | undefined => {
+  if (!media || typeof media !== 'object') return undefined;
+
+  const urls: string[] = [];
+  const addUrl = (candidate: unknown) => {
+    if (typeof candidate !== 'string') return;
+    const trimmed = candidate.trim();
+    if (!trimmed.startsWith('http')) return;
+    if (!urls.includes(trimmed)) urls.push(trimmed);
+  };
+
+  for (const image of media?.images || []) addUrl(image);
+  for (const item of media?.commons_images || []) addUrl(item?.url);
+
+  return urls.length ? urls : undefined;
 };
 
 const shouldKeepNote = (note?: string): boolean => {
@@ -157,6 +178,14 @@ export const buildDetails = (structured: any, data: any): ResponseDetails | unde
   ) || {};
 
   const note = structuredData?.metadata?.notes;
+  const toolOutput = normalizeToObject(
+    structuredData?.tool_output
+    || responseData?.tool_output
+    || contentData?.tool_output
+    || answerData?.tool_output
+    || data?.tool_output
+    || data?.response?.tool_output
+  ) || {};
 
   const details: ResponseDetails = {
     provider: data?.provider,
@@ -183,7 +212,10 @@ export const buildDetails = (structured: any, data: any): ResponseDetails | unde
     tokensWithMemoryRetrieval: retrievalData?.tokens_with_memory_retrieval,
     tokensWithoutMemoryRetrieval: retrievalData?.tokens_without_memory_retrieval,
     estimatedTokensSaved: retrievalData?.estimated_tokens_saved,
-    estimatedTokenReductionPercent: retrievalData?.estimated_token_reduction_percent
+    estimatedTokenReductionPercent: retrievalData?.estimated_token_reduction_percent,
+    wikipediaSummary: toolOutput?.summary,
+    wikipediaUrl: toolOutput?.page_url,
+    wikipediaImages: extractMediaUrls(toolOutput?.media)
   };
 
   return Object.values(details).some((value) => value !== undefined) ? details : undefined;
@@ -204,7 +236,10 @@ export const mergeDetails = (base?: ResponseDetails, fallback?: ResponseDetails)
     tokensWithMemoryRetrieval: base?.tokensWithMemoryRetrieval ?? fallback?.tokensWithMemoryRetrieval,
     tokensWithoutMemoryRetrieval: base?.tokensWithoutMemoryRetrieval ?? fallback?.tokensWithoutMemoryRetrieval,
     estimatedTokensSaved: base?.estimatedTokensSaved ?? fallback?.estimatedTokensSaved,
-    estimatedTokenReductionPercent: base?.estimatedTokenReductionPercent ?? fallback?.estimatedTokenReductionPercent
+    estimatedTokenReductionPercent: base?.estimatedTokenReductionPercent ?? fallback?.estimatedTokenReductionPercent,
+    wikipediaSummary: base?.wikipediaSummary || fallback?.wikipediaSummary,
+    wikipediaUrl: base?.wikipediaUrl || fallback?.wikipediaUrl,
+    wikipediaImages: (base?.wikipediaImages && base.wikipediaImages.length ? base.wikipediaImages : fallback?.wikipediaImages)
   };
 
   return Object.values(merged).some((value) => value !== undefined) ? merged : undefined;

@@ -64,6 +64,9 @@ type ResponseDetails = {
   tokensWithoutMemoryRetrieval?: number;
   estimatedTokensSaved?: number;
   estimatedTokenReductionPercent?: number;
+  wikipediaSummary?: string;
+  wikipediaUrl?: string;
+  wikipediaImages?: string[];
 };
 
 type ProcessedResponse = {
@@ -395,6 +398,7 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
   const tokenSavingsText = details.estimatedTokenReductionPercent !== undefined
     ? `Tokens saved: ${details.estimatedTokenReductionPercent}%`
     : null;
+  const wikiImages = details.wikipediaImages?.length ? details.wikipediaImages : [];
 
   return (
     <div className="mt-2 border-t border-gray-200 pt-2 text-xs text-gray-600">
@@ -416,6 +420,37 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
           {tokenSavingsText && <span className="font-medium text-gray-500">{tokenSavingsText}</span>}
         </div>
       </div>
+
+      {(details.wikipediaSummary || details.wikipediaUrl || wikiImages.length > 0) && (
+        <div className="mb-2 rounded-md border border-sky-100 bg-sky-50 p-2 text-xs text-sky-900">
+          <div className="font-semibold">Wikipedia evidence</div>
+          {details.wikipediaSummary && <div className="mt-1 line-clamp-4">{details.wikipediaSummary}</div>}
+          {details.wikipediaUrl && (
+            <a
+              href={details.wikipediaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-sky-700 underline"
+            >
+              Open source page
+            </a>
+          )}
+          {wikiImages.length > 0 && (
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {wikiImages.slice(0, 8).map((imageUrl, index) => (
+                <a key={`${imageUrl}-${index}`} href={imageUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                  <img
+                    src={imageUrl}
+                    alt={`Wikipedia media ${index + 1}`}
+                    className="h-16 w-24 rounded border border-sky-200 object-cover"
+                    loading="lazy"
+                  />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {(details.summary || details.distilled || details.notes || details.confidence || details.provider || details.sessionId || details.tokensWithMemoryRetrieval !== undefined || details.tokensWithoutMemoryRetrieval !== undefined || details.estimatedTokensSaved !== undefined || details.estimatedTokenReductionPercent !== undefined) && (
         <details className="mt-2">
