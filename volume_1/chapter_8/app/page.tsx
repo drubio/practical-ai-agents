@@ -250,9 +250,17 @@ const useAPISettings = () => {
             capabilitiesData = null;
           }
 
+          const memoryEnabled = Boolean(
+            statusData.framework?.includes('History')
+            || statusData?.memory
+            || statusData?.memory_retrieval
+            || capabilitiesData?.memory
+            || capabilitiesData?.memory_retrieval
+          );
+
           setApiCapabilities({
-            hasMemory: statusData.framework?.includes('History') || capabilitiesData?.memory || false,
-            hasHistory: statusData.framework?.includes('History') || capabilitiesData?.memory || false,
+            hasMemory: memoryEnabled,
+            hasHistory: memoryEnabled,
             framework: statusData.framework || providersData.framework || '',
             hasStreaming: Boolean(capabilitiesData?.streaming)
           });
