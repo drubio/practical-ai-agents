@@ -126,6 +126,13 @@ const parseMessageEnvelope = (text: string): ProcessedResponse | null => {
 
 const createMessageId = () => Date.now() + Math.floor(Math.random() * 100000);
 
+const ThinkingIndicator = ({ label = 'Thinking...' }: { label?: string }) => (
+  <span className="inline-flex items-center gap-2 text-sm text-gray-500" aria-live="polite">
+    <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
+    <span className="animate-pulse">{label}</span>
+  </span>
+);
+
 const getTurnText = (content: unknown): string => {
   if (typeof content === 'string') return content;
 
@@ -865,18 +872,15 @@ const LangChainPage = () => {
                   {message.role === 'system' && (
                     <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Conversation History</div>
                   )}
-                  {message.content}
+                  {message.role === 'assistant' && !message.content && isLoading ? (
+                    <ThinkingIndicator label="LangChain agent processing..." />
+                  ) : (
+                    message.content
+                  )}
                   {message.role === 'assistant' && <ResponseDetailsPanel details={message.details} />}
                 </div>
               </div>
             ))}
-            {isLoading && (
-              <div className="text-left mb-4">
-                <div className="inline-block bg-gray-100 px-4 py-2 rounded-lg">
-                  <div className="animate-pulse">LangChain agent processing...</div>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="border-t p-4">
@@ -963,6 +967,15 @@ const LlamaIndexPage = () => {
     ]
   });
 
+  const isLlamaLoading = chat.status === 'submitted' || chat.status === 'streaming';
+  const hasPendingLlamaAssistantMessage = chat.messages.some((message: any) => {
+    if (message?.role !== 'assistant') return false;
+    const rawText = message?.parts?.find((part: any) => part?.type === 'text')?.text || '';
+    const envelope = parseMessageEnvelope(rawText);
+    const text = envelope?.content || rawText;
+    return !text?.trim();
+  });
+
   const appendSystemMessage = (content: string) => {
     chat.setMessages((messages) => [
       ...messages,
@@ -1014,6 +1027,7 @@ const LlamaIndexPage = () => {
                 const rawText = message?.parts?.find((part: any) => part?.type === 'text')?.text || '';
                 const envelope = parseMessageEnvelope(rawText);
                 const text = envelope?.content || rawText;
+                const isAssistantPending = message.role === 'assistant' && !text?.trim() && chat.status !== 'ready';
                 return (
                   <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : message.role === 'system' ? 'text-center' : 'text-left'}`}>
                     <div className={`inline-block px-4 py-2 rounded-lg ${
@@ -1023,12 +1037,19 @@ const LlamaIndexPage = () => {
                         ? 'bg-amber-50 text-amber-900 border border-amber-200 max-w-3xl text-left whitespace-pre-wrap'
                         : 'bg-purple-100 text-gray-900 max-w-md whitespace-pre-wrap'
                     }`}>
-                      {text}
+                      {isAssistantPending ? <ThinkingIndicator label="Generating response..." /> : text}
                       {message.role === 'assistant' && <ResponseDetailsPanel details={llamaResponseDetails[message.id]} />}
                     </div>
                   </div>
                 );
               })}
+              {isLlamaLoading && !hasPendingLlamaAssistantMessage && (
+                <div className="mb-4 text-left">
+                  <div className="inline-block rounded-lg bg-purple-100 px-4 py-2 text-gray-900">
+                    <ThinkingIndicator label="Generating response..." />
+                  </div>
+                </div>
+              )}
             </div>
             <ChatInput className="border-t">
               <ChatInput.Form className="p-4">
@@ -1039,9 +1060,13 @@ const LlamaIndexPage = () => {
                 <div className="flex justify-between items-center mt-2">
                   <div className="text-xs text-gray-500">
                     Powered by @llamaindex/chat-ui • {apiCapabilities.hasMemory ? `Session: ${settings.sessionId}` : 'No memory'}
+                    {isLlamaLoading && <span className="ml-2">• Generating...</span>}
                   </div>
-                  <ChatInput.Submit className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg ml-2">
-                    Send
+                  <ChatInput.Submit
+                    disabled={isLlamaLoading}
+                    className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg ml-2"
+                  >
+                    {isLlamaLoading ? 'Generating...' : 'Send'}
                   </ChatInput.Submit>
                 </div>
               </ChatInput.Form>
@@ -1072,6 +1097,7 @@ const LlamaIndexPage = () => {
 // Assistant UI Component
 const AssistantUIPage = () => {
   const [showSettings, setShowSettings] = useState(false);
+  const [isAssistantLoading, setIsAssistantLoading] = useState(false);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
 
   // Assistant UI adapter for your API
@@ -1079,6 +1105,7 @@ const AssistantUIPage = () => {
     async run({ messages, abortSignal }) {
       const lastMessage = messages[messages.length - 1];
       
+      setIsAssistantLoading(true);
       try {
         // Extract text content properly from the message
         let messageText = '';
@@ -1143,6 +1170,8 @@ const AssistantUIPage = () => {
             }
           ]
         };
+      } finally {
+        setIsAssistantLoading(false);
       }
     }
   };
@@ -1215,7 +1244,7 @@ const AssistantUIPage = () => {
                       return (
                         <div className="mb-4 text-left">
                           <div className="bg-gray-100 text-gray-900 px-4 py-2 rounded-lg inline-block max-w-md whitespace-pre-wrap">
-                            <div>{text}</div>
+                            <div>{!text?.trim() && isAssistantLoading ? <ThinkingIndicator label="Generating response..." /> : text}</div>
                             <ResponseDetailsPanel details={details} />
                           </div>
                         </div>
@@ -1231,12 +1260,16 @@ const AssistantUIPage = () => {
                       placeholder={`Ask questions... ${apiCapabilities.hasMemory ? `(Session: ${settings.sessionId})` : ''}`}
                       className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-green-500"
                     />
-                    <ComposerPrimitive.Send className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg">
-                      Send
+                    <ComposerPrimitive.Send
+                      disabled={isAssistantLoading}
+                      className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg"
+                    >
+                      {isAssistantLoading ? 'Generating...' : 'Send'}
                     </ComposerPrimitive.Send>
                   </div>
                   <div className="text-xs text-gray-500 mt-2">
                     Powered by @assistant-ui/react • Real streaming conversations
+                    {isAssistantLoading && <span className="ml-2">• Generating...</span>}
                   </div>
                 </ComposerPrimitive.Root>
               </div>
@@ -1361,19 +1394,15 @@ const CustomChatPage = () => {
                   {message.role === 'system' && (
                     <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Conversation History</div>
                   )}
-                  {message.content}
+                  {message.role === 'assistant' && !message.content && isLoading ? (
+                    <ThinkingIndicator label="Processing your request..." />
+                  ) : (
+                    message.content
+                  )}
                   {message.role === 'assistant' && <ResponseDetailsPanel details={message.details} />}
                 </div>
               </div>
             ))}
-            {isLoading && (
-              <div className="text-left mb-4">
-                <div className="inline-block bg-orange-100 px-4 py-2 rounded-lg">
-                  <div className="text-xs font-semibold mb-1 text-orange-700">Custom Assistant</div>
-                  <div className="animate-pulse">Processing your request...</div>
-                </div>
-              </div>
-            )}
           </div>
           
           <div className="border-t bg-white p-4">
