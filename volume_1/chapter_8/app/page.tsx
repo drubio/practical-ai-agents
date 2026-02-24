@@ -1141,31 +1141,11 @@ const AssistantUIPage = () => {
           throw new Error('No text content found in message');
         }
 
-        const endpoint = settings.queryMode === 'single' ? '/query' : '/query-all';
-        const payload = {
-          topic: messageText,
-          temperature: settings.temperature,
-          max_tokens: settings.maxTokens,
-          template: '{topic}',
-          session_id: settings.sessionId,
-          ...(settings.queryMode === 'single' && { provider: settings.selectedProvider })
-        };
-
-        console.log('Assistant UI API call:', { endpoint, payload });
-
-        const response = await fetch(`${GATEWAY_API_BASE}${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: abortSignal
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        if (abortSignal?.aborted) {
+          throw new Error('Request aborted');
         }
 
-        const data = await response.json();
-        const result = processApiResponse(data, settings.queryMode);
+        const result = await callAPI(messageText, settings);
 
         console.log('Assistant UI API response:', result);
 

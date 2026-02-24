@@ -296,6 +296,56 @@ export const extractDetailsFromContent = (content: string): ResponseDetails | un
   return buildDetails(parsed, parsed);
 };
 
+const getContentFromResponseObject = (response: any, rawAnswer?: unknown, fallback = 'No response available'): string => {
+  const candidates: unknown[] = [
+    response?.answer,
+    response?.summary,
+    response?.distilled,
+    response?.content,
+    response?.text,
+    response?.message,
+    response?.final_answer,
+    response?.finalAnswer,
+    response?.raw_answer,
+    response?.rawAnswer,
+    response?.output_text,
+    rawAnswer
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  }
+
+  if (Array.isArray(response?.content)) {
+    const joined = response.content
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (typeof item?.text === 'string') return item.text;
+        if (typeof item?.content === 'string') return item.content;
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    if (joined.trim()) return joined;
+  }
+
+
+  if (response?.response && typeof response.response === 'object') {
+    const nested = getContentFromResponseObject(response.response, rawAnswer, '');
+    if (nested.trim()) return nested;
+  }
+
+  if (response && typeof response === 'object') {
+    const structured = parseJsonText(JSON.stringify(response));
+    if (typeof structured?.answer === 'string' && structured.answer.trim()) return structured.answer;
+    if (typeof structured?.summary === 'string' && structured.summary.trim()) return structured.summary;
+    if (typeof structured?.distilled === 'string' && structured.distilled.trim()) return structured.distilled;
+  }
+
+  return fallback;
+};
+
 export const processApiResponse = (data: any, queryMode: string): ProcessedResponse => {
   if (queryMode === 'single') {
     if (data.success) {
@@ -309,7 +359,7 @@ export const processApiResponse = (data: any, queryMode: string): ProcessedRespo
 
       if (typeof data.response === 'object' && data.response !== null) {
         return {
-          content: data.response.answer || data.response.summary || data.raw_answer || 'No response content available',
+          content: getContentFromResponseObject(data.response, data.raw_answer, 'No response content available'),
           details: buildDetails(data.response, data)
         };
       }
@@ -331,7 +381,7 @@ export const processApiResponse = (data: any, queryMode: string): ProcessedRespo
         if (typeof providerResponse.response === 'string') {
           content += providerResponse.response;
         } else if (typeof providerResponse.response === 'object' && providerResponse.response !== null) {
-          content += providerResponse.response.answer || providerResponse.response.summary || providerResponse.raw_answer || 'No response available';
+          content += getContentFromResponseObject(providerResponse.response, providerResponse.raw_answer);
         } else {
           content += providerResponse.raw_answer || 'No response available';
         }
