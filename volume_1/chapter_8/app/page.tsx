@@ -104,7 +104,7 @@ const getErrorMessage = (error: unknown): string => {
 
 const GATEWAY_API_BASE = 'http://localhost:8000';
 const LANGGRAPH_API_URL = GATEWAY_API_BASE;
-const LANGGRAPH_ASSISTANT_ID = 'agent';
+const LANGGRAPH_ASSISTANT_ID = 'chat';
 
 // ============================================================================
 // SHARED HOOKS AND UTILITIES
@@ -866,7 +866,7 @@ const LangChainPage = () => {
   return (
     <div className="h-screen flex flex-col">
       <FrameworkHeader
-        title="LangChain Agent UI (LangGraph SDK + Gateway)"
+        title="LangChain Chat UI (LangGraph SDK + Gateway)"
         color="blue"
         settings={settings}
         onSettingsClick={() => setShowSettings(!showSettings)}
@@ -890,7 +890,7 @@ const LangChainPage = () => {
                     <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Conversation History</div>
                   )}
                   {message.role === 'assistant' && !message.content && isLoading ? (
-                    <ThinkingIndicator label="LangChain agent processing..." />
+                    <ThinkingIndicator label="LangChain chat processing..." />
                   ) : (
                     message.content
                   )}
@@ -955,7 +955,7 @@ const LlamaIndexPage = () => {
 
   const chat = useChat<any>({
     transport: new TextStreamChatTransport({
-      api: '/api/llamaindex-agent',
+      api: '/api/llamaindex-chat',
       body: {
         queryMode: settings.queryMode,
         selectedProvider: settings.selectedProvider,
@@ -1475,7 +1475,7 @@ const App = () => {
   const [activeFramework, setActiveFramework] = useState('langchain');
 
   const frameworks = [
-    { id: 'langchain', label: 'LangChain Agent UI', color: 'blue' },
+    { id: 'langchain', label: 'LangChain Chat UI', color: 'blue' },
     { id: 'llamaindex', label: 'LlamaIndex Chat UI', color: 'purple' },
     { id: 'assistant', label: 'Assistant UI', color: 'green' },
     { id: 'custom', label: 'Custom Chat UI', color: 'orange' }    

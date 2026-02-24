@@ -4,7 +4,7 @@ This chapter is the final UI showcase for Volume 1.
 
 It contains **one Next.js app** that demonstrates the same backend-powered LLM interactions through **4 different UI component approaches**:
 
-1. **LangChain Agent UI** (`@langchain/langgraph-sdk/react`)
+1. **LangChain Chat UI** (`@langchain/langgraph-sdk/react`)
 2. **LlamaIndex Chat UI** (`@llamaindex/chat-ui`)
 3. **Assistant UI** (`@assistant-ui/react`)
 4. **Custom Chat UI** (vanilla React implementation)
@@ -36,7 +36,7 @@ The UI checks backend status and capabilities to decide whether streaming is ava
 ### Frontend (this chapter)
 - Next.js app in `volume_1/chapter_8`
 - Main UI in `app/page.tsx`
-- LlamaIndex adapter route in `app/api/llamaindex-agent/route.ts`
+- LlamaIndex adapter route in `app/api/llamaindex-chat/route.ts`
 
 ### Backend (earlier chapters)
 This UI expects a backend on `http://localhost:8000` with:
