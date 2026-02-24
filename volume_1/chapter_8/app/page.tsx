@@ -1115,7 +1115,12 @@ const LlamaIndexPage = () => {
 const AssistantUIPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isAssistantLoading, setIsAssistantLoading] = useState(false);
+  const [assistantNotices, setAssistantNotices] = useState<string[]>([]);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
+
+  const appendAssistantNotice = (content: string) => {
+    setAssistantNotices((prev) => [...prev, content]);
+  };
 
   // Assistant UI adapter for your API
   const modelAdapter: ChatModelAdapter = {
@@ -1181,21 +1186,17 @@ const AssistantUIPage = () => {
       try {
         const historyData = await getHistory(provider, sessionId);
         const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
-        
-        // Add system message to runtime - this might not work with current Assistant UI
-        // For now, we'll show an alert or console log
-        console.log('History:', historyContent);
-        alert(`History loaded for ${provider} (${sessionId}). Check console for details.`);
+
+        appendAssistantNotice(historyContent);
       } catch (error) {
-        console.error('Error getting history:', getErrorMessage(error));
-        alert(`Error getting history: ${getErrorMessage(error)}`);
+        appendAssistantNotice(`Error getting history: ${getErrorMessage(error)}`);
       }
     } else if (action === 'reset') {
       try {
         await resetMemory(provider, sessionId);
-        alert(`✅ Memory cleared for ${provider} (${sessionId})`);
+        appendAssistantNotice(`✅ Memory cleared for ${provider} (${sessionId})`);
       } catch (error) {
-        alert(`Error resetting memory: ${getErrorMessage(error)}`);
+        appendAssistantNotice(`Error resetting memory: ${getErrorMessage(error)}`);
       }
     }
   };
@@ -1217,6 +1218,13 @@ const AssistantUIPage = () => {
           <AssistantRuntimeProvider runtime={runtime}>
             <ThreadPrimitive.Root className="h-full bg-gradient-to-b from-green-50 to-white flex flex-col">
               <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto p-4">
+                {assistantNotices.map((notice, index) => (
+                  <div key={`${index}-${notice.slice(0, 24)}`} className="mb-4 text-left">
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-2 rounded-lg max-w-2xl whitespace-pre-wrap">
+                      {notice}
+                    </div>
+                  </div>
+                ))}
                 <ThreadPrimitive.Empty>
                   <div className="text-center text-gray-500 mt-8">
                     Hello! I'm your Assistant UI connected to your API.
