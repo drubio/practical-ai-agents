@@ -1,12 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-import { ChatSection, ChatInput } from '@llamaindex/chat-ui';
-import { useChat } from '@ai-sdk/react';
-import { TextStreamChatTransport } from 'ai';
+import { useMemo, useState } from 'react';
+import { ChatInput, ChatSection, type Message as LlamaMessage } from '@llamaindex/chat-ui';
 import {
-  APICapabilities,
-  ChatMessage,
   ResponseDetails,
   FrameworkHeader,
   SettingsSidebar,
@@ -18,111 +14,125 @@ import {
   formatHistoryMessage,
   getHistory,
   resetMemory,
-  createMessageId,
   parseMessageEnvelope,
   extractDetailsFromContent,
-  LANGGRAPH_API_URL,
-  LANGGRAPH_ASSISTANT_ID
+  createMessageId,
+  LANGGRAPH_API_URL
 } from './shared';
+
+const toMessageText = (message: LlamaMessage): string => {
+  const textPart = message.parts?.find((part: any) => part?.type === 'text') as any;
+  const rawText = textPart?.text || '';
+  return parseMessageEnvelope(rawText)?.content || rawText;
+};
+
+const toMessageDetails = (message: LlamaMessage): ResponseDetails | undefined => {
+  const textPart = message.parts?.find((part: any) => part?.type === 'text') as any;
+  const rawText = textPart?.text || '';
+  const envelope = parseMessageEnvelope(rawText);
+  return envelope?.details || extractDetailsFromContent(rawText);
+};
+
+const createTextMessage = (role: LlamaMessage['role'], text: string, id = String(createMessageId())): LlamaMessage => ({
+  id,
+  role,
+  parts: [{ type: 'text', text }]
+});
 
 const LlamaIndexChatPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
 
-  const [llamaResponseDetails, setLlamaResponseDetails] = useState<Record<string, ResponseDetails>>({});
-
-  const chat = useChat<any>({
-    transport: new TextStreamChatTransport({
-      api: '/api/llamaindex-chat',
-      body: {
-        queryMode: settings.queryMode,
-        selectedProvider: settings.selectedProvider,
-        temperature: settings.temperature,
-        maxTokens: settings.maxTokens,
-        sessionId: settings.sessionId,
-        responseMode: settings.responseMode,
-        template: '{topic}'
-      }
-    }) as any,
-    onError: (error) => console.error('LlamaIndex chat error:', error),
-    onFinish: ({ message }: any) => {
-      const text = message?.parts?.find((part: any) => part?.type === 'text')?.text;
-      if (!text || typeof text !== 'string') return;
-      const envelope = parseMessageEnvelope(text);
-      const details = envelope?.details || extractDetailsFromContent(text);
-      if (!details) return;
-      setLlamaResponseDetails((prev) => ({ ...prev, [message.id]: details }));
-    },
-    messages: [
-      {
-        id: 'welcome',
-        role: 'assistant',
-        parts: [{ type: 'text', text: 'Hello! I\'m your LlamaIndex assistant connected to your API.' }]
-      }
-    ]
-  });
-
-  const isLlamaLoading = chat.status === 'submitted' || chat.status === 'streaming';
-  const hasPendingLlamaAssistantMessage = chat.messages.some((message: any) => {
-    if (message?.role !== 'assistant') return false;
-    const rawText = message?.parts?.find((part: any) => part?.type === 'text')?.text || '';
-    const envelope = parseMessageEnvelope(rawText);
-    const text = envelope?.content || rawText;
-    return !text?.trim();
-  });
+  const [messages, setMessages] = useState<LlamaMessage[]>([
+    createTextMessage('assistant', 'Hello! I\'m your LlamaIndex assistant connected to your API.', 'welcome')
+  ]);
+  const [status, setStatus] = useState<'submitted' | 'streaming' | 'ready' | 'error'>('ready');
+  const [detailsById, setDetailsById] = useState<Record<string, ResponseDetails>>({});
 
   const appendSystemMessage = (content: string) => {
-    chat.setMessages((messages) => [
-      ...messages,
-      {
-        id: `system-${Date.now()}`,
-        role: 'system',
-        parts: [{ type: 'text', text: content }]
-      }
-    ]);
+    setMessages((prev) => [...prev, createTextMessage('system', content)]);
   };
+
+  const sendMessage = async (message: LlamaMessage) => {
+    const userText = toMessageText(message).trim();
+    if (!userText || status === 'submitted' || status === 'streaming') return;
+
+    const assistantId = String(createMessageId());
+    const assistantMessage = createTextMessage('assistant', '', assistantId);
+
+    setMessages((prev) => [...prev, createTextMessage('user', userText, message.id), assistantMessage]);
+    setStatus(settings.responseMode === 'stream' ? 'streaming' : 'submitted');
+
+    try {
+      const result = await callAPI(userText, settings, {
+        onChunk: (partialText) => {
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? createTextMessage('assistant', partialText, assistantId) : m)));
+        }
+      });
+
+      setMessages((prev) => prev.map((m) => (m.id === assistantId ? createTextMessage('assistant', result.content, assistantId) : m)));
+      if (result.details) {
+        setDetailsById((prev) => ({ ...prev, [assistantId]: result.details! }));
+      }
+      setStatus('ready');
+    } catch (error) {
+      setMessages((prev) => prev.map((m) => (
+        m.id === assistantId ? createTextMessage('assistant', `Connection Error: ${getErrorMessage(error)}`, assistantId) : m
+      )));
+      setStatus('error');
+    }
+  };
+
+  const handler = useMemo(
+    () => ({
+      messages,
+      status,
+      sendMessage,
+      setMessages
+    }),
+    [messages, status]
+  );
 
   const handleHistoryAction = async (action: 'show' | 'reset', provider: string, sessionId: string) => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
-        const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
-        
-        // Add history to LlamaIndex chat
-        appendSystemMessage(historyContent);
+        appendSystemMessage(formatHistoryMessage(provider, sessionId, historyData.turns || []));
       } catch (error) {
         appendSystemMessage(`Error getting history: ${getErrorMessage(error)}`);
       }
-    } else if (action === 'reset') {
-      try {
-        await resetMemory(provider, sessionId);
-        appendSystemMessage(`✅ Memory cleared for ${provider} (${sessionId})`);
-      } catch (error) {
-        appendSystemMessage(`Error resetting memory: ${getErrorMessage(error)}`);
-      }
+      return;
+    }
+
+    try {
+      await resetMemory(provider, sessionId);
+      appendSystemMessage(`✅ Memory cleared for ${provider} (${sessionId})`);
+    } catch (error) {
+      appendSystemMessage(`Error resetting memory: ${getErrorMessage(error)}`);
     }
   };
 
+  const isLlamaLoading = status === 'submitted' || status === 'streaming';
+
   return (
     <div className="h-screen flex flex-col">
-      <FrameworkHeader 
-        title="LlamaIndex Chat UI (Real Components)"
+      <FrameworkHeader
+        title="LlamaIndex Chat UI (@llamaindex/chat-ui, in-component adapter)"
         color="purple"
         settings={settings}
         onSettingsClick={() => setShowSettings(!showSettings)}
         apiStatus={apiStatus}
         apiCapabilities={apiCapabilities}
       />
-      
+
       <div className="flex-1 overflow-hidden p-4">
         <div className="h-full bg-white rounded-lg border overflow-hidden flex flex-col">
-          <ChatSection handler={chat} className="h-full flex flex-col">
+          <ChatSection handler={handler} className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto p-4">
-              {chat.messages.map((message: any) => {
-                const rawText = message?.parts?.find((part: any) => part?.type === 'text')?.text || '';
-                const envelope = parseMessageEnvelope(rawText);
-                const text = envelope?.content || rawText;
-                const isAssistantPending = message.role === 'assistant' && !text?.trim() && chat.status !== 'ready';
+              {messages.map((message) => {
+                const text = toMessageText(message);
+                const isAssistantPending = message.role === 'assistant' && !text.trim() && isLlamaLoading;
+
                 return (
                   <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : message.role === 'system' ? 'text-center' : 'text-left'}`}>
                     <div className={`inline-block px-4 py-2 rounded-lg ${
@@ -133,38 +143,36 @@ const LlamaIndexChatPage = () => {
                         : 'bg-purple-100 text-gray-900 max-w-md whitespace-pre-wrap'
                     }`}>
                       {isAssistantPending ? <ThinkingIndicator label="Generating response..." /> : text}
-                      {message.role === 'assistant' && <ResponseDetailsPanel details={llamaResponseDetails[message.id]} />}
+                      {message.role === 'assistant' && (
+                        <ResponseDetailsPanel details={detailsById[message.id] || toMessageDetails(message)} />
+                      )}
                     </div>
                   </div>
                 );
               })}
-              {isLlamaLoading && !hasPendingLlamaAssistantMessage && (
-                <div className="mb-4 text-left">
-                  <div className="inline-block rounded-lg bg-purple-100 px-4 py-2 text-gray-900">
-                    <ThinkingIndicator label="Generating response..." />
-                  </div>
-                </div>
-              )}
             </div>
+
             <ChatInput className="border-t">
               <ChatInput.Form className="p-4">
-                <ChatInput.Field 
+                <ChatInput.Field
                   placeholder={`Ask questions... (${settings.queryMode === 'single' ? settings.selectedProvider : 'all providers'})`}
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
-                <div className="flex justify-between items-center mt-2">
-                  <div className="text-xs text-gray-500">
-                    Powered by @llamaindex/chat-ui • {apiCapabilities.hasMemory ? `Session: ${settings.sessionId}` : 'No memory'}
-                    {isLlamaLoading && <span className="ml-2">• Generating...</span>}
-                  </div>
+                <div className="mt-2 flex items-center justify-between">
                   <ChatInput.Submit
                     disabled={isLlamaLoading}
-                    className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg ml-2"
+                    className="ml-2 rounded-lg bg-purple-600 px-6 py-2 text-white hover:bg-purple-700 disabled:bg-gray-400"
                   >
                     {isLlamaLoading ? 'Generating...' : 'Send'}
                   </ChatInput.Submit>
                 </div>
               </ChatInput.Form>
+              <div className="text-xs text-gray-500">
+                Powered by @llamaindex/chat-ui (no local API route) • gateway: {LANGGRAPH_API_URL}
+                {' • '}
+                {apiCapabilities.hasMemory ? `Session: ${settings.sessionId}` : 'No memory'}
+                {isLlamaLoading && <span className="ml-2">• Generating...</span>}
+               </div>	    	      
             </ChatInput>
           </ChatSection>
         </div>
@@ -182,13 +190,9 @@ const LlamaIndexChatPage = () => {
         onHistoryAction={handleHistoryAction}
       />
 
-      {showSettings && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowSettings(false)} />
-      )}
+      {showSettings && <div className="fixed inset-0 z-40 bg-black bg-opacity-50" onClick={() => setShowSettings(false)} />}
     </div>
   );
 };
-
-// Assistant UI Component
 
 export default LlamaIndexChatPage;
