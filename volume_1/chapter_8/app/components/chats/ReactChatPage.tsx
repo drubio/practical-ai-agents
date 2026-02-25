@@ -1,11 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-
+import { useCallback, useMemo, useReducer, useState } from 'react';
 import {
-  APICapabilities,
   ChatMessage,
-  ResponseDetails,
   FrameworkHeader,
   SettingsSidebar,
   ThinkingIndicator,
@@ -16,56 +13,118 @@ import {
   formatHistoryMessage,
   getHistory,
   resetMemory,
-  createMessageId,
-  parseMessageEnvelope,
-  LANGGRAPH_API_URL,
-  LANGGRAPH_ASSISTANT_ID
+  createMessageId
 } from './shared';
+
+type ChatState = {
+  messages: ChatMessage[];
+  isLoading: boolean;
+};
+
+type ChatAction =
+  | { type: 'start'; userContent: string; assistantId: number }
+  | { type: 'assistant-update'; assistantId: number; content: string; details?: ChatMessage['details'] }
+  | { type: 'append-system'; content: string }
+  | { type: 'finish' };
+
+const initialState: ChatState = {
+  messages: [
+    { id: 1, role: 'assistant', content: 'Hello! I\'m your custom chat assistant connected to your API.' }
+  ],
+  isLoading: false
+};
+
+const chatReducer = (state: ChatState, action: ChatAction): ChatState => {
+  switch (action.type) {
+    case 'start': {
+      return {
+        ...state,
+        isLoading: true,
+        messages: [
+          ...state.messages,
+          { id: createMessageId(), role: 'user', content: action.userContent },
+          { id: action.assistantId, role: 'assistant', content: '' }
+        ]
+      };
+    }
+
+    case 'assistant-update': {
+      return {
+        ...state,
+        messages: state.messages.map((message) => (
+          message.id === action.assistantId
+            ? { ...message, content: action.content, details: action.details ?? message.details }
+            : message
+        ))
+      };
+    }
+
+    case 'append-system': {
+      return {
+        ...state,
+        messages: [...state.messages, { id: createMessageId(), role: 'system', content: action.content }]
+      };
+    }
+
+    case 'finish': {
+      return { ...state, isLoading: false };
+    }
+
+    default:
+      return state;
+  }
+};
 
 const ReactChatPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 1, role: 'assistant', content: 'Hello! I\'m your custom chat assistant connected to your API.' }
-  ]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [{ messages, isLoading }, dispatch] = useReducer(chatReducer, initialState);
+
+  const formatProviderAggregateText = useCallback(
+    (text: string) => (settings.queryMode === 'all' ? text.replace('Results from', 'Custom Chat Results from') : text),
+    [settings.queryMode]
+  );
+
+  const sessionHint = useMemo(
+    () => (apiCapabilities.hasMemory ? `(Session: ${settings.sessionId})` : '(No memory)'),
+    [apiCapabilities.hasMemory, settings.sessionId]
+  );
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!input?.trim() || isLoading) return;
+    const userInput = input.trim();
+    if (!userInput || isLoading) return;
 
-    const userMessage: ChatMessage = { id: Date.now(), role: 'user', content: input };
-    const assistantId = Date.now() + 1;
-    setMessages(prev => [...prev, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
-    setIsLoading(true);
+    const assistantId = createMessageId();
+    dispatch({ type: 'start', userContent: userInput, assistantId });
     setInput('');
 
     try {
-      const response = await callAPI(input, settings, {
+      const response = await callAPI(userInput, settings, {
         onChunk: (partialText) => {
-          const formattedPartial = settings.queryMode === 'all'
-            ? partialText.replace('Results from', 'Custom Chat Results from')
-            : partialText;
-          setMessages(prev => prev.map(message => (
-            message.id === assistantId ? { ...message, content: formattedPartial } : message
-          )));
+          dispatch({
+            type: 'assistant-update',
+            assistantId,
+            content: formatProviderAggregateText(partialText)
+          });
         }
       });
 
-      const formattedContent = settings.queryMode === 'all' 
-        ? response.content.replace('Results from', 'Custom Chat Results from')
-        : response.content;
-      
-      setMessages(prev => prev.map(message => (
-        message.id === assistantId ? { ...message, content: formattedContent, details: response.details } : message
-      )));
+      dispatch({
+        type: 'assistant-update',
+        assistantId,
+        content: formatProviderAggregateText(response.content),
+        details: response.details
+      });
     } catch (error) {
-      setMessages(prev => prev.map(message => (
-        message.id === assistantId ? { ...message, content: `Connection Error: ${getErrorMessage(error)}` } : message
-      )));
+      dispatch({
+        type: 'assistant-update',
+        assistantId,
+        content: `Connection Error: ${getErrorMessage(error)}`
+      });
     } finally {
-      setIsLoading(false);
+      dispatch({ type: 'finish' });
     }
   };
 
@@ -73,37 +132,39 @@ const ReactChatPage = () => {
     if (action === 'show') {
       try {
         const historyData = await getHistory(provider, sessionId);
-        const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
-        
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: historyContent }]);
+        dispatch({
+          type: 'append-system',
+          content: formatHistoryMessage(provider, sessionId, historyData.turns || [])
+        });
       } catch (error) {
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${getErrorMessage(error)}` }]);
+        dispatch({ type: 'append-system', content: `Error getting history: ${getErrorMessage(error)}` });
       }
-    } else if (action === 'reset') {
-      try {
-        await resetMemory(provider, sessionId);
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
-      } catch (error) {
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${getErrorMessage(error)}` }]);
-      }
+      return;
+    }
+
+    try {
+      await resetMemory(provider, sessionId);
+      dispatch({ type: 'append-system', content: `✅ Memory cleared for ${provider} (${sessionId})` });
+    } catch (error) {
+      dispatch({ type: 'append-system', content: `Error resetting memory: ${getErrorMessage(error)}` });
     }
   };
 
   return (
     <div className="h-screen flex flex-col">
-      <FrameworkHeader 
-        title="React UI (Vanilla React)"
+      <FrameworkHeader
+        title="React UI (Vanilla React + useReducer)"
         color="orange"
         settings={settings}
         onSettingsClick={() => setShowSettings(!showSettings)}
         apiStatus={apiStatus}
         apiCapabilities={apiCapabilities}
       />
-      
+
       <div className="flex-1 overflow-hidden p-4">
         <div className="h-full bg-gradient-to-b from-orange-50 to-white rounded-lg border overflow-hidden flex flex-col">
           <div className="flex-1 overflow-y-auto p-4">
-            {messages?.map((message) => (
+            {messages.map((message) => (
               <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : message.role === 'system' ? 'text-center' : 'text-left'}`}>
                 <div className={`inline-block px-4 py-2 rounded-lg ${
                   message.role === 'user'
@@ -112,11 +173,9 @@ const ReactChatPage = () => {
                     ? 'bg-amber-50 text-amber-900 border border-amber-200 max-w-3xl text-left whitespace-pre-wrap'
                     : 'bg-orange-100 text-gray-900 max-w-md whitespace-pre-wrap'
                 }`}>
-                  {message.role === 'assistant' && (
-                    <div className="text-xs font-semibold mb-1 text-orange-700">Custom Assistant</div>
-                  )}
+                  {message.role === 'assistant' && <div className="mb-1 text-xs font-semibold text-orange-700">Custom Assistant</div>}
                   {message.role === 'system' && (
-                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">Conversation History</div>
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">Conversation History</div>
                   )}
                   {message.role === 'assistant' && !message.content && isLoading ? (
                     <ThinkingIndicator label="Processing your request..." />
@@ -128,20 +187,20 @@ const ReactChatPage = () => {
               </div>
             ))}
           </div>
-          
+
           <div className="border-t bg-white p-4">
             <form onSubmit={handleSubmit}>
               <div className="flex space-x-2">
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={`Ask questions... ${apiCapabilities.hasMemory ? `(Session: ${settings.sessionId})` : ''}`}
+                  placeholder={`Ask questions... ${sessionHint}`}
                   disabled={isLoading}
                   className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-orange-500"
                 />
                 <button
                   type="submit"
-                  disabled={isLoading || !input?.trim()}
+                  disabled={isLoading || !input.trim()}
                   className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg"
                 >
                   Send
@@ -149,7 +208,7 @@ const ReactChatPage = () => {
               </div>
             </form>
             <div className="text-xs text-gray-500 mt-2">
-              Custom React chat interface • No external UI framework
+              Custom React chat interface • React primitives: useReducer + useMemo + useCallback
             </div>
           </div>
         </div>
@@ -173,10 +232,5 @@ const ReactChatPage = () => {
     </div>
   );
 };
-
-// ============================================================================
-// MAIN APP
-// ============================================================================
-
 
 export default ReactChatPage;
