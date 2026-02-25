@@ -1,11 +1,9 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Client as LangGraphClient } from '@langchain/langgraph-sdk';
 import {
-  APICapabilities,
   ChatMessage,
-  ResponseDetails,
   FrameworkHeader,
   SettingsSidebar,
   ThinkingIndicator,
@@ -17,10 +15,66 @@ import {
   getHistory,
   resetMemory,
   createMessageId,
-  parseMessageEnvelope,
   LANGGRAPH_API_URL,
   LANGGRAPH_ASSISTANT_ID
 } from './shared';
+
+type StreamEvent = {
+  data?: unknown;
+};
+
+type LangGraphClientShape = {
+  threads?: {
+    create?: () => Promise<{ thread_id?: string; threadId?: string }>;
+  };
+  runs?: {
+    stream?: (
+      threadId: string,
+      assistantId: string,
+      payload: {
+        input: { messages: Array<{ role: string; content: string }> };
+        streamMode: string;
+        config: {
+          configurable: { provider: string; session_id: string };
+          temperature: number;
+          max_tokens: number;
+        };
+      }
+    ) => Promise<AsyncIterable<StreamEvent>>;
+  };
+};
+
+const getChunkText = (event: StreamEvent): string => {
+  const payload = event?.data;
+
+  if (typeof payload === 'string') return payload;
+
+  if (Array.isArray(payload)) {
+    return payload
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object' && 'text' in item && typeof (item as { text?: unknown }).text === 'string') {
+          return (item as { text: string }).text;
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('');
+  }
+
+  if (payload && typeof payload === 'object' && 'messages' in payload) {
+    const messages = (payload as { messages?: Array<{ role?: string; content?: unknown }> }).messages ?? [];
+    const assistantMessage = [...messages].reverse().find((message) => message.role === 'assistant');
+    if (typeof assistantMessage?.content === 'string') return assistantMessage.content;
+  }
+
+  return '';
+};
+
+const isUnsupportedLangGraphEndpointError = (error: unknown) => {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes('404') || message.includes('/threads') || message.includes('not found');
+};
 
 const LangGraphChatPage = () => {
   const [showSettings, setShowSettings] = useState(false);
@@ -30,38 +84,97 @@ const LangGraphChatPage = () => {
     { id: 1, role: 'assistant', content: 'Hello! I\'m your LangGraph assistant connected to your gateway API.' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const threadIdRef = useRef<string | null>(null);
 
-  // Keep LangGraph SDK in use and instantiate explicitly with URL params (no env vars required)
-  const langGraphClient = useMemo(
-    () => new LangGraphClient({ apiUrl: LANGGRAPH_API_URL }),
-    []
-  );
+  const langGraphSdkUrl = (process.env.NEXT_PUBLIC_LANGGRAPH_PLATFORM_API_URL || LANGGRAPH_API_URL).trim();
+  const langGraphClient = useMemo(() => new LangGraphClient({ apiUrl: langGraphSdkUrl }), [langGraphSdkUrl]);
+
+  const updateAssistantMessage = (assistantId: number, update: (message: ChatMessage) => ChatMessage) => {
+    setMessages((prev) => prev.map((message) => (message.id === assistantId ? update(message) : message)));
+  };
+
+  const runWithLangGraphSdk = async (prompt: string, assistantId: number): Promise<boolean> => {
+    if (settings.queryMode !== 'single' || settings.responseMode !== 'stream') {
+      return false;
+    }
+
+    try {
+      const client = langGraphClient as unknown as LangGraphClientShape;
+      if (!client.threads?.create || !client.runs?.stream) {
+        return false;
+      }
+
+      if (!threadIdRef.current) {
+        const thread = await client.threads.create();
+        threadIdRef.current = thread.thread_id ?? thread.threadId ?? null;
+      }
+
+      if (!threadIdRef.current) return false;
+
+      const stream = await client.runs.stream(threadIdRef.current, LANGGRAPH_ASSISTANT_ID, {
+        input: { messages: [{ role: 'user', content: prompt }] },
+        streamMode: 'messages-tuple',
+        config: {
+          configurable: {
+            provider: settings.selectedProvider,
+            session_id: settings.sessionId
+          },
+          temperature: settings.temperature,
+          max_tokens: settings.maxTokens
+        }
+      });
+
+      let gotText = false;
+      for await (const chunk of stream) {
+        const text = getChunkText(chunk);
+        if (!text) continue;
+
+        gotText = true;
+        updateAssistantMessage(assistantId, (message) => ({ ...message, content: text }));
+      }
+
+      return gotText;
+    } catch (error) {
+      if (isUnsupportedLangGraphEndpointError(error)) {
+        return false;
+      }
+
+      throw error;
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!input?.trim() || isLoading) return;
+    const userInput = input.trim();
+    if (!userInput || isLoading) return;
 
-    const userMessage: ChatMessage = { id: Date.now(), role: 'user', content: input };
+    const userMessage: ChatMessage = { id: Date.now(), role: 'user', content: userInput };
     const assistantId = Date.now() + 1;
-    setMessages(prev => [...prev, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
+    setMessages((prev) => [...prev, userMessage, { id: assistantId, role: 'assistant', content: '' }]);
     setIsLoading(true);
     setInput('');
 
     try {
-      const response = await callAPI(input, settings, {
-        onChunk: (partialText) => {
-          setMessages(prev => prev.map((message) => (
-            message.id === assistantId ? { ...message, content: partialText } : message
-          )));
-        }
-      });
-      setMessages(prev => prev.map((message) => (
-        message.id === assistantId ? { ...message, content: response.content, details: response.details } : message
-      )));
+      const usedSdk = await runWithLangGraphSdk(userInput, assistantId);
+
+      if (!usedSdk) {
+        const response = await callAPI(userInput, settings, {
+          onChunk: (partialText) => {
+            updateAssistantMessage(assistantId, (message) => ({ ...message, content: partialText }));
+          }
+        });
+
+        updateAssistantMessage(assistantId, (message) => ({
+          ...message,
+          content: response.content,
+          details: response.details
+        }));
+      }
     } catch (error) {
-      setMessages(prev => prev.map((message) => (
-        message.id === assistantId ? { ...message, content: `Connection Error: ${getErrorMessage(error)}` } : message
-      )));
+      updateAssistantMessage(assistantId, (message) => ({
+        ...message,
+        content: `Connection Error: ${getErrorMessage(error)}`
+      }));
     } finally {
       setIsLoading(false);
     }
@@ -72,25 +185,25 @@ const LangGraphChatPage = () => {
       try {
         const historyData = await getHistory(provider, sessionId);
         const historyContent = formatHistoryMessage(provider, sessionId, historyData.turns || []);
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: historyContent }]);
+        setMessages((prev) => [...prev, { id: createMessageId(), role: 'system', content: historyContent }]);
       } catch (error) {
-        setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${getErrorMessage(error)}` }]);
+        setMessages((prev) => [...prev, { id: createMessageId(), role: 'system', content: `Error getting history: ${getErrorMessage(error)}` }]);
       }
       return;
     }
 
     try {
       await resetMemory(provider, sessionId);
-      setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
+      setMessages((prev) => [...prev, { id: createMessageId(), role: 'system', content: `✅ Memory cleared for ${provider} (${sessionId})` }]);
     } catch (error) {
-      setMessages(prev => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${getErrorMessage(error)}` }]);
+      setMessages((prev) => [...prev, { id: createMessageId(), role: 'system', content: `Error resetting memory: ${getErrorMessage(error)}` }]);
     }
   };
 
   return (
     <div className="h-screen flex flex-col">
       <FrameworkHeader
-        title="LangGraph UI (LangGraph SDK + Gateway)"
+        title="LangGraph UI (SDK-first + gateway adapter fallback)"
         color="blue"
         settings={settings}
         onSettingsClick={() => setShowSettings(!showSettings)}
@@ -128,7 +241,7 @@ const LangGraphChatPage = () => {
             <form onSubmit={handleSubmit}>
               <div className="flex space-x-2">
                 <input
-                  value={input || ''}
+                  value={input}
                   onChange={(e) => setInput(e.target.value)}
                   type="text"
                   placeholder={`Ask questions... (${settings.queryMode === 'single' ? settings.selectedProvider : 'all providers'})`}
@@ -137,7 +250,7 @@ const LangGraphChatPage = () => {
                 />
                 <button
                   type="submit"
-                  disabled={isLoading || !input?.trim()}
+                  disabled={isLoading || !input.trim()}
                   className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-md"
                 >
                   Send
@@ -145,7 +258,7 @@ const LangGraphChatPage = () => {
               </div>
             </form>
             <div className="text-xs text-gray-500 mt-2">
-              Powered by LangGraph SDK client + gateway • {LANGGRAPH_API_URL} • assistant: {LANGGRAPH_ASSISTANT_ID} • client: {langGraphClient ? 'ready' : 'n/a'}
+              LangGraph SDK URL: {langGraphSdkUrl} • assistant: {LANGGRAPH_ASSISTANT_ID} • endpoint adapter: {LANGGRAPH_API_URL}
             </div>
           </div>
         </div>
@@ -169,7 +282,5 @@ const LangGraphChatPage = () => {
     </div>
   );
 };
-
-// LlamaIndex Component
 
 export default LangGraphChatPage;
