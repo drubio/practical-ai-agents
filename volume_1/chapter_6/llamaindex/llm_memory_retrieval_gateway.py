@@ -13,7 +13,7 @@ sys.path.append(CHAPTER_5_LLAMAINDEX)
 
 from llama_index.core.llms import ChatMessage
 from llama_index.core.utils import get_tokenizer
-from rank_bm25 import BM25Okapi
+import bm25s
 
 from llm_memory_structured_gateway import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
 from utils import get_default_model, interactive_cli, parse_structured_json_response
@@ -21,6 +21,12 @@ from utils import get_default_model, interactive_cli, parse_structured_json_resp
 
 class LlamaIndexLLMManager(Chapter5StructuredManager):
     """Chapter 6 manager that retrieves only relevant memory before prompting the LLM."""
+
+    _STOP_WORDS = {
+        "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "how",
+        "i", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "was",
+        "we", "what", "when", "where", "which", "who", "why", "with", "you",
+    }
 
     def __init__(self, memory_enabled: bool = True, retrieval_k: int = 4):
         # Disable inherited full-memory chat engine replay. Chapter 6 builds retrieval prompts directly.
@@ -35,29 +41,20 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             return 0
         return len(self._tokenizer(text))
 
-    @staticmethod
-    def _normalize_bm25_tokens(text: str) -> List[str]:
-        return re.findall(r"[a-zA-Z0-9_]+", str(text).lower())
-
-    @staticmethod
-    def _tokenize(text: str) -> set:
-        stop_words = {
-            "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "how",
-            "i", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "was",
-            "we", "what", "when", "where", "which", "who", "why", "with", "you",
-        }
+    @classmethod
+    def _tokenize_overlap(cls, text: str) -> set:
         tokens = set(re.findall(r"[a-zA-Z0-9_]+", str(text).lower()))
-        return {token for token in tokens if len(token) > 2 and token not in stop_words}
+        return {token for token in tokens if len(token) > 2 and token not in cls._STOP_WORDS}
 
-    def _overlap_score(self, query_tokens: set, content: str) -> int:
-        content_tokens = self._tokenize(content)
+    def _overlap_score(self, query_tokens: set, content_tokens: set) -> int:
         if not query_tokens or not content_tokens:
             return 0
         return len(query_tokens.intersection(content_tokens))
 
     def _select_retrieved_messages(self, topic: str, messages: List[ChatMessage]) -> List[Dict[str, str]]:
-        query_tokens = self._tokenize(topic)
-        if not query_tokens:
+        topic_text = str(topic or "").strip()
+        query_tokens = self._tokenize_overlap(topic_text)
+        if not topic_text or not query_tokens:
             return []
 
         message_records = []
@@ -65,26 +62,36 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             content = str(getattr(msg, "content", "") or "")
             if not content:
                 continue
+            overlap_tokens = self._tokenize_overlap(content)
+            if not overlap_tokens:
+                continue
             message_records.append(
                 {
                     "idx": idx,
                     "role": str(getattr(msg, "role", "unknown")),
                     "content": content,
-                    "tokens": self._normalize_bm25_tokens(content),
+                    "overlap_tokens": overlap_tokens,
                 }
             )
 
-        query_terms = self._normalize_bm25_tokens(topic)
-        if message_records and query_terms:
-            bm25 = BM25Okapi([record["tokens"] for record in message_records])
-            scores = bm25.get_scores(query_terms)
+        if message_records:
+            corpus = [record["content"] for record in message_records]
+            retriever = bm25s.BM25()
+            retriever.index(bm25s.tokenize(corpus, stopwords="en"))
+
+            top_n = min(len(message_records), max(self.retrieval_k * 3, self.retrieval_k))
+            matches, scores = retriever.retrieve(
+                bm25s.tokenize([topic_text], stopwords="en"),
+                k=top_n,
+            )
             strong = []
-            for idx, score in enumerate(scores):
+            for local_idx, score in zip(matches[0], scores[0]):
                 bm25_score = float(score)
-                if bm25_score <= 0:
+                message_idx = int(local_idx)
+                if bm25_score <= 0 or message_idx < 0 or message_idx >= len(message_records):
                     continue
-                record = message_records[idx]
-                overlap = self._overlap_score(query_tokens, record["content"])
+                record = message_records[message_idx]
+                overlap = self._overlap_score(query_tokens, record["overlap_tokens"])
                 overlap_ratio = overlap / len(query_tokens)
                 if overlap >= 2 or overlap_ratio >= 0.4:
                     strong.append((bm25_score, record))
@@ -106,7 +113,10 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             content = str(getattr(msg, "content", "") or "")
             if not content:
                 continue
-            score = self._overlap_score(query_tokens, content)
+            content_tokens = self._tokenize_overlap(content)
+            if not content_tokens:
+                continue
+            score = self._overlap_score(query_tokens, content_tokens)
             overlap_ratio = score / len(query_tokens)
             if score >= 2 or overlap_ratio >= 0.4:
                 fallback.append((score, idx, msg))

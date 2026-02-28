@@ -15,4 +15,4 @@ llama-index-llms-google-genai==0.8.5
 llama-index-llms-openai-like==0.6.0
 
 # Ranking function for relevance of documents to a given search query
-rank-bm25==0.2.2
+bm25s>=0.2.0
