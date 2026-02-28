@@ -5,7 +5,7 @@
 import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/llm_memory_structured_gateway.js';
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { getEncoding } from '../../chapter_4/node_modules/js-tiktoken/dist/index.js';
-import { BM25 as fastBm25Module } from '../../chapter_4/node_modules/fast-bm25/dist/index.js';
+import { BM25 } from '../../chapter_4/node_modules/fast-bm25/dist/index.js';
 
 class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
@@ -21,10 +21,6 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
     _estimateTokens(text) {
         if (!text) return 0;
         return this.tokenizer.encode(String(text)).length;
-    }
-
-    _normalizeBm25Tokens(text) {
-        return String(text || '').toLowerCase().match(/[a-zA-Z0-9_]+/g) || [];
     }
 
     _tokenize(text) {
@@ -47,98 +43,33 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         return score;
     }
 
-    _coerceScores(candidateCount, rawScores) {
-        if (Array.isArray(rawScores) && rawScores.every((value) => typeof value === 'number')) {
-            return rawScores.slice(0, candidateCount);
-        }
-
-        if (Array.isArray(rawScores) && rawScores.every((entry) => entry && typeof entry === 'object')) {
-            const alignedScores = Array(candidateCount).fill(0);
-            rawScores.forEach((entry) => {
-                const idx = Number(entry?.idx ?? entry?.index ?? entry?.id);
-                const score = Number(entry?.score ?? entry?.bm25Score ?? 0);
-                if (Number.isInteger(idx) && idx >= 0 && idx < candidateCount && Number.isFinite(score)) {
-                    alignedScores[idx] = score;
-                }
-            });
-            return alignedScores;
-        }
-
-        return null;
+    _computeBm25Matches(topic, messageRecords) {
+        const docs = messageRecords.map((record) => ({
+            role: record.role,
+            content: record.content,
+        }));
+        const bm25 = new BM25(docs, {
+            k1: 1.5,
+            b: 0.75,
+            minLength: 2,
+            stopWords: new Set(['the', 'a', 'an', 'and', 'is', 'are', 'to', 'of', 'in', 'on']),
+            stemming: true,
+        });
+        return bm25.search(topic, this.retrievalK * 3);
     }
 
-    _computeBm25Scores(queryTerms, messageRecords) {
-        if (queryTerms.length === 0 || messageRecords.length === 0) return [];
-        const corpus = messageRecords.map((record) => record.tokens);
-
-        const scoreFromEngine = (engine) => {
-            if (!engine) return null;
-            const tryCalls = [
-                () => (typeof engine.getScores === 'function' ? engine.getScores(queryTerms) : null),
-                () => (typeof engine.search === 'function' ? engine.search(queryTerms) : null),
-                () => (typeof engine.query === 'function' ? engine.query(queryTerms) : null),
-                () => (typeof engine.score === 'function' ? engine.score(queryTerms) : null),
-            ];
-
-            for (const call of tryCalls) {
-                const result = call();
-                const scores = this._coerceScores(messageRecords.length, result);
-                if (scores) return scores;
+    _computeBm25Scores(topic, messageRecords) {
+        if (!topic || messageRecords.length === 0) return [];
+        const alignedScores = Array(messageRecords.length).fill(0);
+        const matches = this._computeBm25Matches(topic, messageRecords);
+        matches.forEach((match) => {
+            const idx = Number(match?.index);
+            const score = Number(match?.score ?? 0);
+            if (Number.isInteger(idx) && idx >= 0 && idx < messageRecords.length && Number.isFinite(score)) {
+                alignedScores[idx] = score;
             }
-
-            return null;
-        };
-
-        const moduleEntry = fastBm25Module?.default ?? fastBm25Module;
-        const constructors = [
-            moduleEntry?.BM25,
-            moduleEntry?.FastBM25,
-            moduleEntry?.BM25Okapi,
-            moduleEntry,
-        ].filter((candidate) => typeof candidate === 'function');
-
-        for (const Constructor of constructors) {
-            const variants = [
-                () => new Constructor(corpus),
-                () => new Constructor({ corpus }),
-                () => new Constructor(corpus, { tokenize: false }),
-            ];
-
-            for (const build of variants) {
-                try {
-                    const engine = build();
-                    const scores = scoreFromEngine(engine);
-                    if (scores) return scores;
-                } catch {
-                    // Try the next constructor signature.
-                }
-            }
-        }
-
-        const moduleFunctions = [
-            moduleEntry?.bm25,
-            moduleEntry?.score,
-            moduleEntry,
-        ].filter((fn) => typeof fn === 'function');
-
-        for (const fn of moduleFunctions) {
-            const callVariants = [
-                () => fn(corpus, queryTerms),
-                () => fn({ corpus, query: queryTerms }),
-                () => fn(corpus, queryTerms, { tokenize: false }),
-            ];
-
-            for (const call of callVariants) {
-                try {
-                    const scores = this._coerceScores(messageRecords.length, call());
-                    if (scores) return scores;
-                } catch {
-                    // Try the next invocation style.
-                }
-            }
-        }
-
-        return [];
+        });
+        return alignedScores;
     }
 
     async _getMemoryMessages(provider, sessionId) {
@@ -161,13 +92,11 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
                 idx,
                 role: String(role),
                 content,
-                tokens: this._normalizeBm25Tokens(content),
             });
         });
 
-        const queryTerms = this._normalizeBm25Tokens(topic);
-        if (messageRecords.length > 0 && queryTerms.length > 0) {
-            const scores = this._computeBm25Scores(queryTerms, messageRecords);
+        if (messageRecords.length > 0) {
+            const scores = this._computeBm25Scores(topic, messageRecords);
             const strong = [];
             scores.forEach((score, idx) => {
                 const bm25Score = Number(score);
