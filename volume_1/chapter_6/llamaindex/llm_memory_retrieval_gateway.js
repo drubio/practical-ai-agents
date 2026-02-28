@@ -5,6 +5,7 @@
 import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/llm_memory_structured_gateway.js';
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { getEncoding } from '../../chapter_4/node_modules/js-tiktoken/dist/index.js';
+import { BM25 as fastBm25Module } from '../../chapter_4/node_modules/fast-bm25/dist/index.js';
 
 class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
@@ -46,6 +47,100 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         return score;
     }
 
+    _coerceScores(candidateCount, rawScores) {
+        if (Array.isArray(rawScores) && rawScores.every((value) => typeof value === 'number')) {
+            return rawScores.slice(0, candidateCount);
+        }
+
+        if (Array.isArray(rawScores) && rawScores.every((entry) => entry && typeof entry === 'object')) {
+            const alignedScores = Array(candidateCount).fill(0);
+            rawScores.forEach((entry) => {
+                const idx = Number(entry?.idx ?? entry?.index ?? entry?.id);
+                const score = Number(entry?.score ?? entry?.bm25Score ?? 0);
+                if (Number.isInteger(idx) && idx >= 0 && idx < candidateCount && Number.isFinite(score)) {
+                    alignedScores[idx] = score;
+                }
+            });
+            return alignedScores;
+        }
+
+        return null;
+    }
+
+    _computeBm25Scores(queryTerms, messageRecords) {
+        if (queryTerms.length === 0 || messageRecords.length === 0) return [];
+        const corpus = messageRecords.map((record) => record.tokens);
+
+        const scoreFromEngine = (engine) => {
+            if (!engine) return null;
+            const tryCalls = [
+                () => (typeof engine.getScores === 'function' ? engine.getScores(queryTerms) : null),
+                () => (typeof engine.search === 'function' ? engine.search(queryTerms) : null),
+                () => (typeof engine.query === 'function' ? engine.query(queryTerms) : null),
+                () => (typeof engine.score === 'function' ? engine.score(queryTerms) : null),
+            ];
+
+            for (const call of tryCalls) {
+                const result = call();
+                const scores = this._coerceScores(messageRecords.length, result);
+                if (scores) return scores;
+            }
+
+            return null;
+        };
+
+        const moduleEntry = fastBm25Module?.default ?? fastBm25Module;
+        const constructors = [
+            moduleEntry?.BM25,
+            moduleEntry?.FastBM25,
+            moduleEntry?.BM25Okapi,
+            moduleEntry,
+        ].filter((candidate) => typeof candidate === 'function');
+
+        for (const Constructor of constructors) {
+            const variants = [
+                () => new Constructor(corpus),
+                () => new Constructor({ corpus }),
+                () => new Constructor(corpus, { tokenize: false }),
+            ];
+
+            for (const build of variants) {
+                try {
+                    const engine = build();
+                    const scores = scoreFromEngine(engine);
+                    if (scores) return scores;
+                } catch {
+                    // Try the next constructor signature.
+                }
+            }
+        }
+
+        const moduleFunctions = [
+            moduleEntry?.bm25,
+            moduleEntry?.score,
+            moduleEntry,
+        ].filter((fn) => typeof fn === 'function');
+
+        for (const fn of moduleFunctions) {
+            const callVariants = [
+                () => fn(corpus, queryTerms),
+                () => fn({ corpus, query: queryTerms }),
+                () => fn(corpus, queryTerms, { tokenize: false }),
+            ];
+
+            for (const call of callVariants) {
+                try {
+                    const scores = this._coerceScores(messageRecords.length, call());
+                    if (scores) return scores;
+                } catch {
+                    // Try the next invocation style.
+                }
+            }
+        }
+
+        return [];
+    }
+
     async _getMemoryMessages(provider, sessionId) {
         const memory = this._getMemory(provider, sessionId);
         const messagePayload = await memory.get({ type: 'llamaindex' });
@@ -53,17 +148,16 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
     }
 
     _selectRetrievedMessages(topic, messages) {
-        const queryTerms = this._normalizeBm25Tokens(topic);
         const queryTokens = this._tokenize(topic);
         if (queryTokens.size === 0) return [];
 
-        const candidates = [];
+        const messageRecords = [];
 
         messages.forEach((msg, idx) => {
             const content = String(msg?.content ?? '');
             if (!content) return;
             const role = msg?._getType?.() ?? msg?.getType?.() ?? msg?.type ?? msg?.role ?? 'unknown';
-            candidates.push({
+            messageRecords.push({
                 idx,
                 role: String(role),
                 content,
@@ -71,53 +165,32 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
             });
         });
 
-        if (candidates.length > 0 && queryTerms.length > 0) {
-            const avgDocLength = candidates.reduce((sum, item) => sum + item.tokens.length, 0) / candidates.length;
-            const tokenDocFreq = new Map();
-            candidates.forEach((item) => {
-                const uniqueTokens = new Set(item.tokens);
-                uniqueTokens.forEach((token) => {
-                    tokenDocFreq.set(token, (tokenDocFreq.get(token) || 0) + 1);
-                });
+        const queryTerms = this._normalizeBm25Tokens(topic);
+        if (messageRecords.length > 0 && queryTerms.length > 0) {
+            const scores = this._computeBm25Scores(queryTerms, messageRecords);
+            const strong = [];
+            scores.forEach((score, idx) => {
+                const bm25Score = Number(score);
+                if (!Number.isFinite(bm25Score) || bm25Score <= 0) return;
+                const record = messageRecords[idx];
+                if (!record) return;
+                const overlap = this._overlapScore(queryTokens, record.content);
+                const overlapRatio = overlap / queryTokens.size;
+                if (overlap >= 2 || overlapRatio >= 0.4) {
+                    strong.push([bm25Score, record]);
+                }
             });
 
-            const k1 = 1.5;
-            const b = 0.75;
-            const bm25Scored = candidates
-                .map((item) => {
-                    const termFrequency = new Map();
-                    item.tokens.forEach((token) => {
-                        termFrequency.set(token, (termFrequency.get(token) || 0) + 1);
-                    });
-
-                    let bm25Score = 0;
-                    queryTerms.forEach((term) => {
-                        const tf = termFrequency.get(term) || 0;
-                        if (tf === 0) return;
-
-                        const docFreq = tokenDocFreq.get(term) || 0;
-                        const idf = Math.log(1 + (candidates.length - docFreq + 0.5) / (docFreq + 0.5));
-                        const denominator = tf + k1 * (1 - b + b * (item.tokens.length / (avgDocLength || 1)));
-                        bm25Score += idf * ((tf * (k1 + 1)) / denominator);
-                    });
-
-                    const overlap = this._overlapScore(queryTokens, item.content);
-                    const overlapRatio = overlap / queryTokens.size;
-                    const hasSignal = overlap >= 2 || overlapRatio >= 0.4;
-                    return { ...item, bm25Score, hasSignal };
-                })
-                .filter((item) => item.bm25Score > 0 && item.hasSignal)
-                .sort((a, b2) => (b2.bm25Score - a.bm25Score) || (a.idx - b2.idx));
-
-            if (bm25Scored.length > 0) {
-                return bm25Scored
-                    .slice(0, this.retrievalK)
-                    .sort((a, b2) => a.idx - b2.idx)
-                    .map((item) => ({
-                        role: item.role,
-                        content: item.content,
-                        relevance_score: Number(item.bm25Score.toFixed(6)),
-                    }));
+            if (strong.length > 0) {
+                const top = strong
+                    .sort((a, b2) => (b2[0] - a[0]) || (a[1].idx - b2[1].idx))
+                    .slice(0, this.retrievalK);
+                const chronological = top.sort((a, b2) => a[1].idx - b2[1].idx);
+                return chronological.map(([score, record]) => ({
+                    role: record.role,
+                    content: record.content,
+                    relevance_score: score,
+                }));
             }
         }
 
