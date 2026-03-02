@@ -182,6 +182,15 @@ export function displayProviderResponse(provider, response, framework = '') {
     console.log('='.repeat(60));
 }
 
+
+export async function getNonEmptyInput(prompt, ask) {
+    while (true) {
+        const value = (await ask(prompt)).trim();
+        if (value) return value;
+        console.log('Input cannot be empty. Please try again.');
+    }
+}
+
 export async function getUserChoice(options, prompt, ask) {
     console.log(`\n${prompt}`);
     options.forEach((option, i) => console.log(`${i + 1}. ${option}`));
@@ -300,7 +309,7 @@ export async function interactiveCli(manager) {
         const memorySupported = fullMemorySupported || retrievalMemorySupported;
 
         if (['all', 'a', ''].includes(mode)) {
-            const question = await ask('Enter your question: ');
+            const question = await getNonEmptyInput('Enter your question: ', ask);
             const results = await manager.queryAllProviders(question, '{topic}', maxTokens, temperature);
             if (results.success) {
                 for (const [provider, res] of Object.entries(results.responses)) {
@@ -337,7 +346,10 @@ export async function interactiveCli(manager) {
                 const userInput = (await ask(prompt)).trim();
 
                 if (['exit', 'quit'].includes(userInput.toLowerCase())) break;
-                if (!userInput) continue;
+                if (!userInput) {
+                    console.log('Input cannot be empty. Please try again.');
+                    continue;
+                }
 
                 if (memorySupported && userInput.toLowerCase() === 'history') {
                     const history = await Promise.resolve(manager.getHistory(provider, sessionId));

@@ -254,6 +254,15 @@ def get_user_choice(options: List[str], prompt: str) -> int:
         except ValueError:
             print("Invalid input. Please enter a number.")
 
+
+def get_non_empty_input(prompt: str) -> str:
+    """Prompt until user provides non-empty input."""
+    while True:
+        value = input(prompt).strip()
+        if value:
+            return value
+        print("Input cannot be empty. Please try again.")
+
 def format_filename(question: str, framework: str) -> str:
     """Format filename for saving results"""
     safe_question = question[:20].replace(' ', '_').replace('?', '').replace('!', '')
@@ -363,7 +372,7 @@ def interactive_cli(manager: BaseLLMManager):
     memory_supported = full_memory_supported or retrieval_memory_supported
 
     if query_all in ["all", "a", ""]:
-        question = input("Enter your question: ")
+        question = get_non_empty_input("Enter your question: ")
         print("\n" + "=" * 50)
         print(f"{manager.framework.upper()} API CALLS - QUERYING ALL PROVIDERS")
         print("=" * 50)
@@ -413,6 +422,10 @@ def interactive_cli(manager: BaseLLMManager):
             if user_input.lower() in ["exit", "quit"]:
                 print("Exiting.")
                 break
+
+            if not user_input:
+                print("Input cannot be empty. Please try again.")
+                continue
 
             elif user_input.lower() == "history":
                 if memory_supported and hasattr(manager, "get_history"):
