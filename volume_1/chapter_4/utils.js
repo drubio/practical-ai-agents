@@ -263,7 +263,7 @@ export async function interactiveCli(manager) {
 
     try {
         console.log('='.repeat(60));
-        console.log(`LLM Gateway - ${manager.framework} Framework`);
+        console.log(`LLM Application - ${manager.framework} Framework`);
         console.log('='.repeat(60));
 
         manager.displayInitializationStatus();
@@ -366,7 +366,7 @@ export async function interactiveCli(manager) {
     } catch (error) {
         console.error('Fatal Error:', error);
     } finally {
-        console.log(`\nThank you for using the ${manager.framework} LLM Gateway!`);
+        console.log(`\nThank you for using the ${manager.framework} LLM Application!`);
         if (sharedRl) {
             sharedRl.close();
             sharedRl = null;

@@ -330,7 +330,7 @@ def interactive_cli(manager: BaseLLMManager):
     """Generic interactive CLI with optional memory support"""
 
     print("=" * 60)
-    print(f"LLM Gateway - {manager.framework} Framework")
+    print(f"LLM Application - {manager.framework} Framework")
     print("=" * 60)
 
     manager.display_initialization_status()
@@ -450,4 +450,4 @@ def interactive_cli(manager: BaseLLMManager):
                     )
                 display_provider_response(provider, result, manager.framework)
 
-    print(f"\nThank you for using the {manager.framework} LLM Gateway!")
+    print(f"\nThank you for using the {manager.framework} LLM Application!")
