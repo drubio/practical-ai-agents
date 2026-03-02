@@ -1,20 +1,20 @@
-# LLM Gateway
+# LLM application to chat with multiple LLMs
 
-This chapter provides a cross-framework (Langchain, LlamaIndex), dual-language (Python, JavaScript) gateway to interact with various LLMs (GPT, Claude, Gemini, Grok)
+This chapter provides a cross-framework (LangChain, LlamaIndex), dual-language (Python, JavaScript) application to interact with multiple LLMs (GPT, Claude, Gemini, Grok)
 
 It can be run in two forms:
-- As a **command line** script for console exploration.
-- As a **web API** server for HTTP access through a web frontend or other web tool. 
+- In **command line** mode, with output sent to a console.
+- In **web API** mode, with a web server allowing output through HTTP calls. 
 
 ## Project structure and characteristics
 ```
 chapter_4/
 ├── langchain/
-│   ├── llm_gateway.py
-│   └── llm_gateway.js
+│   ├── llm_app.py
+│   └── llm_app.js
 ├── llamaindex/
-│   ├── llm_gateway.py
-│   └── llm_gateway.js
+│   ├── llm_app.py
+│   └── llm_app.js
 ├── utils.py
 ├── utils.js
 ├── web.py
@@ -29,11 +29,11 @@ You choose what framework to run by choosing the script language and framework s
 ------------------------------------------------------------------------------------
 | Framework       | Python                          | JavaScript                   |
 |-----------------|---------------------------------|------------------------------|
-| **LangChain**   | `langchain/llm_gateway.py`   | `langchain/llm_gateway.js`      |
-| **LlamaIndex**  | `llamaindex/llm_gateway.py`  | `llamaindex/llm_gateway.js`     |
+| **LangChain**   | `langchain/llm_app.py`          | `langchain/llm_app.js`       |
+| **LlamaIndex**  | `llamaindex/llm_app.py`         | `llamaindex/llm_app.js`      |
 ------------------------------------------------------------------------------------
 
-The following files are **shared** for both Langchain and LlamaIndex implementations:
+The following files are **shared** for both LangChain and LlamaIndex implementations, as well as other chapter exercises:
 
 - `utils.py` / `utils.js` — shared CLI and logic
 - `web.py` / `web.js` — shared web server for all frameworks
@@ -57,15 +57,15 @@ Run in either:
 * [Command Line Mode]
 ### ❯ Example (Python)
 ```bash
-python langchain/llm_gateway.py
-python llamaindex/llm_gateway.py
+python langchain/llm_app.py
+python llamaindex/llm_app.py
 ```
 
 ### ❯ Example (JavaScript)
 
 ```bash
-node langchain/llm_gateway.js
-node llamaindex/llm_gateway.js
+node langchain/llm_app.js
+node llamaindex/llm_app.js
 ```
 
 ### ❯ Sample Session
@@ -95,15 +95,15 @@ AGI is a type of AI that can perform...
 ### ❯ Example (Python)
 
 ```bash
-python langchain/llm_gateway.py web
-python llamaindex/llm_gateway.py web
+python langchain/llm_app.py web
+python llamaindex/llm_app.py web
 ```
 
 ### ❯ Example (JavaScript)
 
 ```bash
-node langchain/llm_gateway.js web
-node llamaindex/llm_gateway.js web
+node langchain/llm_app.js web
+node llamaindex/llm_app.js web
 ```
 
 ### ❯ Endpoints
