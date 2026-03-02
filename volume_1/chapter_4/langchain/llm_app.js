@@ -1,6 +1,5 @@
 /**
- * LLM Tester - LangChain JavaScript Framework Implementation
- * Reusable core manager for chapter extensions.
+ * "LLM application to chat with multiple LLMs - LangChain JavaScript framework implementation
  */
 
 import { ChatAnthropic } from '@langchain/anthropic';

@@ -1,3 +1,5 @@
+"""LLM application to chat with multiple LLMs - LangChain Python framework implementation."""
+
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

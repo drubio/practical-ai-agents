@@ -1,4 +1,4 @@
-"""LLM Tester - LlamaIndex framework implementation."""
+"""LLM application to chat with multiple LLMs - LlamaIndex Python framework implementation."""
 
 import os
 import sys

@@ -1,6 +1,5 @@
 /**
- * LLM Tester - LlamaIndex JavaScript Framework Implementation
- * Reusable core manager for chapter extensions.
+ * "LLM application to chat with multiple LLMs - LlamaIndex JavaScript framework implementation
  */
 
 import { Anthropic } from '@llamaindex/anthropic';
