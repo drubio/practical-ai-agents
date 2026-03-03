@@ -1,9 +1,9 @@
-# LLM Memory Gateway
+# LLM application with memory and persistent chat for multiple LLMs
 
--This chapter extends Chapter 4's universal LLM gateway with:
+-This chapter extends Chapter 4's LLM application with:
 
-1. **Persistent memory gateway** (default memory baseline)
-2. **Persistent memory + structured output parsing**
+1. **Memory and persistence**
+2. **Memory, persistence and structured output parsing**
 
 Both variations are available across **LangChain** and **LlamaIndex**, in **Python** and **JavaScript**, as well as CLI and Web API modes.
 
@@ -12,24 +12,24 @@ Both variations are available across **LangChain** and **LlamaIndex**, in **Pyth
 ```text
 chapter_5/
 ├── langchain/
-│   ├── llm_memory_persist_gateway.py
-│   ├── llm_memory_persist_gateway.js
-│   ├── llm_memory_structured_gateway.py
-│   └── llm_memory_structured_gateway.js
+│   ├── llm_memory_persist.py
+│   ├── llm_memory_persist.js
+│   ├── llm_structured_output.py
+│   └── llm_structured_output.js
 ├── llamaindex/
-│   ├── llm_memory_persist_gateway.py
-│   ├── llm_memory_persist_gateway.js
-│   ├── llm_memory_structured_gateway.py
-│   └── llm_memory_structured_gateway.js
+│   ├── llm_memory_persist.py
+│   ├── llm_memory_persist.js
+│   ├── llm_structured_output.py
+│   └── llm_structured_output.js
 └── README.md
 ```
 
 ## Script matrix
 
-| Framework | Persistent memory (Python) | Persistent memory (JavaScript) | Structured + memory (Python) | Structured + memory (JavaScript) |
+| Framework | Memory and Persistence(Python) | Memory and Persistence memory (JavaScript) | Structured Output (Python) | Structured Output (JavaScript) |
 |---|---|---|---|---|
-| **LangChain** | `langchain/llm_memory_persist_gateway.py` | `langchain/llm_memory_persist_gateway.js` | `langchain/llm_memory_structured_gateway.py` | `langchain/llm_memory_structured_gateway.js` |
-| **LlamaIndex** | `llamaindex/llm_memory_persist_gateway.py` | `llamaindex/llm_memory_persist_gateway.js` | `llamaindex/llm_memory_structured_gateway.py` | `llamaindex/llm_memory_structured_gateway.js` |
+| **LangChain** | `langchain/llm_memory_persist.py` | `langchain/llm_memory_persist.js` | `langchain/llm_structured_output.py` | `langchain/llm_structured_output.js` |
+| **LlamaIndex** | `llamaindex/llm_memory_persist.py` | `llamaindex/llm_memory_persist.js` | `llamaindex/llm_structured_output.py` | `llamaindex/llm_structured_output.js` |
 
 ## Dependencies and environment
 
@@ -57,32 +57,32 @@ Run commands from `volume_1/chapter_5`.
 #### Python
 
 ```bash
-python langchain/llm_memory_persist_gateway.py
-python langchain/llm_memory_structured_gateway.py
-python llamaindex/llm_memory_persist_gateway.py
-python llamaindex/llm_memory_structured_gateway.py
+python langchain/llm_memory_persist.py
+python langchain/llm_structured_output.py
+python llamaindex/llm_memory_persist.py
+python llamaindex/llm_structured_output.py
 ```
 
 #### JavaScript
 
 ```bash
-node langchain/llm_memory_persist_gateway.js
-node langchain/llm_memory_structured_gateway.js
-node llamaindex/llm_memory_persist_gateway.js
-node llamaindex/llm_memory_structured_gateway.js
+node langchain/llm_memory_persist.js
+node langchain/llm_structured_output.js
+node llamaindex/llm_memory_persist.js
+node llamaindex/llm_structured_output.js
 ```
 
 ### Web API mode
 
 ```bash
-python langchain/llm_memory_persist_gateway.py web
-node llamaindex/llm_memory_structured_gateway.js web
+python langchain/llm_memory_persist.py web
+node llamaindex/llm_structured_output.js web
 ```
 
 ## Incremental learning goal
 
-- **Persistent memory gateways** show reusable conversation state across runs.
-- **Structured gateways** keep memory while adding JSON output parsing, so downstream code can consume stable fields (`answer`, `summary`, `keywords`, `distilled`).
+- **Memory and Persistence** shows reusable conversation state across runs.
+- **Structured Outputs** keep memory while adding JSON output parsing, so downstream code can consume stable fields (`answer`, `summary`, `keywords`, `distilled`).
 
 ## Memory-aware endpoints
 
