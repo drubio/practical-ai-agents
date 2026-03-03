@@ -29,7 +29,7 @@ Topic: {topic}`;
 class LangChainLLMManager extends Chapter5LangChainManager {
     constructor(memoryEnabled = true) {
         super(memoryEnabled);
-        this.framework = 'LangChain+Structured JS';
+        this.framework = 'LangChain Structured Output JS';
     }
 
     _extractObjectFromText(rawResponse, key) {

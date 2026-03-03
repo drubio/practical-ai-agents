@@ -44,7 +44,7 @@ class LlamaIndexLLMManager(Chapter5LlamaIndexManager):
 
     def __init__(self, memory_enabled: bool = True):
         super().__init__(memory_enabled=memory_enabled)
-        self.framework = "LlamaIndex+Structured"
+        self.framework = "LlamaIndex Structured Output"
 
     @staticmethod
     def _extract_dict_from_text(raw_response: str, key: str) -> Optional[Dict]:

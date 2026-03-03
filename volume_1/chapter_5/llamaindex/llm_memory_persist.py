@@ -29,7 +29,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
         self.chat_engines: Dict[Tuple[str, str], SimpleChatEngine] = {}
         self.chat_stores: Dict[Tuple[str, str], SimpleChatStore] = {}
         super().__init__()
-        self.framework = "LlamaIndex+History"
+        self.framework = "LlamaIndex Memory+Persistence"
 
     def _session_file_path(self, provider: str, session_id: str) -> Path:
         sessions_dir = Path(__file__).resolve().parent / "sessions"

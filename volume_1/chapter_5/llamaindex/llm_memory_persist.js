@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     constructor(memoryEnabled = true) {
         super();
-        this.framework = 'LlamaIndex+History JS';
+        this.framework = 'LlamaIndex Memory+Persistence JS';
         this.memoryEnabled = memoryEnabled;
         this.memories = new Map();
         this.chatEngines = new Map();

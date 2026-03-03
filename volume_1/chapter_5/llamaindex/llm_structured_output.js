@@ -29,7 +29,7 @@ Topic: {topic}`;
 class LlamaIndexLLMManager extends Chapter5LlamaIndexManager {
     constructor(memoryEnabled = true) {
         super(memoryEnabled);
-        this.framework = 'LlamaIndex+Structured JS';
+        this.framework = 'LlamaIndex Structured Output JS';
     }
 
     _extractObjectFromText(rawResponse, key) {

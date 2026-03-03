@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 class LangChainLLMManager extends Chapter4LangChainManager {
     constructor(memoryEnabled = true) {
         super();
-        this.framework = 'LangChain+Memory JS';
+        this.framework = 'LangChain Memory+Persistence JS';
         this.memoryEnabled = memoryEnabled;
         this.histories = new Map();
         this.chains = new Map();

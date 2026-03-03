@@ -27,7 +27,7 @@ class LangChainLLMManager(Chapter4LangChainManager):
         self.chains: Dict[Tuple[str, str], RunnableWithMessageHistory] = {}
         self.histories: Dict[Tuple[str, str], FileChatMessageHistory] = {}
         super().__init__()
-        self.framework = "LangChain+Memory"
+        self.framework = "LangChain Memory+Persistence"
 
     def _session_file_path(self, provider: str, session_id: str) -> Path:
         sessions_dir = Path(__file__).resolve().parent / "sessions"
