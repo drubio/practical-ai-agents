@@ -2,7 +2,7 @@
  * LLM Memory Structured Gateway - LlamaIndex JS with structured JSON responses.
  */
 
-import { LlamaIndexLLMManager as Chapter5LlamaIndexManager } from './llm_memory_persist_gateway.js';
+import { LlamaIndexLLMManager as Chapter5LlamaIndexManager } from './llm_memory_persist.js';
 import { interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 
 export const STRUCTURED_TEMPLATE = `Given the topic below, provide:

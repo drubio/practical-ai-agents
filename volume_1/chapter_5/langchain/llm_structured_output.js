@@ -2,7 +2,7 @@
  * LLM Memory Structured Gateway - LangChain JS with structured JSON responses.
  */
 
-import { LangChainLLMManager as Chapter5LangChainManager } from './llm_memory_persist_gateway.js';
+import { LangChainLLMManager as Chapter5LangChainManager } from './llm_memory_persist.js';
 import { interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 
 export const STRUCTURED_TEMPLATE = `Given the topic below, provide:
