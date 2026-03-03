@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { SimpleChatEngine } from '../../chapter_4/node_modules/@llamaindex/core/chat-engine/dist/index.js';
 import { Memory } from '../../chapter_4/node_modules/@llamaindex/core/memory/dist/index.js';
 import { SimpleChatStore } from '../../chapter_4/node_modules/@llamaindex/core/storage/chat-store/dist/index.js';
-import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_gateway.js';
+import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_app.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);

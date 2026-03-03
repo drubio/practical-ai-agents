@@ -15,7 +15,7 @@ from langchain_community.chat_message_histories import FileChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
-from llm_gateway import LangChainLLMManager as Chapter4LangChainManager
+from llm_app import LangChainLLMManager as Chapter4LangChainManager
 from utils import get_default_model, interactive_cli
 
 

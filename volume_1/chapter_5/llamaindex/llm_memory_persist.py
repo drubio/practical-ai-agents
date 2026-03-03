@@ -16,7 +16,7 @@ from llama_index.core.llms import ChatMessage
 from llama_index.core.memory import Memory
 from llama_index.core.storage.chat_store import SimpleChatStore
 
-from llm_gateway import LlamaIndexLLMManager as Chapter4LlamaIndexManager
+from llm_app import LlamaIndexLLMManager as Chapter4LlamaIndexManager
 from utils import get_default_model, interactive_cli
 
 
