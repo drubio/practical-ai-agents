@@ -98,7 +98,9 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     async _persistMemory(provider, sessionId) {
         const storeKey = this._sessionStoreKey(provider, sessionId);
         const messages = await this._getMemory(provider, sessionId).get({ type: 'llamaindex' });
-        this._getChatStore(provider, sessionId).setMessages(storeKey, messages);
+        const chatStore = this._getChatStore(provider, sessionId)
+        chatStore.setMessages(storeKey, messages);
+        // No built-in persist method like Py version, manually fs sync messages
         const filePath = this._sessionFilePath(provider, sessionId);
         fs.writeFileSync(filePath, JSON.stringify({ messages }, null, 2), 'utf8');
     }
