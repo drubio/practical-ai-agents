@@ -74,10 +74,10 @@ From a backend chapter that uses the shared web API (for example Chapter 7):
 ```bash
 cd volume_1/chapter_7
 # Python example
-python langchain/llm_tools_gateway.py web
+python langchain/llm_tools.py web
 
 # or JS example
-node langchain/llm_tools_gateway.js web
+node langchain/llm_tools.js web
 ```
 
 You should have an API available at `http://localhost:8000`.

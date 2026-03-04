@@ -81,7 +81,7 @@ const LangGraphChatPage = () => {
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 1, role: 'assistant', content: 'Hello! I\'m your LangGraph assistant connected to your gateway API.' }
+    { id: 1, role: 'assistant', content: 'Hello! I\'m your LangGraph assistant connected to your application web based API.' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const threadIdRef = useRef<string | null>(null);
@@ -203,7 +203,7 @@ const LangGraphChatPage = () => {
   return (
     <div className="h-screen flex flex-col">
       <FrameworkHeader
-        title="LangGraph UI (SDK-first + gateway adapter fallback)"
+        title="LangGraph UI (SDK-first + application adapter fallback)"
         color="blue"
         settings={settings}
         onSettingsClick={() => setShowSettings(!showSettings)}

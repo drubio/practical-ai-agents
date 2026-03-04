@@ -168,7 +168,7 @@ const LlamaIndexChatPage = () => {
                 </div>
               </ChatInput.Form>
               <div className="text-xs text-gray-500">
-                Powered by @llamaindex/chat-ui (no local API route) • gateway: {LANGGRAPH_API_URL}
+                Powered by @llamaindex/chat-ui (no local API route) • application: {LANGGRAPH_API_URL}
                 {' • '}
                 {apiCapabilities.hasMemory ? `Session: ${settings.sessionId}` : 'No memory'}
                 {isLlamaLoading && <span className="ml-2">• Generating...</span>}
