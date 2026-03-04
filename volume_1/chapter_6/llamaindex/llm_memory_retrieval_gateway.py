@@ -1,4 +1,4 @@
-"""Chapter 6 retrieval memory gateway for LlamaIndex."""
+"""LLM Selective Memory Retrieval - LlamaIndex with BM25."""
 
 import os
 import re
@@ -15,7 +15,7 @@ from llama_index.core.llms import ChatMessage
 from llama_index.core.utils import get_tokenizer
 import bm25s
 
-from llm_memory_structured_gateway import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
+from llm_structured_output import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
 from utils import get_default_model, interactive_cli, parse_structured_json_response
 
 

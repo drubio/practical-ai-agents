@@ -1,4 +1,4 @@
-"""Chapter 6 retrieval memory gateway for LangChain."""
+"""LLM Selective Memory Retrieval - LangChain with BM25."""
 
 import os
 import re
@@ -16,7 +16,7 @@ CHAPTER_5_LANGCHAIN = os.path.abspath(os.path.join(os.path.dirname(__file__), ".
 sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CHAPTER_5_LANGCHAIN)
 
-from llm_memory_structured_gateway import STRUCTURED_TEMPLATE, LangChainLLMManager as Chapter5StructuredManager
+from llm_structured_output import STRUCTURED_TEMPLATE, LangChainLLMManager as Chapter5StructuredManager
 from utils import get_default_model, interactive_cli, parse_structured_json_response
 
 

@@ -1,8 +1,8 @@
 /**
- * LLM Retrieval Memory Gateway - LlamaIndex JS with selective memory replay.
+ * LLM Selective Memory Retrieval - LangChain JS with BM25.
  */
 
-import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/llm_memory_structured_gateway.js';
+import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/llm_structured_output.js';
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { getEncoding } from '../../chapter_4/node_modules/js-tiktoken/dist/index.js';
 import { BM25 } from '../../chapter_4/node_modules/fast-bm25/dist/index.js';
