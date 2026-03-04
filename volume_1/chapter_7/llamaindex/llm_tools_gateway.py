@@ -1,9 +1,4 @@
-"""LLM Tools Gateway - LlamaIndex (Chapter 7).
-
-Builds directly on Chapter 6 retrieval-memory manager hierarchy:
-Chapter 4 (base providers) -> Chapter 5 (memory/persistence) ->
-Chapter 6 (retrieval memory + structured output) -> Chapter 7 (tool use).
-"""
+"""LLM Tools - LlamaIndex with Wikipedia."""
 
 from __future__ import annotations
 
@@ -23,7 +18,7 @@ sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CHAPTER_6_LLAMAINDEX)
 sys.path.append(CHAPTER_7_ROOT)
 
-from llm_memory_retrieval_gateway import LlamaIndexLLMManager as Chapter6LlamaIndexManager
+from llm_memory_retrieval import LlamaIndexLLMManager as Chapter6LlamaIndexManager
 from tools import build_tools_prompt, run_tool
 from utils import get_default_model, interactive_cli
 
@@ -67,7 +62,7 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
 
     def __init__(self, memory_enabled: bool = True, retrieval_k: int = 4):
         super().__init__(memory_enabled=memory_enabled, retrieval_k=retrieval_k)
-        self.framework = "LlamaIndex+Memory+Retrieval+Tools"
+        self.framework = "LlamaIndex Tools"
 
     @staticmethod
     def _extract_json_object(raw: str) -> Dict:

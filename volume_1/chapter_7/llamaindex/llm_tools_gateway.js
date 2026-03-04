@@ -1,11 +1,8 @@
 /**
- * LLM Tools Gateway - LlamaIndex JS (Chapter 7).
- *
- * Chapter flow: 4 (providers) -> 5 (memory/persistence) ->
- * 6 (retrieval memory + structured output) -> 7 (tools).
+ * LLM Tools - LlamaIndex JS with Wikipedia.
  */
 
-import { LlamaIndexLLMManager as Chapter6LlamaIndexManager } from '../../chapter_6/llamaindex/llm_memory_retrieval_gateway.js';
+import { LlamaIndexLLMManager as Chapter6LlamaIndexManager } from '../../chapter_6/llamaindex/llm_memory_retrieval.js';
 import { interactiveCli, getDefaultModel } from '../../chapter_4/utils.js';
 import { normalizeResponseText } from '../../chapter_4/stream.js';
 import { buildToolsPrompt, runTool } from '../tools.js';
@@ -43,7 +40,7 @@ Return strict JSON:
 class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
         super(memoryEnabled, retrievalK);
-        this.framework = 'LlamaIndex+Memory+Retrieval+Tools JS';
+        this.framework = 'LlamaIndex Tools JS';
     }
 
     _extractJsonObject(raw) {

@@ -1,11 +1,8 @@
 /**
- * LLM Tools Gateway - LangChain JS (Chapter 7).
- *
- * Chapter flow: 4 (providers) -> 5 (memory/persistence) ->
- * 6 (retrieval memory + structured output) -> 7 (tools).
+ * LLM Tools - LangChain JS with Wikipedia.
  */
 
-import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/llm_memory_retrieval_gateway.js';
+import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/llm_memory_retrieval.js';
 import { interactiveCli, getDefaultModel, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { normalizeResponseText } from '../../chapter_4/stream.js';
 import { buildToolsPrompt, runTool } from '../tools.js';
@@ -45,7 +42,7 @@ Return strict JSON:
 class LangChainLLMManager extends Chapter6LangChainManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
         super(memoryEnabled, retrievalK);
-        this.framework = 'LangChain+Memory+Retrieval+Tools JS';
+        this.framework = 'LangChain Tools JS';
     }
 
     _extractJsonObject(raw) {
