@@ -30,7 +30,7 @@ class LangChainLLMManager(Chapter5StructuredManager):
         # Store Chapter 6 retrieval-memory behavior separately for clarity.
         self.retrieval_memory_enabled = memory_enabled
         self.retrieval_k = max(1, retrieval_k)
-        self.framework = "LangChain+Memory+Retrieval"
+        self.framework = "LangChain Memory+Retrieval"
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:

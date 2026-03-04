@@ -1,6 +1,6 @@
-# Chapter 6: Retrieval Memory Gateway
+# LLM application with selective memory retrieval using BM25
 
-Chapter 6 upgrades the Chapter 5 memory gateways from **full-history replay** to **retrieval-based memory**.
+- This chapter upgrades the Chapter 5 memory application from **full-history inclusion** to **retrieval prompt-based inclusion**.
 
 It includes:
 - **LangChain** and **LlamaIndex** implementations
@@ -9,7 +9,7 @@ It includes:
 
 ## What's new vs earlier chapters
 
-### vs Chapter 4 (basic gateway)
+### vs Chapter 4 (basic application)
 - Adds conversational memory support through Chapter 5 managers.
 - Adds retrieval selection so prompts include only relevant prior turns.
 
@@ -29,11 +29,11 @@ It includes:
 ```text
 chapter_6/
 ├── langchain/
-│   ├── llm_memory_retrieval_gateway.py
-│   └── llm_memory_retrieval_gateway.js
+│   ├── llm_memory_retrieval.py
+│   └── llm_memory_retrieval.js
 ├── llamaindex/
-│   ├── llm_memory_retrieval_gateway.py
-│   └── llm_memory_retrieval_gateway.js
+│   ├── llm_memory_retrieval.py
+│   └── llm_memory_retrieval.js
 └── README.md
 ```
 
@@ -41,8 +41,8 @@ chapter_6/
 
 | Framework | Python | JavaScript |
 |---|---|---|
-| LangChain | `langchain/llm_memory_retrieval_gateway.py` | `langchain/llm_memory_retrieval_gateway.js` |
-| LlamaIndex | `llamaindex/llm_memory_retrieval_gateway.py` | `llamaindex/llm_memory_retrieval_gateway.js` |
+| LangChain | `langchain/llm_memory_retrieval.py` | `langchain/llm_memory_retrieval.js` |
+| LlamaIndex | `llamaindex/llm_memory_retrieval.py` | `llamaindex/llm_memory_retrieval.js` |
 
 ## Dependencies and environment
 
@@ -68,24 +68,24 @@ Run from `volume_1/chapter_6`.
 #### Python
 
 ```bash
-python langchain/llm_memory_retrieval_gateway.py
-python llamaindex/llm_memory_retrieval_gateway.py
+python langchain/llm_memory_retrieval.py
+python llamaindex/llm_memory_retrieval.py
 ```
 
 #### JavaScript
 
 ```bash
-node langchain/llm_memory_retrieval_gateway.js
-node llamaindex/llm_memory_retrieval_gateway.js
+node langchain/llm_memory_retrieval.js
+node llamaindex/llm_memory_retrieval.js
 ```
 
 ### Web mode
 
 ```bash
-python langchain/llm_memory_retrieval_gateway.py web
-python llamaindex/llm_memory_retrieval_gateway.py web
-node langchain/llm_memory_retrieval_gateway.js web
-node llamaindex/llm_memory_retrieval_gateway.js web
+python langchain/llm_memory_retrieval.py web
+python llamaindex/llm_memory_retrieval.py web
+node langchain/llm_memory_retrieval.js web
+node llamaindex/llm_memory_retrieval.js web
 ```
 
 ## Retrieval metadata

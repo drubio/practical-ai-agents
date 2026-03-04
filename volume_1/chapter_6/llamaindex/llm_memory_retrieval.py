@@ -33,7 +33,7 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
         super().__init__(memory_enabled=False)
         self.retrieval_memory_enabled = memory_enabled
         self.retrieval_k = max(1, retrieval_k)
-        self.framework = "LlamaIndex+Memory+Retrieval"
+        self.framework = "LlamaIndex Memory+Retrieval"
         self._tokenizer = get_tokenizer()
 
     def _estimate_tokens(self, text: str) -> int:

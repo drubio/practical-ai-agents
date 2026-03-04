@@ -12,7 +12,7 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
         // Disable inherited full-history replay chain. Chapter 6 builds retrieval prompts directly.
         super(false);
-        this.framework = 'LangChain+Memory+Retrieval JS';
+        this.framework = 'LangChain Memory+Retrieval JS';
         this.retrievalMemoryEnabled = memoryEnabled;
         this.retrievalK = Math.max(1, retrievalK);
         // Provider-agnostic tokenizer baseline (GPT-2 BPE), without model/provider mapping.

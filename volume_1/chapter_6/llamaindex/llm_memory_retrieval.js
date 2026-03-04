@@ -11,7 +11,7 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
         // Disable inherited full-memory chat engine replay. Chapter 6 builds retrieval prompts directly.
         super(false);
-        this.framework = 'LlamaIndex+Memory+Retrieval JS';
+        this.framework = 'LlamaIndex Memory+Retrieval JS';
         this.retrievalMemoryEnabled = memoryEnabled;
         this.retrievalK = Math.max(1, retrievalK);
         // Provider-agnostic tokenizer baseline (GPT-2 BPE), without model/provider mapping.
