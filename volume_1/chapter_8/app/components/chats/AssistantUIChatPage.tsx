@@ -52,7 +52,7 @@ const AssistantMessage = ({ isAssistantLoading }: { isAssistantLoading: boolean 
   );
 };
 
-const MaterialUIChatPage = () => {
+const AssistantUIChatPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isAssistantLoading, setIsAssistantLoading] = useState(false);
   const [assistantNotices, setAssistantNotices] = useState<string[]>([]);
@@ -257,4 +257,4 @@ const MaterialUIChatPage = () => {
   );
 };
 
-export default MaterialUIChatPage;
+export default AssistantUIChatPage;

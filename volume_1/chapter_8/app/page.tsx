@@ -3,13 +3,13 @@
 import React, { useState } from 'react';
 import LangGraphChatPage from './components/chats/LangGraphChatPage';
 import LlamaIndexChatPage from './components/chats/LlamaIndexChatPage';
-import MaterialUIChatPage from './components/chats/MaterialUIChatPage';
+import AssistantUIChatPage from './components/chats/AssistantUIChatPage';
 import ReactChatPage from './components/chats/ReactChatPage';
 
 const frameworks = [
   { id: 'langgraph', label: 'LangGraph UI', colorClass: 'bg-blue-600' },
   { id: 'llamaindex', label: 'LlamaIndex UI', colorClass: 'bg-purple-600' },
-  { id: 'material-ui', label: 'Material UI', colorClass: 'bg-green-600' },
+  { id: 'assistant-ui', label: 'Assistant UI', colorClass: 'bg-green-600' },
   { id: 'react', label: 'React UI', colorClass: 'bg-orange-600' },
 ] as const;
 
@@ -40,7 +40,7 @@ export default function Page() {
       {/* Framework-specific logic starts in dedicated component files below. */}
       {activeFramework === 'langgraph' && <LangGraphChatPage />}
       {activeFramework === 'llamaindex' && <LlamaIndexChatPage />}
-      {activeFramework === 'material-ui' && <MaterialUIChatPage />}
+      {activeFramework === 'assistant-ui' && <AssistantUIChatPage />}
       {activeFramework === 'react' && <ReactChatPage />}
     </div>
   );
