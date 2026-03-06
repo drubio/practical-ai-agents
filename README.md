@@ -8,7 +8,7 @@ This three-part series offers a structured, hands-on approach to building softwa
 
 ## 📘 Volumes
 
-### [Essential LLM Applications – Fundamentals, APIs and UIs](https://www.amazon.com/dp/B0F5WXXM59) _(Volume 1)_
+### [Essential LLM Applications – Fundamentals, APIs and UIs](https://www.amazon.com/dp/B0GRG4Y71Q?tag=webforefront-20) _(Volume 1)_
 
 Covers how LLMs work, their evolution and how to access them via APIs (OpenAI, Anthropic, Google, xAI). Includes building a complete app using:
 
@@ -45,5 +45,5 @@ You're welcome to explore, modify and adapt the examples for your own projects.
 
 ## Support the Work
 
-If you find this useful, please consider [purchasing Volume 1](https://www.amazon.com/dp/B0F5WXXM59) and sharing it with others. Your support makes continued writing and open-source work possible.
+If you find this useful, please consider [purchasing Volume 1](https://www.amazon.com/dp/B0GRG4Y71Q?tag=webforefront-20) and sharing it with others. Your support makes continued writing and open-source work possible.
 
