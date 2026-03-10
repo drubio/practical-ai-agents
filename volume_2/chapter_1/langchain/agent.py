@@ -4,18 +4,20 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterator
-
 import sys
+from typing import Any, Dict, Iterator
 
 CHAPTER_ROOT = Path(__file__).resolve().parents[1]
 if str(CHAPTER_ROOT) not in sys.path:
     sys.path.append(str(CHAPTER_ROOT))
 
+from utils import build_common_parser, chapter_root_from_file, get_chapter_logger, log_tool_call, run_mode
+
+chapter_root_from_file(__file__)
+
 from langchain.agents import create_agent
 from langchain.tools import tool
-
-from utils import build_common_parser, run_mode
+from stream import chunk_text
 
 from tools import (  # noqa: E402
     analyze_text,
@@ -31,78 +33,67 @@ from tools import (  # noqa: E402
 )
 
 
-def log_tool(name, fn):
-    def wrapper(arg):
-        print("\n------------- LOCAL TOOL CALL -------------")
-        print("Tool:", name)
-        print("Input:", arg)
-        result = fn(arg)
-        print("\n------------- TOOL RESULT -----------------")
-        print(result)
-        print("-------------------------------------------\n")
-        return result
-
-    return wrapper
+logger = get_chapter_logger("volume_2.chapter_1.langchain.agent")
 
 
 @tool
 def summarize_text_tool(text: str):
     """Summarize text."""
-    return log_tool("summarize_text", summarize_text)(text)
+    return log_tool_call(logger, "summarize_text", summarize_text)(text)
 
 
 @tool
 def extract_keywords_tool(text: str):
     """Extract keywords."""
-    return log_tool("extract_keywords", extract_keywords)(text)
+    return log_tool_call(logger, "extract_keywords", extract_keywords)(text)
 
 
 @tool
 def extract_tasks_tool(text: str):
     """Extract tasks from text."""
-    return log_tool("extract_tasks", extract_tasks)(text)
+    return log_tool_call(logger, "extract_tasks", extract_tasks)(text)
 
 
 @tool
 def score_priority_tool(text: str):
     """Score priority from text."""
-    return log_tool("score_priority", score_priority)(text)
+    return log_tool_call(logger, "score_priority", score_priority)(text)
 
 
 @tool
 def route_workflow_tool(text: str):
     """Route workflow from text."""
-    return log_tool("route_workflow", route_workflow)(text)
+    return log_tool_call(logger, "route_workflow", route_workflow)(text)
 
 
 @tool
 def parse_content_tool(content: str):
     """Parse content."""
-    return log_tool("parse_content", parse_content)(content)
+    return log_tool_call(logger, "parse_content", parse_content)(content)
 
 
 @tool
 def resolve_datetime_tool(text: str):
     """Resolve datetime from text."""
-    return log_tool("resolve_datetime", resolve_datetime)(text)
+    return log_tool_call(logger, "resolve_datetime", resolve_datetime)(text)
 
 
 @tool
 def format_json_tool(input: str):
     """Format JSON-like input."""
-    return log_tool("format_json", format_json)(input)
+    return log_tool_call(logger, "format_json", format_json)(input)
 
 
 @tool
 def calculator_tool(expression: str):
     """Evaluate expression."""
-    return log_tool("calculator", calculator)(expression)
+    return log_tool_call(logger, "calculator", calculator)(expression)
 
 
 @tool
 def analyze_text_tool(text: str):
     """Analyze text."""
-    return log_tool("analyze_text", analyze_text)(text)
+    return log_tool_call(logger, "analyze_text", analyze_text)(text)
 
 
 AGENT_TOOLS = [
@@ -136,6 +127,7 @@ class LangChainAgentManager:
 
     def __init__(self, model: str = "gpt-4.1"):
         self.model = model
+        logger.info("Initializing LangChain agent | model=%s", model)
         self.agent = create_agent(
             model=model,
             tools=AGENT_TOOLS,
@@ -147,6 +139,7 @@ class LangChainAgentManager:
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
+            logger.info("Processing prompt | chars=%s", len(topic))
             result = self.agent.invoke({"messages": [{"role": "user", "content": topic}]})
             return {
                 "success": True,
@@ -156,6 +149,7 @@ class LangChainAgentManager:
                 "response": _extract_output(result),
             }
         except Exception as exc:
+            logger.exception("LangChain ask_question failed")
             return {
                 "success": False,
                 "provider": "openai",
@@ -183,8 +177,7 @@ class LangChainAgentManager:
 
         final = self.ask_question(topic)
         text = final.get("response") or ""
-        for i in range(0, len(text), 28):
-            yield text[i : i + 28]
+        yield from chunk_text(text)
 
 
 def main() -> None:

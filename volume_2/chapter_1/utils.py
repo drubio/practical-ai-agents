@@ -7,10 +7,13 @@ LlamaIndex, and future chapter agent implementations.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import logging
 import os
 import sys
+import threading
 from pathlib import Path
-from typing import Any, Dict, Iterator, Protocol
+from typing import Any, Callable, Dict, Iterator, Protocol
 
 
 class AgentManagerProtocol(Protocol):
@@ -22,6 +25,63 @@ class AgentManagerProtocol(Protocol):
 
     def iter_answer_chunks(self, topic: str) -> Iterator[str]:
         ...
+
+
+def get_chapter_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    if logger.handlers:
+        return logger
+
+    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logger.setLevel(level)
+
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.propagate = False
+    return logger
+
+
+def log_tool_call(logger: logging.Logger, tool_name: str, fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    def wrapper(arg: Any) -> Any:
+        logger.info("Tool call | name=%s | input=%s", tool_name, arg)
+        result = fn(arg)
+        logger.info("Tool result | name=%s | output=%s", tool_name, result)
+        return result
+
+    wrapper.__name__ = getattr(fn, "__name__", f"{tool_name}_wrapper")
+    wrapper.__doc__ = getattr(fn, "__doc__", None)
+    return wrapper
+
+
+def run_awaitable_sync(value: Any) -> Any:
+    """Resolve awaitables in both plain Python and running event-loop contexts."""
+    if not asyncio.iscoroutine(value) and not hasattr(value, "__await__"):
+        return value
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(value)
+
+    result: Dict[str, Any] = {}
+    error: Dict[str, BaseException] = {}
+
+    def _runner() -> None:
+        try:
+            result["value"] = asyncio.run(value)
+        except BaseException as exc:  # noqa: BLE001
+            error["error"] = exc
+
+    thread = threading.Thread(target=_runner, daemon=True)
+    thread.start()
+    thread.join()
+
+    if "error" in error:
+        raise error["error"]
+    return result.get("value")
 
 
 def load_chapter_env() -> Path | None:

@@ -10,6 +10,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from stream import normalize_response_text, to_sse_line
+from utils import get_chapter_logger
+
+
+logger = get_chapter_logger("volume_2.chapter_1.web")
 
 
 class QueryRequest(BaseModel):
@@ -42,6 +46,7 @@ def create_web_api(manager, enable_streaming: bool = False) -> FastAPI:
 
     @app.get("/")
     async def status():
+        logger.debug("Status endpoint called")
         return {
             "framework": getattr(manager, "framework", "agent"),
             "model": getattr(manager, "model", None),
@@ -51,8 +56,10 @@ def create_web_api(manager, enable_streaming: bool = False) -> FastAPI:
 
     @app.post("/query", response_model=QueryResponse)
     async def query(payload: QueryRequest):
+        logger.info("/query request | chars=%s", len(payload.topic))
         result = manager.ask_question(payload.topic)
         if not result.get("success"):
+            logger.error("/query failed | error=%s", result.get("error"))
             raise HTTPException(status_code=500, detail=result.get("error", "Query failed"))
         return result
 
@@ -60,6 +67,7 @@ def create_web_api(manager, enable_streaming: bool = False) -> FastAPI:
     async def query_stream(payload: QueryRequest):
         if not enable_streaming:
             raise HTTPException(status_code=404, detail="Streaming is disabled. Start with --stream.")
+        logger.info("/query/stream request | chars=%s", len(payload.topic))
 
         async def event_generator():
             try:
@@ -69,6 +77,7 @@ def create_web_api(manager, enable_streaming: bool = False) -> FastAPI:
                         yield to_sse_line({"type": "token", "token": text})
                 yield to_sse_line({"type": "done"})
             except Exception as exc:  # noqa: PERF203
+                logger.exception("/query/stream failed")
                 yield to_sse_line({"type": "error", "error": str(exc)})
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")

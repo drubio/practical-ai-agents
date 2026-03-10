@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import inspect
 from pathlib import Path
 from typing import Any, Dict, Iterator
 
@@ -17,8 +15,15 @@ if str(CHAPTER_ROOT) not in sys.path:
 from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.core.tools import FunctionTool
 from llama_index.llms.openai import OpenAI
+from stream import chunk_text
 
-from utils import build_common_parser, run_mode
+from utils import (
+    build_common_parser,
+    get_chapter_logger,
+    log_tool_call,
+    run_awaitable_sync,
+    run_mode,
+)
 
 from tools import (  # noqa: E402
     analyze_text,
@@ -34,24 +39,7 @@ from tools import (  # noqa: E402
 )
 
 
-def log_tool(name, fn):
-    def wrapper(text: str):
-        print("\n------------- LOCAL TOOL CALL -------------")
-        print("Tool:", name)
-        print("Input:", text)
-        result = fn(text)
-        print("\n------------- TOOL RESULT -----------------")
-        print(result)
-        print("-------------------------------------------\n")
-        return result
-
-    return wrapper
-
-
-def _run_sync(value: Any) -> Any:
-    if inspect.isawaitable(value):
-        return asyncio.run(value)
-    return value
+logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
 
 
 def _extract_text(result: Any) -> str:
@@ -67,16 +55,16 @@ def _extract_text(result: Any) -> str:
 
 
 TOOLS = [
-    FunctionTool.from_defaults(fn=log_tool("summarize_text", summarize_text), name="summarize_text"),
-    FunctionTool.from_defaults(fn=log_tool("extract_keywords", extract_keywords), name="extract_keywords"),
-    FunctionTool.from_defaults(fn=log_tool("extract_tasks", extract_tasks), name="extract_tasks"),
-    FunctionTool.from_defaults(fn=log_tool("score_priority", score_priority), name="score_priority"),
-    FunctionTool.from_defaults(fn=log_tool("route_workflow", route_workflow), name="route_workflow"),
-    FunctionTool.from_defaults(fn=log_tool("parse_content", parse_content), name="parse_content"),
-    FunctionTool.from_defaults(fn=log_tool("resolve_datetime", resolve_datetime), name="resolve_datetime"),
-    FunctionTool.from_defaults(fn=log_tool("format_json", format_json), name="format_json"),
-    FunctionTool.from_defaults(fn=log_tool("calculator", calculator), name="calculator"),
-    FunctionTool.from_defaults(fn=log_tool("analyze_text", analyze_text), name="analyze_text"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "summarize_text", summarize_text), name="summarize_text"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "extract_keywords", extract_keywords), name="extract_keywords"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "extract_tasks", extract_tasks), name="extract_tasks"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "score_priority", score_priority), name="score_priority"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "route_workflow", route_workflow), name="route_workflow"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "parse_content", parse_content), name="parse_content"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "resolve_datetime", resolve_datetime), name="resolve_datetime"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "format_json", format_json), name="format_json"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "calculator", calculator), name="calculator"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "analyze_text", analyze_text), name="analyze_text"),
 ]
 
 
@@ -85,6 +73,7 @@ class LlamaIndexAgentManager:
 
     def __init__(self, model: str = "gpt-4.1"):
         self.model = model
+        logger.info("Initializing LlamaIndex agent | model=%s", model)
         self.llm = OpenAI(model=model)
         self.agent = FunctionAgent(
             llm=self.llm,
@@ -92,12 +81,13 @@ class LlamaIndexAgentManager:
             system_prompt=(
                 "You are an AI assistant that can use tools. "
                 "Think step-by-step, use tools when needed, and return a concise final answer."
-            ),
+            )
         )
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
-            raw = _run_sync(self.agent.run(topic))
+            logger.info("Processing prompt | chars=%s", len(topic))
+            raw = run_awaitable_sync(self.agent.run(topic))
             return {
                 "success": True,
                 "provider": "openai",
@@ -106,6 +96,7 @@ class LlamaIndexAgentManager:
                 "response": _extract_text(raw),
             }
         except Exception as exc:
+            logger.exception("LlamaIndex ask_question failed")
             return {
                 "success": False,
                 "provider": "openai",
@@ -118,8 +109,7 @@ class LlamaIndexAgentManager:
     def iter_answer_chunks(self, topic: str) -> Iterator[str]:
         final = self.ask_question(topic)
         text = final.get("response") or ""
-        for i in range(0, len(text), 28):
-            yield text[i : i + 28]
+        yield from chunk_text(text)
 
 
 def main() -> None:
