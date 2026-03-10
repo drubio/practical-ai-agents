@@ -8,14 +8,14 @@ You'll then build an application that works with an LLM using the **LangChain** 
 
 By the end of the book, you will:
 
-• Understand tokens, probabilities and context windows
-• Explore the evolution from statistical models to transformers
-• Learn about LLM pricing, cost management and API key security
-• Access and use models from **OpenAI**, **Anthropic**, **Google** and **xAI**
-• Build LLM applications with **LangChain** and **LlamaIndex**
-• Add conversational memory and retrieval techniques with BM25
-• Use tool calling with external knowledge sources such as Wikipedia
-• Build chat interfaces capable of interacting with multiple LLM providers
+- Understand tokens, probabilities and context windows
+- Explore the evolution from statistical models to transformers
+- Learn about LLM pricing, cost management and API key security
+- Access and use models from **OpenAI**, **Anthropic**, **Google** and **xAI**
+- Build LLM applications with **LangChain** and **LlamaIndex**
+- Add conversational memory and retrieval techniques with BM25
+- Use tool calling with external knowledge sources such as Wikipedia
+- Build chat interfaces capable of interacting with multiple LLM providers
 
 
 ## Support the Work
