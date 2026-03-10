@@ -1,119 +1,198 @@
 #!/usr/bin/env python3
+"""LangChain Function-Tool agent for volume 2 chapter 1."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Dict, Iterator
+
+import sys
+
+CHAPTER_ROOT = Path(__file__).resolve().parents[1]
+if str(CHAPTER_ROOT) not in sys.path:
+    sys.path.append(str(CHAPTER_ROOT))
 
 from langchain.agents import create_agent
 from langchain.tools import tool
 
-from tools import *
+from utils import build_common_parser, run_mode
 
-
-def log_llm(prompt):
-    print("\n================ LLM PROMPT ================")
-    print(prompt)
-    print("===========================================\n")
+from tools import (  # noqa: E402
+    analyze_text,
+    calculator,
+    extract_keywords,
+    extract_tasks,
+    format_json,
+    parse_content,
+    resolve_datetime,
+    route_workflow,
+    score_priority,
+    summarize_text,
+)
 
 
 def log_tool(name, fn):
-
     def wrapper(arg):
-
         print("\n------------- LOCAL TOOL CALL -------------")
         print("Tool:", name)
         print("Input:", arg)
-
         result = fn(arg)
-
         print("\n------------- TOOL RESULT -----------------")
         print(result)
         print("-------------------------------------------\n")
-
         return result
 
     return wrapper
 
 
 @tool
-def summarize_text_tool(text:str):
+def summarize_text_tool(text: str):
+    """Summarize text."""
     return log_tool("summarize_text", summarize_text)(text)
 
+
 @tool
-def extract_keywords_tool(text:str):
+def extract_keywords_tool(text: str):
+    """Extract keywords."""
     return log_tool("extract_keywords", extract_keywords)(text)
 
+
 @tool
-def extract_tasks_tool(text:str):
+def extract_tasks_tool(text: str):
+    """Extract tasks from text."""
     return log_tool("extract_tasks", extract_tasks)(text)
 
+
 @tool
-def score_priority_tool(text:str):
+def score_priority_tool(text: str):
+    """Score priority from text."""
     return log_tool("score_priority", score_priority)(text)
 
+
 @tool
-def route_workflow_tool(text:str):
+def route_workflow_tool(text: str):
+    """Route workflow from text."""
     return log_tool("route_workflow", route_workflow)(text)
 
+
 @tool
-def parse_content_tool(content:str):
+def parse_content_tool(content: str):
+    """Parse content."""
     return log_tool("parse_content", parse_content)(content)
 
+
 @tool
-def resolve_datetime_tool(text:str):
+def resolve_datetime_tool(text: str):
+    """Resolve datetime from text."""
     return log_tool("resolve_datetime", resolve_datetime)(text)
 
+
 @tool
-def format_json_tool(input:str):
+def format_json_tool(input: str):
+    """Format JSON-like input."""
     return log_tool("format_json", format_json)(input)
 
-@tool
-def calculator_tool(expression:str):
-    return log_tool("calculator", calculator)(expression)
 
 @tool
-def analyze_text_tool(text:str):
+def calculator_tool(expression: str):
+    """Evaluate expression."""
+    return log_tool("calculator", calculator)(expression)
+
+
+@tool
+def analyze_text_tool(text: str):
+    """Analyze text."""
     return log_tool("analyze_text", analyze_text)(text)
 
 
+AGENT_TOOLS = [
+    summarize_text_tool,
+    extract_keywords_tool,
+    extract_tasks_tool,
+    score_priority_tool,
+    route_workflow_tool,
+    parse_content_tool,
+    resolve_datetime_tool,
+    format_json_tool,
+    calculator_tool,
+    analyze_text_tool,
+]
 
-agent = create_agent(
-    model="gpt-4.1",
-    tools=[ ... ],
-    system_prompt="""
-You are an AI assistant that can use tools.
 
-Use the format:
+def _extract_output(result: Dict[str, Any]) -> str:
+    output = result.get("output")
+    if isinstance(output, str):
+        return output
+    messages = result.get("messages") or []
+    if messages:
+        content = getattr(messages[-1], "content", None)
+        if isinstance(content, str):
+            return content
+    return str(result)
 
-Thought:
-Action:
-Action Input:
-Observation:
 
-Repeat until finished.
+class LangChainAgentManager:
+    framework = "LangChain Agent"
 
-Final Answer:
-"""
-)
+    def __init__(self, model: str = "gpt-4.1"):
+        self.model = model
+        self.agent = create_agent(
+            model=model,
+            tools=AGENT_TOOLS,
+            system_prompt=(
+                "You are an AI assistant that can use tools. "
+                "Think step-by-step, use tools when needed, and return a concise final answer."
+            ),
+        )
 
-print("\n===== LangChain Agent CLI =====\n")
+    def ask_question(self, topic: str) -> Dict[str, Any]:
+        try:
+            result = self.agent.invoke({"messages": [{"role": "user", "content": topic}]})
+            return {
+                "success": True,
+                "provider": "openai",
+                "model": self.model,
+                "prompt": topic,
+                "response": _extract_output(result),
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "provider": "openai",
+                "model": self.model,
+                "prompt": topic,
+                "error": str(exc),
+                "response": None,
+            }
 
-while True:
+    def iter_answer_chunks(self, topic: str) -> Iterator[str]:
+        try:
+            got_content = False
+            for event in self.agent.stream({"messages": [{"role": "user", "content": topic}]}, stream_mode="messages"):
+                if not isinstance(event, tuple) or len(event) != 2:
+                    continue
+                message_chunk, _ = event
+                content = getattr(message_chunk, "content", None)
+                if isinstance(content, str) and content:
+                    got_content = True
+                    yield content
+            if got_content:
+                return
+        except Exception:
+            pass
 
-    try:
+        final = self.ask_question(topic)
+        text = final.get("response") or ""
+        for i in range(0, len(text), 28):
+            yield text[i : i + 28]
 
-        user_input = input("> ")
 
-        print("\n============== USER INPUT ==============")
-        print(user_input)
-        print("========================================")
+def main() -> None:
+    parser = build_common_parser("Volume 2 chapter 1 LangChain agent")
+    args = parser.parse_args()
+    manager = LangChainAgentManager(model=args.model)
+    run_mode(manager, args.mode, args.host, args.port, args.stream)
 
-        log_llm(user_input)
 
-        result = agent.invoke({
-            "messages": [{"role": "user", "content": user_input}]
-        })
-
-        print("\n============= LLM RESPONSE =============")
-        print(result["output"])
-        print("========================================\n")
-
-    except KeyboardInterrupt:
-        print("\nExiting.")
-        break
+if __name__ == "__main__":
+    main()

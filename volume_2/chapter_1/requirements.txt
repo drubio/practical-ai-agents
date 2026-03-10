@@ -2,3 +2,7 @@ beautifulsoup4==4.12.3
 python-dateutil==2.9.0.post0
 scikit-learn==1.5.1
 langchain==1.2.7
+llama-index-core==0.12.11
+llama-index-llms-openai==0.3.12
+fastapi==0.115.6
+uvicorn==0.34.0
