@@ -146,7 +146,7 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--stream", action="store_true", help="Enable /query/stream endpoint in web mode")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
-    parser.add_argument("--model", default="gpt-4.1")
+    parser.add_argument("--model", default="gpt-5.2")
     return parser
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LangChain Function-Tool agent for volume 2 chapter 1."""
+"""LangChain Function-Tool agent"""
 
 from __future__ import annotations
 
@@ -17,9 +17,8 @@ chapter_root_from_file(__file__)
 
 from langchain.agents import create_agent
 from langchain.tools import tool
-from stream import chunk_text
 
-from tools import (  # noqa: E402
+from tools import (
     analyze_text,
     calculator,
     extract_keywords,
@@ -125,7 +124,7 @@ def _extract_output(result: Dict[str, Any]) -> str:
 class LangChainAgentManager:
     framework = "LangChain Agent"
 
-    def __init__(self, model: str = "gpt-4.1"):
+    def __init__(self, model: str = "gpt-5.2"):
         self.model = model
         logger.info("Initializing LangChain agent | model=%s", model)
         self.agent = create_agent(
@@ -143,7 +142,7 @@ class LangChainAgentManager:
             result = self.agent.invoke({"messages": [{"role": "user", "content": topic}]})
             return {
                 "success": True,
-                "provider": "openai",
+                "provider": 'openai',
                 "model": self.model,
                 "prompt": topic,
                 "response": _extract_output(result),
@@ -152,36 +151,16 @@ class LangChainAgentManager:
             logger.exception("LangChain ask_question failed")
             return {
                 "success": False,
-                "provider": "openai",
+                "provider": 'openai',
                 "model": self.model,
                 "prompt": topic,
                 "error": str(exc),
                 "response": None,
             }
 
-    def iter_answer_chunks(self, topic: str) -> Iterator[str]:
-        try:
-            got_content = False
-            for event in self.agent.stream({"messages": [{"role": "user", "content": topic}]}, stream_mode="messages"):
-                if not isinstance(event, tuple) or len(event) != 2:
-                    continue
-                message_chunk, _ = event
-                content = getattr(message_chunk, "content", None)
-                if isinstance(content, str) and content:
-                    got_content = True
-                    yield content
-            if got_content:
-                return
-        except Exception:
-            pass
-
-        final = self.ask_question(topic)
-        text = final.get("response") or ""
-        yield from chunk_text(text)
-
 
 def main() -> None:
-    parser = build_common_parser("Volume 2 chapter 1 LangChain agent")
+    parser = build_common_parser("LangChain Agent")
     args = parser.parse_args()
     manager = LangChainAgentManager(model=args.model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)

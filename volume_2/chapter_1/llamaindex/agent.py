@@ -71,7 +71,7 @@ TOOLS = [
 class LlamaIndexAgentManager:
     framework = "LlamaIndex Agent"
 
-    def __init__(self, model: str = "gpt-4.1"):
+    def __init__(self, model: str = "gpt-5.2"):
         self.model = model
         logger.info("Initializing LlamaIndex agent | model=%s", model)
         self.llm = OpenAI(model=model)
