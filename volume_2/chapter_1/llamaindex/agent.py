@@ -87,7 +87,14 @@ class LlamaIndexAgentManager:
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
             logger.info("Processing prompt | chars=%s", len(topic))
-            raw = run_awaitable_sync(self.agent.run(topic))
+
+            async def _run_agent() -> Any:
+                # `FunctionAgent.run(...)` touches asyncio internals during execution.
+                # Calling it inside this coroutine ensures those calls happen within
+                # the event loop created by `run_awaitable_sync` when needed.
+                return await self.agent.run(topic)
+
+            raw = run_awaitable_sync(_run_agent())
             return {
                 "success": True,
                 "provider": "openai",
