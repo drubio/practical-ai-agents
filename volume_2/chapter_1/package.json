@@ -5,11 +5,20 @@
   "type": "module",
   "main": "tools.js",
   "scripts": {
-    "test:tools": "node -e \"import('./tools.js').then(m => console.log(m.listTools()))\""
+    "test:tools": "node -e \"import('./tools.js').then(m => console.log(m.listTools()))\"",
+    "agent:langchain": "node langchain/agent.js",
+    "agent:llamaindex": "node llamaindex/agent.js"
   },
   "dependencies": {
+    "@langchain/openai": "^1.2.13",
+    "@llamaindex/openai": "^0.4.22",
     "cheerio": "^1.0.0",
     "chrono-node": "^2.7.7",
-    "natural": "^6.12.0"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.22.1",
+    "langchain": "^1.0.6",
+    "natural": "^6.12.0",
+    "zod": "^3.24.1"
   }
 }

@@ -1,145 +1,153 @@
 #!/usr/bin/env node
 
-import readline from "node:readline";
-import * as z from "../node_modules/zod";
-import { createAgent, tool } from "../node_modules/langchain";
+import * as z from "zod";
+import { createAgent, tool } from "langchain";
 
 import {
-  summarizeText,
+  analyzeText,
+  calculator,
   extractKeywords,
   extractTasks,
-  scorePriority,
-  routeWorkflow,
+  formatJson,
   parseContent,
   resolveDatetime,
-  formatJson,
-  calculator,
-  analyzeText
+  routeWorkflow,
+  scorePriority,
+  summarizeText
 } from "../tools.js";
 
+import {
+  buildCommonArgs,
+  defaultChunkIterator,
+  getChapterLogger,
+  logToolCall,
+  runMode
+} from "../utils.js";
 
-function logTool(name, fn) {
-  return (input) => {
+const logger = getChapterLogger("volume_2.chapter_1.langchain.agent");
 
-    console.log("\n===== LOCAL TOOL CALL =====");
-    console.log("Tool:", name);
-    console.log("Input:", input);
-
-    const result = fn(input);
-
-    console.log("\n===== TOOL RESULT =====");
-    console.log(result);
-
-    return result;
-  };
+function buildTools() {
+  return [
+    tool(logToolCall(logger, "summarize_text", ({ text }) => summarizeText(text)), {
+      name: "summarize_text",
+      description: "Summarize text.",
+      schema: z.object({ text: z.string() })
+    }),
+    tool(logToolCall(logger, "extract_keywords", ({ text }) => extractKeywords(text)), {
+      name: "extract_keywords",
+      description: "Extract keywords.",
+      schema: z.object({ text: z.string() })
+    }),
+    tool(logToolCall(logger, "extract_tasks", ({ text }) => extractTasks(text)), {
+      name: "extract_tasks",
+      description: "Extract tasks from text.",
+      schema: z.object({ text: z.string() })
+    }),
+    tool(logToolCall(logger, "score_priority", ({ text }) => scorePriority(text)), {
+      name: "score_priority",
+      description: "Score priority from text.",
+      schema: z.object({ text: z.string() })
+    }),
+    tool(logToolCall(logger, "route_workflow", ({ text }) => routeWorkflow(text)), {
+      name: "route_workflow",
+      description: "Route workflow from text.",
+      schema: z.object({ text: z.string() })
+    }),
+    tool(logToolCall(logger, "parse_content", ({ content }) => parseContent(content)), {
+      name: "parse_content",
+      description: "Parse content.",
+      schema: z.object({ content: z.string() })
+    }),
+    tool(logToolCall(logger, "resolve_datetime", ({ text }) => resolveDatetime(text)), {
+      name: "resolve_datetime",
+      description: "Resolve datetime from text.",
+      schema: z.object({ text: z.string() })
+    }),
+    tool(logToolCall(logger, "format_json", ({ input }) => formatJson(input)), {
+      name: "format_json",
+      description: "Format JSON-like input.",
+      schema: z.object({ input: z.any() })
+    }),
+    tool(logToolCall(logger, "calculator", ({ expression }) => calculator(expression)), {
+      name: "calculator",
+      description: "Evaluate expression.",
+      schema: z.object({ expression: z.string() })
+    }),
+    tool(logToolCall(logger, "analyze_text", ({ text }) => analyzeText(text)), {
+      name: "analyze_text",
+      description: "Analyze text.",
+      schema: z.object({ text: z.string() })
+    })
+  ];
 }
 
+function extractOutput(result) {
+  if (typeof result?.output === "string") return result.output;
+  const messages = result?.messages ?? [];
+  const content = messages[messages.length - 1]?.content;
+  if (typeof content === "string") return content;
+  return String(result ?? "");
+}
 
-const tools = [
+export class LangChainAgentManager {
+  framework = "LangChain Agent";
+  toolNames = [
+    "summarize_text",
+    "extract_keywords",
+    "extract_tasks",
+    "score_priority",
+    "route_workflow",
+    "parse_content",
+    "resolve_datetime",
+    "format_json",
+    "calculator",
+    "analyze_text"
+  ];
+  toolTriggerHelp = "Tools are selected automatically from your prompt; you do not need to type a tool name.";
 
-tool(
-  logTool("summarize_text", ({ text }) => summarizeText(text)),
-  { name:"summarize_text", schema:z.object({text:z.string()}) }
-),
-
-tool(
-  logTool("extract_keywords", ({ text }) => extractKeywords(text)),
-  { name:"extract_keywords", schema:z.object({text:z.string()}) }
-),
-
-tool(
-  logTool("extract_tasks", ({ text }) => extractTasks(text)),
-  { name:"extract_tasks", schema:z.object({text:z.string()}) }
-),
-
-tool(
-  logTool("score_priority", ({ text }) => scorePriority(text)),
-  { name:"score_priority", schema:z.object({text:z.string()}) }
-),
-
-tool(
-  logTool("route_workflow", ({ text }) => routeWorkflow(text)),
-  { name:"route_workflow", schema:z.object({text:z.string()}) }
-),
-
-tool(
-  logTool("parse_content", ({ content }) => parseContent(content)),
-  { name:"parse_content", schema:z.object({content:z.string()}) }
-),
-
-tool(
-  logTool("resolve_datetime", ({ text }) => resolveDatetime(text)),
-  { name:"resolve_datetime", schema:z.object({text:z.string()}) }
-),
-
-tool(
-  logTool("format_json", ({ input }) => formatJson(input)),
-  { name:"format_json", schema:z.object({input:z.any()}) }
-),
-
-tool(
-  logTool("calculator", ({ expression }) => calculator(expression)),
-  { name:"calculator", schema:z.object({expression:z.string()}) }
-),
-
-tool(
-  logTool("analyze_text", ({ text }) => analyzeText(text)),
-  { name:"analyze_text", schema:z.object({text:z.string()}) }
-)
-
-];
-
-
-const agent = createAgent({
-  model:"gpt-4.1",
-  tools,
-  systemPrompt:`
-
-You are an AI assistant that can use tools.
-
-Reason step-by-step using this format:
-
-Thought: reasoning about the problem
-Action: tool name
-Action Input: JSON input for the tool
-Observation: tool result
-
-Repeat until the answer is ready.
-
-Finish with:
-
-Final Answer: the response for the user.
-`
-});
-
-
-console.log("\n===== AGENT CLI =====\n");
-
-const rl = readline.createInterface({
-  input:process.stdin,
-  output:process.stdout
-});
-
-
-function ask(){
-
-  rl.question("> ", async input => {
-
-    console.log("\n===== USER INPUT =====");
-    console.log(input);
-
-    const result = await agent.invoke({
-      messages:[{role:"user",content:input}]
+  constructor(model = "gpt-5.2") {
+    this.model = model;
+    logger.info(`Initializing LangChain agent | model=${model}`);
+    this.agent = createAgent({
+      model,
+      tools: buildTools(),
+      systemPrompt:
+        "You are an AI assistant that can use tools. Think step-by-step, use tools when needed, and return a concise final answer."
     });
+  }
 
-    console.log("\n===== FINAL ANSWER =====");
-    console.log(result.output);
-    console.log("");
+  async askQuestion(topic) {
+    try {
+      logger.info(`Processing prompt | chars=${topic.length}`);
+      const result = await this.agent.invoke({ messages: [{ role: "user", content: topic }] });
+      return { success: true, provider: "openai", model: this.model, prompt: topic, response: extractOutput(result) };
+    } catch (error) {
+      logger.error("LangChain askQuestion failed", error);
+      return {
+        success: false,
+        provider: "openai",
+        model: this.model,
+        prompt: topic,
+        error: error.message,
+        response: null
+      };
+    }
+  }
 
-    ask();
-
-  });
-
+  async *iterAnswerChunks(topic) {
+    yield* defaultChunkIterator(this, topic);
+  }
 }
 
-ask();
+async function main() {
+  const args = buildCommonArgs();
+  const manager = new LangChainAgentManager(args.model);
+  await runMode(manager, args.mode, args.host, args.port, args.stream);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

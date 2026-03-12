@@ -20,7 +20,7 @@
  */
 
 import * as cheerio from "cheerio";
-import chrono from "chrono-node";
+import * as chrono from "chrono-node";
 import natural from "natural";
 
 const STOPWORDS = new Set([
