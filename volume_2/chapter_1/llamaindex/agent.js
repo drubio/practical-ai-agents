@@ -2,18 +2,7 @@
 
 import { OpenAI } from "@llamaindex/openai";
 
-import {
-  analyzeText,
-  calculator,
-  extractKeywords,
-  extractTasks,
-  formatJson,
-  parseContent,
-  resolveDatetime,
-  routeWorkflow,
-  scorePriority,
-  summarizeText
-} from "../tools.js";
+import { summarizeText } from "../tools.js";
 
 import {
   buildCommonArgs,
@@ -26,16 +15,7 @@ import {
 const logger = getChapterLogger("volume_2.chapter_1.llamaindex.agent");
 
 const TOOL_MAP = {
-  summarize_text: logToolCall(logger, "summarize_text", summarizeText),
-  extract_keywords: logToolCall(logger, "extract_keywords", extractKeywords),
-  extract_tasks: logToolCall(logger, "extract_tasks", extractTasks),
-  score_priority: logToolCall(logger, "score_priority", scorePriority),
-  route_workflow: logToolCall(logger, "route_workflow", routeWorkflow),
-  parse_content: logToolCall(logger, "parse_content", parseContent),
-  resolve_datetime: logToolCall(logger, "resolve_datetime", resolveDatetime),
-  format_json: logToolCall(logger, "format_json", formatJson),
-  calculator: logToolCall(logger, "calculator", calculator),
-  analyze_text: logToolCall(logger, "analyze_text", analyzeText)
+  summarize_text: logToolCall(logger, "summarize_text", summarizeText)
 };
 
 function extractText(result) {

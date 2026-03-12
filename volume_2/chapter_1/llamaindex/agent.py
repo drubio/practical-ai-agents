@@ -25,18 +25,7 @@ from utils import (
     run_mode,
 )
 
-from tools import (  # noqa: E402
-    analyze_text,
-    calculator,
-    extract_keywords,
-    extract_tasks,
-    format_json,
-    parse_content,
-    resolve_datetime,
-    route_workflow,
-    score_priority,
-    summarize_text,
-)
+from tools import summarize_text  # noqa: E402
 
 
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
@@ -56,35 +45,15 @@ def _extract_text(result: Any) -> str:
 
 TOOLS = [
     FunctionTool.from_defaults(fn=log_tool_call(logger, "summarize_text", summarize_text), name="summarize_text"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "extract_keywords", extract_keywords), name="extract_keywords"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "extract_tasks", extract_tasks), name="extract_tasks"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "score_priority", score_priority), name="score_priority"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "route_workflow", route_workflow), name="route_workflow"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "parse_content", parse_content), name="parse_content"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "resolve_datetime", resolve_datetime), name="resolve_datetime"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "format_json", format_json), name="format_json"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "calculator", calculator), name="calculator"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "analyze_text", analyze_text), name="analyze_text"),
 ]
 
 
 class LlamaIndexAgentManager:
     framework = "LlamaIndex Agent"
-    tool_names = [
-        "summarize_text",
-        "extract_keywords",
-        "extract_tasks",
-        "score_priority",
-        "route_workflow",
-        "parse_content",
-        "resolve_datetime",
-        "format_json",
-        "calculator",
-        "analyze_text",
-    ]
+    tool_names = ["summarize_text"]
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
-        "If you want a specific behavior, ask explicitly (for example: 'summarize this' or 'extract tasks')."
+        "If you want a specific behavior, ask explicitly (for example: 'summarize this')."
     )
 
     def __init__(self, model: str = "gpt-5.2"):
@@ -105,9 +74,6 @@ class LlamaIndexAgentManager:
             logger.info("Processing prompt | chars=%s", len(topic))
 
             async def _run_agent() -> Any:
-                # `FunctionAgent.run(...)` touches asyncio internals during execution.
-                # Calling it inside this coroutine ensures those calls happen within
-                # the event loop created by `run_awaitable_sync` when needed.
                 return await self.agent.run(topic)
 
             raw = run_awaitable_sync(_run_agent())

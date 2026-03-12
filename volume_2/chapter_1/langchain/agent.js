@@ -3,18 +3,7 @@
 import * as z from "zod";
 import { createAgent, tool } from "langchain";
 
-import {
-  analyzeText,
-  calculator,
-  extractKeywords,
-  extractTasks,
-  formatJson,
-  parseContent,
-  resolveDatetime,
-  routeWorkflow,
-  scorePriority,
-  summarizeText
-} from "../tools.js";
+import { summarizeText } from "../tools.js";
 
 import {
   buildCommonArgs,
@@ -32,51 +21,6 @@ function buildTools() {
       name: "summarize_text",
       description: "Summarize text.",
       schema: z.object({ text: z.string() })
-    }),
-    tool(logToolCall(logger, "extract_keywords", ({ text }) => extractKeywords(text)), {
-      name: "extract_keywords",
-      description: "Extract keywords.",
-      schema: z.object({ text: z.string() })
-    }),
-    tool(logToolCall(logger, "extract_tasks", ({ text }) => extractTasks(text)), {
-      name: "extract_tasks",
-      description: "Extract tasks from text.",
-      schema: z.object({ text: z.string() })
-    }),
-    tool(logToolCall(logger, "score_priority", ({ text }) => scorePriority(text)), {
-      name: "score_priority",
-      description: "Score priority from text.",
-      schema: z.object({ text: z.string() })
-    }),
-    tool(logToolCall(logger, "route_workflow", ({ text }) => routeWorkflow(text)), {
-      name: "route_workflow",
-      description: "Route workflow from text.",
-      schema: z.object({ text: z.string() })
-    }),
-    tool(logToolCall(logger, "parse_content", ({ content }) => parseContent(content)), {
-      name: "parse_content",
-      description: "Parse content.",
-      schema: z.object({ content: z.string() })
-    }),
-    tool(logToolCall(logger, "resolve_datetime", ({ text }) => resolveDatetime(text)), {
-      name: "resolve_datetime",
-      description: "Resolve datetime from text.",
-      schema: z.object({ text: z.string() })
-    }),
-    tool(logToolCall(logger, "format_json", ({ input }) => formatJson(input)), {
-      name: "format_json",
-      description: "Format JSON-like input.",
-      schema: z.object({ input: z.any() })
-    }),
-    tool(logToolCall(logger, "calculator", ({ expression }) => calculator(expression)), {
-      name: "calculator",
-      description: "Evaluate expression.",
-      schema: z.object({ expression: z.string() })
-    }),
-    tool(logToolCall(logger, "analyze_text", ({ text }) => analyzeText(text)), {
-      name: "analyze_text",
-      description: "Analyze text.",
-      schema: z.object({ text: z.string() })
     })
   ];
 }
@@ -91,18 +35,7 @@ function extractOutput(result) {
 
 export class LangChainAgentManager {
   framework = "LangChain Agent";
-  toolNames = [
-    "summarize_text",
-    "extract_keywords",
-    "extract_tasks",
-    "score_priority",
-    "route_workflow",
-    "parse_content",
-    "resolve_datetime",
-    "format_json",
-    "calculator",
-    "analyze_text"
-  ];
+  toolNames = ["summarize_text"];
   toolTriggerHelp = "Tools are selected automatically from your prompt; you do not need to type a tool name.";
 
   constructor(model = "gpt-5.2") {

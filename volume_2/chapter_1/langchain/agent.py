@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from typing import Any, Dict, Iterator
+from typing import Any, Dict
 
 CHAPTER_ROOT = Path(__file__).resolve().parents[1]
 if str(CHAPTER_ROOT) not in sys.path:
@@ -18,18 +18,7 @@ chapter_root_from_file(__file__)
 from langchain.agents import create_agent
 from langchain.tools import tool
 
-from tools import (
-    analyze_text,
-    calculator,
-    extract_keywords,
-    extract_tasks,
-    format_json,
-    parse_content,
-    resolve_datetime,
-    route_workflow,
-    score_priority,
-    summarize_text,
-)
+from tools import summarize_text
 
 
 logger = get_chapter_logger("volume_2.chapter_1.langchain.agent")
@@ -41,72 +30,7 @@ def summarize_text_tool(text: str):
     return log_tool_call(logger, "summarize_text", summarize_text)(text)
 
 
-@tool
-def extract_keywords_tool(text: str):
-    """Extract keywords."""
-    return log_tool_call(logger, "extract_keywords", extract_keywords)(text)
-
-
-@tool
-def extract_tasks_tool(text: str):
-    """Extract tasks from text."""
-    return log_tool_call(logger, "extract_tasks", extract_tasks)(text)
-
-
-@tool
-def score_priority_tool(text: str):
-    """Score priority from text."""
-    return log_tool_call(logger, "score_priority", score_priority)(text)
-
-
-@tool
-def route_workflow_tool(text: str):
-    """Route workflow from text."""
-    return log_tool_call(logger, "route_workflow", route_workflow)(text)
-
-
-@tool
-def parse_content_tool(content: str):
-    """Parse content."""
-    return log_tool_call(logger, "parse_content", parse_content)(content)
-
-
-@tool
-def resolve_datetime_tool(text: str):
-    """Resolve datetime from text."""
-    return log_tool_call(logger, "resolve_datetime", resolve_datetime)(text)
-
-
-@tool
-def format_json_tool(input: str):
-    """Format JSON-like input."""
-    return log_tool_call(logger, "format_json", format_json)(input)
-
-
-@tool
-def calculator_tool(expression: str):
-    """Evaluate expression."""
-    return log_tool_call(logger, "calculator", calculator)(expression)
-
-
-@tool
-def analyze_text_tool(text: str):
-    """Analyze text."""
-    return log_tool_call(logger, "analyze_text", analyze_text)(text)
-
-
-AGENT_TOOLS = [
-    summarize_text_tool,
-    extract_keywords_tool,
-    extract_tasks_tool,
-    score_priority_tool,
-    route_workflow_tool,
-    parse_content_tool,
-    resolve_datetime_tool,
-    format_json_tool,
-    calculator_tool,
-    analyze_text_tool,
-]
+AGENT_TOOLS = [summarize_text_tool]
 
 
 def _extract_output(result: Dict[str, Any]) -> str:
@@ -123,21 +47,10 @@ def _extract_output(result: Dict[str, Any]) -> str:
 
 class LangChainAgentManager:
     framework = "LangChain Agent"
-    tool_names = [
-        "summarize_text",
-        "extract_keywords",
-        "extract_tasks",
-        "score_priority",
-        "route_workflow",
-        "parse_content",
-        "resolve_datetime",
-        "format_json",
-        "calculator",
-        "analyze_text",
-    ]
+    tool_names = ["summarize_text"]
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
-        "If you want a specific behavior, ask explicitly (for example: 'summarize this' or 'extract tasks')."
+        "If you want a specific behavior, ask explicitly (for example: 'summarize this')."
     )
 
     def __init__(self, model: str = "gpt-5.2"):
