@@ -63,12 +63,92 @@ export function logToolCall(logger, toolName, fn) {
   };
 }
 
+
+
+const PROVIDER_ENV_KEYS = {
+  openai: ["OPENAI_API_KEY"],
+  anthropic: ["ANTHROPIC_API_KEY"],
+  google: ["GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"],
+  google_genai: ["GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"],
+  xai: ["XAI_API_KEY"]
+};
+
+function providerIsConfigured(provider) {
+  const keys = PROVIDER_ENV_KEYS[provider] ?? [];
+  return keys.some((key) => (process.env[key] || "").trim());
+}
+
+function modelLabel(name, model, provider) {
+  const providerLabel = provider.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return `${name} (${providerLabel}, ${model})`;
+}
+
+async function chooseFromList(options, defaultIndex, prompt) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
+
+  try {
+    while (true) {
+      const raw = (await ask(prompt)).trim();
+      if (!raw) return options[defaultIndex];
+      const choice = Number(raw) - 1;
+      if (Number.isInteger(choice) && choice >= 0 && choice < options.length) return options[choice];
+      console.log("Invalid selection. Please try again.");
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+export async function selectStartupModel(modelNames, mode, explicitModel) {
+  if (explicitModel) return explicitModel;
+
+  const { buildModels } = await import("./models.js").catch(() => ({ buildModels: null }));
+  if (!buildModels) return "openai:gpt-5.2";
+
+  const available = buildModels();
+  const names = Array.isArray(modelNames) && modelNames.length ? modelNames : Object.keys(available);
+  const catalog = names
+    .map((name) => {
+      const config = available[name];
+      if (!config) return null;
+      return {
+        name,
+        provider: config.provider,
+        model: config.model,
+        label: modelLabel(config.name, config.model, config.provider)
+      };
+    })
+    .filter(Boolean);
+
+  if (!catalog.length) return "openai:gpt-5.2";
+
+  let configured = catalog.filter((entry) => providerIsConfigured(entry.provider));
+  if (!configured.length) configured = catalog;
+
+  let defaultIndex = configured.findIndex((entry) => entry.provider === "openai");
+  if (defaultIndex < 0) defaultIndex = 0;
+
+  if (mode !== "cli" || !process.stdin.isTTY || !process.stdout.isTTY) {
+    return configured[defaultIndex].model;
+  }
+
+  console.log("\nModel selection (configured via environment variables):");
+  configured.forEach((entry, idx) => {
+    const suffix = idx === defaultIndex ? " [default]" : "";
+    console.log(`${idx + 1}. ${entry.label}${suffix}`);
+  });
+
+  const selected = await chooseFromList(configured, defaultIndex, `Select model (1-${configured.length}, default ${defaultIndex + 1}): `);
+  return selected.model;
+}
+
 export function buildCommonArgs(argv = process.argv.slice(2)) {
   let mode = "cli";
   let stream = false;
   let host = "0.0.0.0";
   let port = Number(process.env.PORT || 8000);
-  let model = "gpt-5.2";
+  let model = null;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];

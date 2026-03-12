@@ -3,12 +3,14 @@
 import { OpenAI } from "@llamaindex/openai";
 
 import * as tools from "../tools.js";
+import { CHAPTER_1_MODEL_NAMES } from "../models.js";
 
 import {
   buildCommonArgs,
   defaultChunkIterator,
   getChapterLogger,
   logToolCall,
+  selectStartupModel,
   runMode
 } from "../utils.js";
 
@@ -116,7 +118,8 @@ export class LlamaIndexAgentManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const manager = new LlamaIndexAgentManager(args.model);
+  const startupModel = await selectStartupModel(CHAPTER_1_MODEL_NAMES, args.mode, args.model);
+  const manager = new LlamaIndexAgentManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }
 

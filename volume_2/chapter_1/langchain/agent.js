@@ -10,8 +10,10 @@ import {
   defaultChunkIterator,
   getChapterLogger,
   logToolCall,
+  selectStartupModel,
   runMode
 } from "../utils.js";
+import { ALL_MODEL_NAMES } from "../models.js";
 
 const logger = getChapterLogger("volume_2.chapter_1.langchain.agent");
 
@@ -36,13 +38,14 @@ function extractOutput(result) {
 export class LangChainAgentManager {
   framework = "LangChain Agent";
   toolNames = ["summarize_text"];
+  modelNames = ALL_MODEL_NAMES;
   toolTriggerHelp = "Tools are selected automatically from your prompt; you do not need to type a tool name.";
 
   constructor(model = "gpt-5.2") {
     this.model = model;
-    logger.info(`Initializing LangChain agent | model=${model}`);
+    logger.info(`Initializing LangChain agent | model=${this.model}`);
     this.agent = createAgent({
-      model,
+      model: this.model,
       tools: buildTools(),
       systemPrompt:
         "You are an AI assistant that can use tools. Think step-by-step, use tools when needed, and return a concise final answer."
@@ -74,7 +77,8 @@ export class LangChainAgentManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const manager = new LangChainAgentManager(args.model);
+  const startupModel = await selectStartupModel(ALL_MODEL_NAMES, args.mode, args.model);
+  const manager = new LangChainAgentManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }
 

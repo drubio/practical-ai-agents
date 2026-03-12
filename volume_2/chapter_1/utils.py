@@ -228,8 +228,97 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--stream", action="store_true", help="Enable /query/stream endpoint in web mode")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
-    parser.add_argument("--model", default="gpt-5.2")
+    parser.add_argument("--model", help="Explicit model id (skips interactive model selection in CLI mode)")
     return parser
+
+
+PROVIDER_ENV_KEYS: dict[str, tuple[str, ...]] = {
+    "openai": ("OPENAI_API_KEY",),
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "google": ("GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"),
+    "google_genai": ("GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"),
+    "xai": ("XAI_API_KEY",),
+}
+
+
+def _provider_is_configured(provider: str) -> bool:
+    env_keys = PROVIDER_ENV_KEYS.get(provider, ())
+    return any((os.getenv(key) or "").strip() for key in env_keys)
+
+
+def _model_label(model_name: str, model_uri: str, provider: str) -> str:
+    provider_label = provider.replace("_", " ").title()
+    return f"{model_name} ({provider_label}, {model_uri})"
+
+
+def _build_model_catalog(model_names: Iterable[str] | None) -> list[dict[str, str]]:
+    try:
+        from models import build_models  # local import to avoid circular dependency at module load
+    except Exception:  # noqa: BLE001
+        return []
+
+    available = build_models()
+    selected_names = list(model_names or available.keys())
+    catalog = []
+    for name in selected_names:
+        config = available.get(name)
+        if config is None:
+            continue
+        catalog.append(
+            {
+                "name": name,
+                "provider": config.provider,
+                "model": config.model,
+                "label": _model_label(config.name, config.model, config.provider),
+            }
+        )
+    return catalog
+
+
+def select_startup_model(model_names: Iterable[str] | None, mode: str, explicit_model: str | None) -> str:
+    """Resolve startup model with env-aware provider filtering.
+
+    - explicit `--model` always wins
+    - in CLI mode, offer an interactive list of configured models
+    - default to the OpenAI option when available, otherwise first configured model
+    """
+    if explicit_model:
+        return explicit_model
+
+    catalog = _build_model_catalog(model_names)
+    if not catalog:
+        return "openai:gpt-5.2"
+
+    configured = [entry for entry in catalog if _provider_is_configured(entry["provider"])]
+    if not configured:
+        configured = catalog
+
+    default_index = 0
+    for idx, entry in enumerate(configured):
+        if entry["provider"] == "openai":
+            default_index = idx
+            break
+
+    if mode != "cli" or not sys.stdin.isatty() or not sys.stdout.isatty():
+        return configured[default_index]["model"]
+
+    print("\nModel selection (configured via environment variables):")
+    for idx, entry in enumerate(configured, start=1):
+        default_suffix = " [default]" if (idx - 1) == default_index else ""
+        print(f"{idx}. {entry['label']}{default_suffix}")
+
+    while True:
+        raw = input(f"Select model (1-{len(configured)}, default {default_index + 1}): ").strip()
+        if not raw:
+            return configured[default_index]["model"]
+        try:
+            choice = int(raw) - 1
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+            continue
+        if 0 <= choice < len(configured):
+            return configured[choice]["model"]
+        print("Invalid selection. Please try again.")
 
 
 def run_interactive_cli(manager: AgentManagerProtocol) -> None:

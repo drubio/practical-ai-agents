@@ -16,8 +16,9 @@ from llama_index.core.tools import FunctionTool
 from llama_index.llms.openai import OpenAI
 
 import tools
+from models import CHAPTER_1_MODEL_NAMES
 from stream import chunk_text
-from utils import build_common_parser, get_chapter_logger, log_tool_call, run_awaitable_sync, run_mode
+from utils import build_common_parser, get_chapter_logger, log_tool_call, run_awaitable_sync, run_mode, select_startup_model
 
 logger = get_chapter_logger("volume_2.chapter_2.llamaindex.agent_routing")
 
@@ -91,6 +92,7 @@ def _extract_text(result: Any) -> str:
 class LlamaIndexAgentRoutingManager:
     framework = "LlamaIndex Agent Routing"
     tool_names = ALL_TOOL_NAMES
+    model_names = CHAPTER_1_MODEL_NAMES
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority')."
@@ -144,7 +146,8 @@ class LlamaIndexAgentRoutingManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 2 LlamaIndex agent routing")
     args = parser.parse_args()
-    manager = LlamaIndexAgentRoutingManager(model=args.model)
+    startup_model = select_startup_model(CHAPTER_1_MODEL_NAMES, args.mode, args.model)
+    manager = LlamaIndexAgentRoutingManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 

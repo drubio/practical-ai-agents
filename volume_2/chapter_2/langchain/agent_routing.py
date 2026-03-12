@@ -17,7 +17,7 @@ from langchain.tools import tool
 
 import tools
 from models import ALL_MODEL_NAMES, ModelConfig, route_model_for_prompt
-from utils import build_common_parser, get_chapter_logger, log_tool_call, run_mode
+from utils import build_common_parser, get_chapter_logger, log_tool_call, run_mode, select_startup_model
 
 logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
 
@@ -237,7 +237,8 @@ class LangChainAgentRoutingManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 2 LangChain agent routing")
     args = parser.parse_args()
-    manager = LangChainAgentRoutingManager(model=args.model)
+    startup_model = select_startup_model(ALL_MODEL_NAMES, args.mode, args.model)
+    manager = LangChainAgentRoutingManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 

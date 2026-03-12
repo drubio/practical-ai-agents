@@ -11,7 +11,7 @@ CHAPTER_ROOT = Path(__file__).resolve().parents[1]
 if str(CHAPTER_ROOT) not in sys.path:
     sys.path.append(str(CHAPTER_ROOT))
 
-from utils import build_common_parser, chapter_root_from_file, get_chapter_logger, log_tool_call, run_mode
+from utils import build_common_parser, chapter_root_from_file, get_chapter_logger, log_tool_call, run_mode, select_startup_model
 
 chapter_root_from_file(__file__)
 
@@ -19,7 +19,7 @@ from langchain.agents import create_agent
 from langchain.tools import tool
 
 import tools
-from models import CHAPTER_1_MODEL_NAMES, select_models
+from models import ALL_MODEL_NAMES
 
 
 logger = get_chapter_logger("volume_2.chapter_1.langchain.agent")
@@ -49,16 +49,15 @@ def _extract_output(result: Dict[str, Any]) -> str:
 class LangChainAgentManager:
     framework = "LangChain Agent"
     tool_names = ["summarize_text"]
+    model_names = ALL_MODEL_NAMES
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'summarize this')."
     )
 
     def __init__(self, model: str = "gpt-5.2"):
-        # Chapter 1 intentionally exposes only one configured model.
-        configured = select_models(CHAPTER_1_MODEL_NAMES)[0]
-        self.model = configured.model
-        logger.info("Initializing LangChain agent | configured_model=%s | cli_model=%s", self.model, model)
+        self.model = model
+        logger.info("Initializing LangChain agent | model=%s", self.model)
         self.agent = create_agent(
             model=self.model,
             tools=AGENT_TOOLS,
@@ -94,7 +93,8 @@ class LangChainAgentManager:
 def main() -> None:
     parser = build_common_parser("LangChain Agent")
     args = parser.parse_args()
-    manager = LangChainAgentManager(model=args.model)
+    startup_model = select_startup_model(ALL_MODEL_NAMES, args.mode, args.model)
+    manager = LangChainAgentManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 

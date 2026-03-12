@@ -8,8 +8,10 @@ import {
   defaultChunkIterator,
   getChapterLogger,
   logToolCall,
+  selectStartupModel,
   runMode
 } from "../../chapter_1/utils.js";
+import { CHAPTER_1_MODEL_NAMES } from "../../chapter_1/models.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.llamaindex.agent_routing");
 
@@ -78,6 +80,7 @@ function parseToolCall(text, activeToolMap) {
 export class LlamaIndexAgentRoutingManager {
   framework = "LlamaIndex Agent Routing";
   toolNames = ALL_TOOL_NAMES;
+  modelNames = CHAPTER_1_MODEL_NAMES;
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority').";
 
@@ -148,7 +151,8 @@ export class LlamaIndexAgentRoutingManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const manager = new LlamaIndexAgentRoutingManager(args.model);
+  const startupModel = await selectStartupModel(CHAPTER_1_MODEL_NAMES, args.mode, args.model);
+  const manager = new LlamaIndexAgentRoutingManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }
 
