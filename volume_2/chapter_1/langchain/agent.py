@@ -18,7 +18,7 @@ chapter_root_from_file(__file__)
 from langchain.agents import create_agent
 from langchain.tools import tool
 
-from tools import summarize_text
+import tools
 
 
 logger = get_chapter_logger("volume_2.chapter_1.langchain.agent")
@@ -27,7 +27,7 @@ logger = get_chapter_logger("volume_2.chapter_1.langchain.agent")
 @tool
 def summarize_text_tool(text: str):
     """Summarize text."""
-    return log_tool_call(logger, "summarize_text", summarize_text)(text)
+    return log_tool_call(logger, "summarize_text", tools.summarize_text)(text)
 
 
 AGENT_TOOLS = [summarize_text_tool]

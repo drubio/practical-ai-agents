@@ -12,18 +12,7 @@ if str(CHAPTER_1_ROOT) not in sys.path:
 
 from langchain.tools import tool
 
-from tools import (
-    analyze_text,
-    calculator,
-    extract_keywords,
-    extract_tasks,
-    format_json,
-    parse_content,
-    resolve_datetime,
-    route_workflow,
-    score_priority,
-    summarize_text,
-)
+import tools
 
 CHAPTER_1_TOOL_NAMES = ["summarize_text"]
 ALL_TOOL_NAMES = [
@@ -46,52 +35,52 @@ def build_tools(log_tool_call, logger):
     @tool
     def summarize_text_tool(text: str):
         """Summarize text."""
-        return log_tool_call(logger, "summarize_text", summarize_text)(text)
+        return log_tool_call(logger, "summarize_text", tools.summarize_text)(text)
 
     @tool
     def extract_keywords_tool(text: str):
         """Extract keywords."""
-        return log_tool_call(logger, "extract_keywords", extract_keywords)(text)
+        return log_tool_call(logger, "extract_keywords", tools.extract_keywords)(text)
 
     @tool
     def extract_tasks_tool(text: str):
         """Extract tasks from text."""
-        return log_tool_call(logger, "extract_tasks", extract_tasks)(text)
+        return log_tool_call(logger, "extract_tasks", tools.extract_tasks)(text)
 
     @tool
     def score_priority_tool(text: str):
         """Score priority from text."""
-        return log_tool_call(logger, "score_priority", score_priority)(text)
+        return log_tool_call(logger, "score_priority", tools.score_priority)(text)
 
     @tool
     def route_workflow_tool(text: str):
         """Route workflow from text."""
-        return log_tool_call(logger, "route_workflow", route_workflow)(text)
+        return log_tool_call(logger, "route_workflow", tools.route_workflow)(text)
 
     @tool
     def parse_content_tool(content: str):
         """Parse content."""
-        return log_tool_call(logger, "parse_content", parse_content)(content)
+        return log_tool_call(logger, "parse_content", tools.parse_content)(content)
 
     @tool
     def resolve_datetime_tool(text: str):
         """Resolve datetime from text."""
-        return log_tool_call(logger, "resolve_datetime", resolve_datetime)(text)
+        return log_tool_call(logger, "resolve_datetime", tools.resolve_datetime)(text)
 
     @tool
     def format_json_tool(input: str):
         """Format JSON-like input."""
-        return log_tool_call(logger, "format_json", format_json)(input)
+        return log_tool_call(logger, "format_json", tools.format_json)(input)
 
     @tool
     def calculator_tool(expression: str):
         """Evaluate expression."""
-        return log_tool_call(logger, "calculator", calculator)(expression)
+        return log_tool_call(logger, "calculator", tools.calculator)(expression)
 
     @tool
     def analyze_text_tool(text: str):
         """Analyze text."""
-        return log_tool_call(logger, "analyze_text", analyze_text)(text)
+        return log_tool_call(logger, "analyze_text", tools.analyze_text)(text)
 
     return {
         "summarize_text": summarize_text_tool,

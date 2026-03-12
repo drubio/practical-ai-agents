@@ -25,7 +25,7 @@ from utils import (
     run_mode,
 )
 
-from tools import summarize_text  # noqa: E402
+import tools  # noqa: E402
 
 
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
@@ -44,7 +44,7 @@ def _extract_text(result: Any) -> str:
 
 
 TOOLS = [
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "summarize_text", summarize_text), name="summarize_text"),
+    FunctionTool.from_defaults(fn=log_tool_call(logger, "summarize_text", tools.summarize_text), name="summarize_text"),
 ]
 
 

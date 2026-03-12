@@ -1,17 +1,6 @@
 #!/usr/bin/env node
 
-import {
-  analyzeText,
-  calculator,
-  extractKeywords,
-  extractTasks,
-  formatJson,
-  parseContent,
-  resolveDatetime,
-  routeWorkflow,
-  scorePriority,
-  summarizeText
-} from "../../chapter_1/tools.js";
+import * as tools from "../../chapter_1/tools.js";
 
 export const CHAPTER_1_TOOL_NAMES = ["summarize_text"];
 
@@ -30,16 +19,16 @@ export const ALL_TOOL_NAMES = [
 
 export function buildToolMap(logToolCall, logger) {
   return {
-    summarize_text: logToolCall(logger, "summarize_text", summarizeText),
-    extract_keywords: logToolCall(logger, "extract_keywords", extractKeywords),
-    extract_tasks: logToolCall(logger, "extract_tasks", extractTasks),
-    score_priority: logToolCall(logger, "score_priority", scorePriority),
-    route_workflow: logToolCall(logger, "route_workflow", routeWorkflow),
-    parse_content: logToolCall(logger, "parse_content", parseContent),
-    resolve_datetime: logToolCall(logger, "resolve_datetime", resolveDatetime),
-    format_json: logToolCall(logger, "format_json", formatJson),
-    calculator: logToolCall(logger, "calculator", calculator),
-    analyze_text: logToolCall(logger, "analyze_text", analyzeText)
+    summarize_text: logToolCall(logger, "summarize_text", tools.summarizeText),
+    extract_keywords: logToolCall(logger, "extract_keywords", tools.extractKeywords),
+    extract_tasks: logToolCall(logger, "extract_tasks", tools.extractTasks),
+    score_priority: logToolCall(logger, "score_priority", tools.scorePriority),
+    route_workflow: logToolCall(logger, "route_workflow", tools.routeWorkflow),
+    parse_content: logToolCall(logger, "parse_content", tools.parseContent),
+    resolve_datetime: logToolCall(logger, "resolve_datetime", tools.resolveDatetime),
+    format_json: logToolCall(logger, "format_json", tools.formatJson),
+    calculator: logToolCall(logger, "calculator", tools.calculator),
+    analyze_text: logToolCall(logger, "analyze_text", tools.analyzeText)
   };
 }
 

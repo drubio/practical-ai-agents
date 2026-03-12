@@ -2,7 +2,7 @@
 
 import { OpenAI } from "@llamaindex/openai";
 
-import { summarizeText } from "../tools.js";
+import * as tools from "../tools.js";
 
 import {
   buildCommonArgs,
@@ -15,7 +15,7 @@ import {
 const logger = getChapterLogger("volume_2.chapter_1.llamaindex.agent");
 
 const TOOL_MAP = {
-  summarize_text: logToolCall(logger, "summarize_text", summarizeText)
+  summarize_text: logToolCall(logger, "summarize_text", tools.summarizeText)
 };
 
 function extractText(result) {

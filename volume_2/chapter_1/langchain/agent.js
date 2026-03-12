@@ -3,7 +3,7 @@
 import * as z from "zod";
 import { createAgent, tool } from "langchain";
 
-import { summarizeText } from "../tools.js";
+import * as tools from "../tools.js";
 
 import {
   buildCommonArgs,
@@ -17,7 +17,7 @@ const logger = getChapterLogger("volume_2.chapter_1.langchain.agent");
 
 function buildTools() {
   return [
-    tool(logToolCall(logger, "summarize_text", ({ text }) => summarizeText(text)), {
+    tool(logToolCall(logger, "summarize_text", ({ text }) => tools.summarizeText(text)), {
       name: "summarize_text",
       description: "Summarize text.",
       schema: z.object({ text: z.string() })
