@@ -19,6 +19,7 @@ from langchain.agents import create_agent
 from langchain.tools import tool
 
 import tools
+from models import CHAPTER_1_MODEL_NAMES, select_models
 
 
 logger = get_chapter_logger("volume_2.chapter_1.langchain.agent")
@@ -54,10 +55,12 @@ class LangChainAgentManager:
     )
 
     def __init__(self, model: str = "gpt-5.2"):
-        self.model = model
-        logger.info("Initializing LangChain agent | model=%s", model)
+        # Chapter 1 intentionally exposes only one configured model.
+        configured = select_models(CHAPTER_1_MODEL_NAMES)[0]
+        self.model = configured.model
+        logger.info("Initializing LangChain agent | configured_model=%s | cli_model=%s", self.model, model)
         self.agent = create_agent(
-            model=model,
+            model=self.model,
             tools=AGENT_TOOLS,
             system_prompt=(
                 "You are an AI assistant that can use tools. "

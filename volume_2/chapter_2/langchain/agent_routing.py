@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""LangChain multi-tool routing agent for volume 2 chapter 2."""
+"""LangChain multi-tool + multi-model routing agent for volume 2 chapter 2."""
 
 from __future__ import annotations
 
 from pathlib import Path
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
+import re
 
 CHAPTER_1_ROOT = Path(__file__).resolve().parents[2] / "chapter_1"
 if str(CHAPTER_1_ROOT) not in sys.path:
@@ -15,6 +16,7 @@ from langchain.agents import create_agent
 from langchain.tools import tool
 
 import tools
+from models import ALL_MODEL_NAMES, ModelConfig, route_model_for_prompt
 from utils import build_common_parser, get_chapter_logger, log_tool_call, run_mode
 
 logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
@@ -106,6 +108,50 @@ def select_tools(log_tool_call_fn, active_logger, tool_names):
     return [available[name] for name in tool_names]
 
 
+
+
+def _trigger_match(prompt_l: str, trigger: str) -> bool:
+    if " " in trigger or any(ch in trigger for ch in [":", "/", ".", "-"]):
+        return trigger in prompt_l
+    return re.search(rf"\b{re.escape(trigger)}\b", prompt_l) is not None
+
+def route_tools_for_prompt(prompt: str) -> list[str]:
+    """Select relevant tools from the prompt and keep the list minimal when possible."""
+    prompt_l = prompt.lower()
+    selected = set()
+
+    keyword_routes = {
+        "summarize_text": ["summarize", "tl;dr", "overview", "recap"],
+        "extract_keywords": ["keyword", "key phrase", "tags", "topics"],
+        "extract_tasks": ["todo", "task", "action item", "next steps"],
+        "score_priority": ["priority", "urgent", "severity", "p0", "p1"],
+        "route_workflow": ["workflow", "route", "triage", "handoff"],
+        "parse_content": ["parse", "extract fields", "structured", "html"],
+        "resolve_datetime": ["date", "time", "schedule", "tomorrow", "next week"],
+        "format_json": ["json", "yaml", "format", "schema"],
+        "calculator": ["calculate", "math", "equation", "percentage"],
+        "analyze_text": ["analyze", "analysis", "sentiment", "tone", "readability"],
+    }
+
+    for tool_name, triggers in keyword_routes.items():
+        if any(_trigger_match(prompt_l, trigger) for trigger in triggers):
+            selected.add(tool_name)
+
+    has_math_expression = any(op in prompt for op in ["+", "*", "/", "="]) or (" - " in prompt)
+    if has_math_expression:
+        selected.add("calculator")
+
+    if not selected:
+        return ALL_TOOL_NAMES
+
+    if "extract_tasks" in selected and "score_priority" not in selected:
+        selected.add("score_priority")
+    if "route_workflow" in selected and "extract_tasks" not in selected:
+        selected.add("extract_tasks")
+
+    return [name for name in ALL_TOOL_NAMES if name in selected]
+
+
 def _extract_output(result: Dict[str, Any]) -> str:
     output = result.get("output")
     if isinstance(output, str):
@@ -121,6 +167,7 @@ def _extract_output(result: Dict[str, Any]) -> str:
 class LangChainAgentRoutingManager:
     framework = "LangChain Agent Routing"
     tool_names = ALL_TOOL_NAMES
+    model_names = ALL_MODEL_NAMES
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority')."
@@ -128,24 +175,50 @@ class LangChainAgentRoutingManager:
 
     def __init__(self, model: str = "gpt-5.2"):
         self.model = model
-        logger.info("Initializing LangChain routing agent | model=%s", model)
-        self.agent = create_agent(
-            model=model,
-            tools=select_tools(log_tool_call, logger, ALL_TOOL_NAMES),
-            system_prompt=(
-                "You are an AI assistant that can use tools. "
-                "Think step-by-step, use tools when needed, and return a concise final answer."
-            ),
-        )
+        self._agent_cache: dict[tuple[str, tuple[str, ...]], Any] = {}
+        logger.info("Initializing LangChain routing agent | default_model=%s", model)
+
+    def _get_agent(self, model: str, selected_tool_names: Sequence[str]):
+        key = (model, tuple(selected_tool_names))
+        if key not in self._agent_cache:
+            logger.info("Building LangChain agent | model=%s | tools=%s", model, ",".join(selected_tool_names))
+            self._agent_cache[key] = create_agent(
+                model=model,
+                tools=select_tools(log_tool_call, logger, selected_tool_names),
+                system_prompt=(
+                    "You are an AI assistant that can use tools. "
+                    "Choose the best tool(s) among those provided, then return a concise final answer."
+                ),
+            )
+        return self._agent_cache[key]
+
+    def _route_model(self, topic: str, selected_tool_names: Sequence[str]) -> ModelConfig:
+        return route_model_for_prompt(topic, selected_tool_names, model_names=ALL_MODEL_NAMES)
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
             logger.info("Processing prompt | chars=%s", len(topic))
-            result = self.agent.invoke({"messages": [{"role": "user", "content": topic}]})
+            selected_tool_names = route_tools_for_prompt(topic)
+            selected_model = self._route_model(topic, selected_tool_names)
+            self.model = selected_model.model
+
+            logger.info(
+                "Routing decision | provider=%s | model=%s | tier=%s | tools=%s",
+                selected_model.provider,
+                selected_model.model,
+                selected_model.tier,
+                ",".join(selected_tool_names),
+            )
+
+            agent = self._get_agent(selected_model.model, selected_tool_names)
+            result = agent.invoke({"messages": [{"role": "user", "content": topic}]})
             return {
                 "success": True,
-                "provider": "openai",
-                "model": self.model,
+                "provider": selected_model.provider,
+                "model": selected_model.model,
+                "model_name": selected_model.name,
+                "model_tier": selected_model.tier,
+                "selected_tools": selected_tool_names,
                 "prompt": topic,
                 "response": _extract_output(result),
             }
@@ -153,7 +226,7 @@ class LangChainAgentRoutingManager:
             logger.exception("LangChain ask_question failed")
             return {
                 "success": False,
-                "provider": "openai",
+                "provider": "unknown",
                 "model": self.model,
                 "prompt": topic,
                 "error": str(exc),
