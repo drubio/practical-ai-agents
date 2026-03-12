@@ -123,6 +123,22 @@ def _extract_output(result: Dict[str, Any]) -> str:
 
 class LangChainAgentManager:
     framework = "LangChain Agent"
+    tool_names = [
+        "summarize_text",
+        "extract_keywords",
+        "extract_tasks",
+        "score_priority",
+        "route_workflow",
+        "parse_content",
+        "resolve_datetime",
+        "format_json",
+        "calculator",
+        "analyze_text",
+    ]
+    tool_trigger_help = (
+        "Tools are selected automatically from your prompt; you do not need to type a tool name. "
+        "If you want a specific behavior, ask explicitly (for example: 'summarize this' or 'extract tasks')."
+    )
 
     def __init__(self, model: str = "gpt-5.2"):
         self.model = model

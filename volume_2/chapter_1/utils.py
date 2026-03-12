@@ -10,10 +10,11 @@ import argparse
 import asyncio
 import logging
 import os
+import select
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, Protocol
+from typing import Any, Callable, Dict, Iterable, Iterator, Protocol
 
 
 class AgentManagerProtocol(Protocol):
@@ -25,6 +26,87 @@ class AgentManagerProtocol(Protocol):
 
     def iter_answer_chunks(self, topic: str) -> Iterator[str]:
         ...
+
+
+def _iter_tool_names(manager: AgentManagerProtocol) -> Iterable[str]:
+    names = getattr(manager, "tool_names", None)
+    if not names:
+        return []
+    return [str(name) for name in names if str(name).strip()]
+
+
+def _print_cli_banner(manager: AgentManagerProtocol) -> None:
+    print(f"\n===== {manager.framework} CLI =====")
+    print("Type a question and press Enter.")
+    print("Type 'exit' to quit.\n")
+
+    tool_names = list(_iter_tool_names(manager))
+    if tool_names:
+        print("Available local tools:")
+        for name in tool_names:
+            print(f"  - {name}")
+    else:
+        print("Available local tools: (none declared)")
+
+    trigger_help = getattr(
+        manager,
+        "tool_trigger_help",
+        "Tools are triggered automatically based on your prompt. You can mention a specific task (for example: summarize, extract tasks, or calculate) to encourage tool use.",
+    )
+    print(f"\n{trigger_help}")
+    print("Tip: multi-line pasted text is accepted as a single prompt.")
+    print("=" * 36)
+
+
+def _drain_pasted_lines(lines: list[str], max_wait_ms: int = 60) -> list[str]:
+    """Collect additional lines already buffered (commonly from bracketed paste).
+
+    This prevents one pasted multi-line prompt from being interpreted as several
+    follow-up prompts after the first request returns.
+    """
+    if not sys.stdin.isatty():
+        return lines
+
+    deadline = max_wait_ms / 1000.0
+
+    while True:
+        try:
+            ready, _, _ = select.select([sys.stdin], [], [], deadline)
+        except (OSError, ValueError, AttributeError):
+            # stdin may not be selectable (e.g., tests using StringIO)
+            break
+
+        if not ready:
+            break
+
+        next_line = sys.stdin.readline()
+        if next_line == "":
+            break
+
+        lines.append(next_line.rstrip("\n"))
+        # After first extra line, only keep draining immediately buffered data.
+        deadline = 0.0
+
+    return lines
+
+
+def _read_cli_prompt() -> str | None:
+    """Read one logical prompt from stdin.
+
+    Returns:
+      - None on EOF
+      - a (possibly multi-line) prompt string otherwise
+    """
+    sys.stdout.write("\n(exit or enter question) > ")
+    sys.stdout.flush()
+
+    first_line = sys.stdin.readline()
+    if first_line == "":
+        return None
+
+    lines = [first_line.rstrip("\n")]
+    lines = _drain_pasted_lines(lines)
+    return "\n".join(lines).strip()
 
 
 def get_chapter_logger(name: str) -> logging.Logger:
@@ -151,12 +233,23 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
 
 
 def run_interactive_cli(manager: AgentManagerProtocol) -> None:
-    print(f"\n===== {manager.framework} CLI =====\n")
+    _print_cli_banner(manager)
     while True:
         try:
-            user_input = input("> ").strip()
+            user_input = _read_cli_prompt()
+            if user_input is None:
+                print("\nExiting.")
+                break
+
+            if user_input.lower() in {"exit", "quit"}:
+                print("Exiting.")
+                break
             if not user_input:
+                print("No prompt provided. Please enter a question.")
                 continue
+
+            print("*** Agent is working locally ***")
+            print("*** Agent working with LLM, awaiting response ***")
             result = manager.ask_question(user_input)
             print("\n============= LLM RESPONSE =============")
             print(result.get("response") if result.get("success") else result.get("error"))
