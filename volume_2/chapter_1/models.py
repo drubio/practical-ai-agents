@@ -24,101 +24,87 @@ class ModelConfig:
 
 
 ALL_MODEL_IDENTIFIERS = [
-    "openai_gpt_4o_mini",
-    "openai_gpt_5_2",
-    "openai_gpt_4_1",
-    "anthropic_claude_3_5_haiku",
-    "anthropic_claude_3_5_sonnet",
-    "anthropic_claude_3_7_sonnet",
-    "google_gemini_1_5_flash",
-    "google_gemini_1_5_pro",
-    "google_gemini_2_5_flash",
-    "xai_grok_3_mini",
-    "xai_grok_3",
+    "openai_gpt_5_4_pro",
+    "openai_gpt_5_4",
+    "openai_gpt_5_mini",
+    "anthropic_claude_opus_4_6",
+    "anthropic_claude_sonnet_4_6",
+    "anthropic_claude_haiku_4_5",
+    "google_gemini_3_1_pro",
+    "google_gemini_3_1_flash",
+    "google_gemini_3_1_flash_lite",
     "xai_grok_4",
+    "xai_grok_3",
+    "xai_grok_3_mini",
 ]
 
 
 def get_identifier_mappings() -> dict[str, ModelConfig]:
     """Return all configured models keyed by reusable model identifier."""
     return {
-        "openai_gpt_4o_mini": ModelConfig(
-            name="openai_gpt_4o_mini",
+        "openai_gpt_5_4_pro": ModelConfig(
+            name="openai_gpt_5_4_pro",
             provider="openai",
-            model="gpt-4o-mini",
-            tier="lite",
-            strengths=("cost-efficient", "fast", "general"),
-        ),
-        "openai_gpt_5_2": ModelConfig(
-            name="openai_gpt_5_2",
-            provider="openai",
-            model="gpt-5.2",
-            tier="standard",
-            strengths=("balanced", "reasoning", "general"),
-        ),
-        "openai_gpt_4_1": ModelConfig(
-            name="openai_gpt_4_1",
-            provider="openai",
-            model="gpt-4.1",
+            model="gpt-5.4-pro",
             tier="advanced",
             strengths=("precision", "analysis", "long-form"),
         ),
-        "anthropic_claude_3_5_haiku": ModelConfig(
-            name="anthropic_claude_3_5_haiku",
-            provider="anthropic",
-            model="claude-3-5-haiku-latest",
-            tier="lite",
-            strengths=("speed", "coding", "cost-efficient"),
-        ),
-        "anthropic_claude_3_5_sonnet": ModelConfig(
-            name="anthropic_claude_3_5_sonnet",
-            provider="anthropic",
-            model="claude-3-5-sonnet-latest",
+        "openai_gpt_5_4": ModelConfig(
+            name="openai_gpt_5_4",
+            provider="openai",
+            model="gpt-5.4",
             tier="standard",
-            strengths=("coding", "reasoning", "balanced"),
+            strengths=("balanced", "reasoning", "general"),
+        ),        
+        "openai_gpt_5_mini": ModelConfig(
+            name="openai_gpt_5_mini",
+            provider="openai",
+            model="gpt-5-mini",
+            tier="lite",
+            strengths=("cost-efficient", "fast", "general"),
         ),
-        "anthropic_claude_3_7_sonnet": ModelConfig(
-            name="anthropic_claude_sonnet_4_5",
+        "anthropic_claude_opus_4_6": ModelConfig(
+            name="anthropic_claude_opus_4_6",
             provider="anthropic",
-            model="claude-sonnet-4-5",
+            model="claude-opus-4-6",
             tier="advanced",
             strengths=("deep-reasoning", "coding", "planning"),
         ),
-        "google_gemini_1_5_flash": ModelConfig(
-            name="google_gemini_1_5_flash",
-            provider="google",
-            model="gemini-1.5-flash",
-            tier="lite",
-            strengths=("fast", "retrieval", "classification"),
+        "anthropic_claude_sonnet_4_6": ModelConfig(
+            name="anthropic_claude_4_6_sonnet",
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+            tier="standard",
+            strengths=("coding", "reasoning", "balanced"),
         ),
-        "google_gemini_1_5_pro": ModelConfig(
-            name="google_gemini_1_5_pro",
+        "anthropic_claude_haiku_4_5": ModelConfig(
+            name="anthropic_claude_haiku_4_5",
+            provider="anthropic",
+            model="claude-haiku-4-5",
+            tier="lite",
+            strengths=("speed", "coding", "cost-efficient"),        
+        ),
+        "google_gemini_3_1_pro": ModelConfig(
+            name="google_gemini_3_1_pro",
             provider="google",
-            model="gemini-1.5-pro",
+            model="gemini-3.1-pro-preview",
+            tier="advanced",
+            strengths=("reasoning", "tool-use", "multimodal"),            
+        ),
+        "google_gemini_3_1_flash": ModelConfig(
+            name="google_gemini_3_1_flash",
+            provider="google",
+            model="gemini-3.1-flash-preview",
             tier="standard",
             strengths=("long-context", "research", "synthesis"),
-        ),
-        "google_gemini_2_5_flash": ModelConfig(
-            name="google_gemini_2_5_flash",
+        ),        
+        "google_gemini_3_1_flash_lite": ModelConfig(
+            name="google_gemini_3_1_flash_lite",
             provider="google",
-            model="gemini-2.5-flash",
-            tier="advanced",
-            strengths=("reasoning", "tool-use", "multimodal"),
-        ),
-        "xai_grok_3_mini": ModelConfig(
-            name="xai_grok_3_mini",
-            provider="xai",
-            model="grok-3-mini",
+            model="gemini-3.1-flash-lite-preview",
             tier="lite",
-            strengths=("social", "fast", "cost-efficient"),
-        ),
-        "xai_grok_3": ModelConfig(
-            name="xai_grok_3",
-            provider="xai",
-            model="grok-3",
-            tier="standard",
-            strengths=("social", "trends", "analysis"),
-        ),
+            strengths=("fast", "retrieval", "classification"),
+        ),    
         "xai_grok_4": ModelConfig(
             name="xai_grok_4",
             provider="xai",
@@ -126,6 +112,20 @@ def get_identifier_mappings() -> dict[str, ModelConfig]:
             tier="advanced",
             strengths=("deep-analysis", "social", "long-form"),
         ),
+        "xai_grok_3": ModelConfig(
+            name="xai_grok_3",
+            provider="xai",
+            model="grok-3",
+            tier="standard",
+            strengths=("social", "trends", "analysis"),
+        ),        
+        "xai_grok_3_mini": ModelConfig(
+            name="xai_grok_3_mini",
+            provider="xai",
+            model="grok-3-mini",
+            tier="lite",
+            strengths=("social", "fast", "cost-efficient"),
+        ),        
     }
 
 
@@ -207,24 +207,24 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_ide
 
     provider_tier_candidates = {
         "openai": {
-            "lite": "openai_gpt_4o_mini",
-            "standard": "openai_gpt_5_2",
-            "advanced": "openai_gpt_4_1",
+            "advanced": "openai_gpt_5_4_pro",
+            "standard": "openai_gpt_5_4",
+            "lite": "openai_gpt5_mini",
         },
         "anthropic": {
-            "lite": "anthropic_claude_3_5_haiku",
-            "standard": "anthropic_claude_3_5_sonnet",
-            "advanced": "anthropic_claude_3_7_sonnet",
+            "advanced": "anthropic_claude_opus_4_6",
+            "standard": "anthropic_claude_sonnet_4_6",
+            "lite": "anthropic_claude_haiku_4_5",
         },
         "google": {
-            "lite": "google_gemini_1_5_flash",
-            "standard": "google_gemini_1_5_pro",
-            "advanced": "google_gemini_2_5_flash",
+            "advanced": "google_gemini_3_1_pro",
+            "standard": "google_gemini_3_1_flash",
+            "lite": "google_gemini_3_1_flash_lite",
         },
         "xai": {
-            "lite": "xai_grok_3_mini",
+            "advanced": "xai_grok_4",            
             "standard": "xai_grok_3",
-            "advanced": "xai_grok_4",
+            "lite": "xai_grok_3_mini",
         },
     }
 
@@ -287,7 +287,6 @@ LLAMAINDEX_PROVIDER_FACTORIES = {
     "xai": _create_xai_llm,
     "anthropic": _create_anthropic_llm,
     "google": _create_google_genai_llm,
-    "google_genai": _create_google_genai_llm,
 }
 
 
