@@ -15,13 +15,12 @@ from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.core.tools import FunctionTool
 
 import tools
-from models import LLAMAINDEX_MODEL_NAMES, resolve_llamaindex_model
+from models import ALL_MODEL_IDENTIFIERS, resolve_llamaindex_model
 from stream import chunk_text
 from utils import build_common_parser, get_chapter_logger, log_tool_call, run_awaitable_sync, run_mode, select_startup_model
 
 logger = get_chapter_logger("volume_2.chapter_2.llamaindex.agent_routing")
 
-CHAPTER_1_TOOL_NAMES = ["summarize_text"]
 ALL_TOOL_NAMES = [
     "summarize_text",
     "extract_keywords",
@@ -91,13 +90,13 @@ def _extract_text(result: Any) -> str:
 class LlamaIndexAgentRoutingManager:
     framework = "LlamaIndex Agent Routing"
     tool_names = ALL_TOOL_NAMES
-    model_names = LLAMAINDEX_MODEL_NAMES
+    model_identifiers = ALL_MODEL_IDENTIFIERS
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority')."
     )
 
-    def __init__(self, model: str = "gpt-5.2"):
+    def __init__(self, model: str):
         resolved_model, llm = resolve_llamaindex_model(model)
         self.provider = resolved_model.provider
         self.model = resolved_model.model
@@ -147,7 +146,7 @@ class LlamaIndexAgentRoutingManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 2 LlamaIndex agent routing")
     args = parser.parse_args()
-    startup_model = select_startup_model(LLAMAINDEX_MODEL_NAMES, args.mode, args.model)
+    startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
     manager = LlamaIndexAgentRoutingManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 

@@ -23,9 +23,7 @@ class ModelConfig:
     strengths: tuple[str, ...] = field(default_factory=tuple)
 
 
-CHAPTER_1_MODEL_NAMES = ["openai_gpt_5_2"]
-
-ALL_MODEL_NAMES = [
+ALL_MODEL_IDENTIFIERS = [
     "openai_gpt_4o_mini",
     "openai_gpt_5_2",
     "openai_gpt_4_1",
@@ -40,11 +38,9 @@ ALL_MODEL_NAMES = [
     "xai_grok_4",
 ]
 
-LLAMAINDEX_MODEL_NAMES = list(ALL_MODEL_NAMES)
 
-
-def build_models() -> dict[str, ModelConfig]:
-    """Return all configured models by model name."""
+def get_identifier_mappings() -> dict[str, ModelConfig]:
+    """Return all configured models keyed by reusable model identifier."""
     return {
         "openai_gpt_4o_mini": ModelConfig(
             name="openai_gpt_4o_mini",
@@ -133,9 +129,9 @@ def build_models() -> dict[str, ModelConfig]:
     }
 
 
-def select_models(model_names: Sequence[str]) -> list[ModelConfig]:
-    available = build_models()
-    return [available[name] for name in model_names]
+def select_models(model_identifiers: Sequence[str]) -> list[ModelConfig]:
+    available = get_identifier_mappings()
+    return [available[identifier] for identifier in model_identifiers]
 
 
 def _infer_provider(prompt_l: str, selected_tools: Iterable[str]) -> str:
@@ -198,13 +194,13 @@ def _infer_tier(prompt_l: str, selected_tools: Iterable[str]) -> str:
     return "standard"
 
 
-def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_names: Sequence[str] | None = None) -> ModelConfig:
+def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_identifiers: Sequence[str] | None = None) -> ModelConfig:
     """Route prompt to a model from the available set.
 
-    The chosen model is constrained to `model_names` (defaults to ALL_MODEL_NAMES).
+    The chosen model is constrained to `model_identifiers` (defaults to ALL_MODEL_IDENTIFIERS).
     """
     prompt_l = prompt.lower()
-    selected_pool = set(model_names or ALL_MODEL_NAMES)
+    selected_pool = set(model_identifiers or ALL_MODEL_IDENTIFIERS)
 
     provider = _infer_provider(prompt_l, selected_tools)
     tier = _infer_tier(prompt_l, selected_tools)
@@ -237,11 +233,17 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_nam
     for tier_name in fallback_order:
         candidate_name = candidates[tier_name]
         if candidate_name in selected_pool:
-            return build_models()[candidate_name]
+            return get_identifier_mappings()[candidate_name]
 
     # Final safety fallback.
-    first_available = next(iter(selected_pool)) if selected_pool else CHAPTER_1_MODEL_NAMES[0]
-    return build_models()[first_available]
+    if selected_pool:
+        first_available = next(iter(selected_pool))
+        return get_identifier_mappings()[first_available]
+
+    all_available = get_identifier_mappings()
+    if not all_available:
+        raise ValueError("No model configurations available.")
+    return next(iter(all_available.values()))
 
 
 @dataclass(frozen=True)
@@ -290,10 +292,16 @@ LLAMAINDEX_PROVIDER_FACTORIES = {
 
 
 def resolve_llamaindex_model(selected_model: str):
-    if ":" in selected_model:
+    available = get_identifier_mappings()
+    if selected_model in available:
+        config = available[selected_model]
+        provider, raw_model_name = config.provider, config.model
+    elif ":" in selected_model:
         provider, raw_model_name = selected_model.split(":", 1)
     else:
-        provider, raw_model_name = "openai", selected_model
+        raise ValueError(
+            f"Unsupported model '{selected_model}'. Use a model identifier from ALL_MODEL_IDENTIFIERS or provider:model syntax."
+        )
 
     factory = LLAMAINDEX_PROVIDER_FACTORIES.get(provider)
     if factory is None:

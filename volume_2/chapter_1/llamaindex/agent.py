@@ -25,7 +25,7 @@ from utils import (
 )
 
 import tools  # noqa: E402
-from models import LLAMAINDEX_MODEL_NAMES
+from models import ALL_MODEL_IDENTIFIERS, resolve_llamaindex_model
 
 
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
@@ -106,7 +106,7 @@ class LlamaIndexAgentManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 1 LlamaIndex agent")
     args = parser.parse_args()
-    startup_model = select_startup_model(LLAMAINDEX_MODEL_NAMES, args.mode, args.model)
+    startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
     manager = LlamaIndexAgentManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 

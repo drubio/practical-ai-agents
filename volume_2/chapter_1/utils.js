@@ -100,14 +100,14 @@ async function chooseFromList(options, defaultIndex, prompt) {
   }
 }
 
-export async function selectStartupModel(modelNames, mode, explicitModel) {
-  if (explicitModel) return explicitModel;
+export async function selectStartupModel(modelIdentifiers, mode, explicitModelIdentifier) {
+  if (explicitModelIdentifier) return explicitModelIdentifier;
 
-  const { buildModels } = await import("./models.js").catch(() => ({ buildModels: null }));
-  if (!buildModels) return "openai:gpt-5.2";
+  const { getIdentifierMappings } = await import("./models.js").catch(() => ({ getIdentifierMappings: null }));
+  if (!getIdentifierMappings) throw new Error("Model registry unavailable for startup selection.");
 
-  const available = buildModels();
-  const names = Array.isArray(modelNames) && modelNames.length ? modelNames : Object.keys(available);
+  const available = getIdentifierMappings();
+  const names = Array.isArray(modelIdentifiers) && modelIdentifiers.length ? modelIdentifiers : Object.keys(available);
   const catalog = names
     .map((name) => {
       const config = available[name];
@@ -116,21 +116,21 @@ export async function selectStartupModel(modelNames, mode, explicitModel) {
         name,
         provider: config.provider,
         model: config.model,
+        identifier: name,
         label: modelLabel(config.name, config.model, config.provider)
       };
     })
     .filter(Boolean);
 
-  if (!catalog.length) return "openai:gpt-5.2";
+  if (!catalog.length) throw new Error("No model configurations available for startup selection.");
 
   let configured = catalog.filter((entry) => providerIsConfigured(entry.provider));
   if (!configured.length) configured = catalog;
 
-  let defaultIndex = configured.findIndex((entry) => entry.provider === "openai");
-  if (defaultIndex < 0) defaultIndex = 0;
+  const defaultIndex = 0;
 
   if (mode !== "cli" || !process.stdin.isTTY || !process.stdout.isTTY) {
-    return configured[defaultIndex].model;
+    return configured[defaultIndex].identifier;
   }
 
   console.log("\nModel selection (configured via environment variables):");
@@ -140,7 +140,7 @@ export async function selectStartupModel(modelNames, mode, explicitModel) {
   });
 
   const selected = await chooseFromList(configured, defaultIndex, `Select model (1-${configured.length}, default ${defaultIndex + 1}): `);
-  return selected.model;
+  return selected.identifier;
 }
 
 export function buildCommonArgs(argv = process.argv.slice(2)) {
@@ -148,7 +148,7 @@ export function buildCommonArgs(argv = process.argv.slice(2)) {
   let stream = false;
   let host = "0.0.0.0";
   let port = Number(process.env.PORT || 8000);
-  let model = null;
+  let modelIdentifier = null;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -156,10 +156,10 @@ export function buildCommonArgs(argv = process.argv.slice(2)) {
     else if (arg === "--stream") stream = true;
     else if (arg === "--host") host = argv[i + 1], i += 1;
     else if (arg === "--port") port = Number(argv[i + 1]), i += 1;
-    else if (arg === "--model") model = argv[i + 1], i += 1;
+    else if (arg === "--model-identifier") modelIdentifier = argv[i + 1], i += 1;
   }
 
-  return { mode, stream, host, port, model };
+  return { mode, stream, host, port, modelIdentifier };
 }
 
 function printCliBanner(manager) {

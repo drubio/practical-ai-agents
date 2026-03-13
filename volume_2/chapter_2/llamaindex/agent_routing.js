@@ -9,11 +9,9 @@ import {
   selectStartupModel,
   runMode
 } from "../../chapter_1/utils.js";
-import { LLAMAINDEX_MODEL_NAMES, createLlamaindexLLM } from "../../chapter_1/models.js";
+import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM } from "../../chapter_1/models.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.llamaindex.agent_routing");
-
-export const CHAPTER_1_TOOL_NAMES = ["summarize_text"];
 
 export const ALL_TOOL_NAMES = [
   "summarize_text",
@@ -79,11 +77,11 @@ function parseToolCall(text, activeToolMap) {
 export class LlamaIndexAgentRoutingManager {
   framework = "LlamaIndex Agent Routing";
   toolNames = ALL_TOOL_NAMES;
-  modelNames = LLAMAINDEX_MODEL_NAMES;
+  modelIdentifiers = ALL_MODEL_IDENTIFIERS;
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority').";
 
-  constructor(model = "gpt-5.2") {
+  constructor(model) {
     const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
     this.provider = provider;
     this.model = resolvedModel;
@@ -152,7 +150,7 @@ export class LlamaIndexAgentRoutingManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const startupModel = await selectStartupModel(LLAMAINDEX_MODEL_NAMES, args.mode, args.model);
+  const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
   const manager = new LlamaIndexAgentRoutingManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }

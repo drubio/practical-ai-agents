@@ -16,12 +16,11 @@ from langchain.agents import create_agent
 from langchain.tools import tool
 
 import tools
-from models import ALL_MODEL_NAMES, ModelConfig, route_model_for_prompt
+from models import ALL_MODEL_IDENTIFIERS, ModelConfig, get_identifier_mappings, route_model_for_prompt
 from utils import build_common_parser, get_chapter_logger, log_tool_call, run_mode, select_startup_model
 
 logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
 
-CHAPTER_1_TOOL_NAMES = ["summarize_text"]
 ALL_TOOL_NAMES = [
     "summarize_text",
     "extract_keywords",
@@ -167,16 +166,22 @@ def _extract_output(result: Dict[str, Any]) -> str:
 class LangChainAgentRoutingManager:
     framework = "LangChain Agent Routing"
     tool_names = ALL_TOOL_NAMES
-    model_names = ALL_MODEL_NAMES
+    model_identifiers = ALL_MODEL_IDENTIFIERS
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority')."
     )
 
-    def __init__(self, model: str = "gpt-5.2"):
-        self.model = model
+    def __init__(self, model: str):
+        config = get_identifier_mappings().get(model)
+        self.provider = config.provider if config else "unknown"
+        self.model = config.model if config else model
         self._agent_cache: dict[tuple[str, tuple[str, ...]], Any] = {}
-        logger.info("Initializing LangChain routing agent | default_model=%s", model)
+        logger.info(
+            "Initializing LangChain routing agent | provider=%s | initial_model=%s",
+            self.provider,
+            self.model,
+        )
 
     def _get_agent(self, model: str, selected_tool_names: Sequence[str]):
         key = (model, tuple(selected_tool_names))
@@ -193,13 +198,14 @@ class LangChainAgentRoutingManager:
         return self._agent_cache[key]
 
     def _route_model(self, topic: str, selected_tool_names: Sequence[str]) -> ModelConfig:
-        return route_model_for_prompt(topic, selected_tool_names, model_names=ALL_MODEL_NAMES)
+        return route_model_for_prompt(topic, selected_tool_names, model_identifiers=ALL_MODEL_IDENTIFIERS)
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
             logger.info("Processing prompt | chars=%s", len(topic))
             selected_tool_names = route_tools_for_prompt(topic)
             selected_model = self._route_model(topic, selected_tool_names)
+            self.provider = selected_model.provider
             self.model = selected_model.model
 
             logger.info(
@@ -237,7 +243,7 @@ class LangChainAgentRoutingManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 2 LangChain agent routing")
     args = parser.parse_args()
-    startup_model = select_startup_model(ALL_MODEL_NAMES, args.mode, args.model)
+    startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
     manager = LangChainAgentRoutingManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 

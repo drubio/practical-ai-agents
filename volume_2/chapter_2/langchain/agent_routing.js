@@ -12,11 +12,9 @@ import {
   selectStartupModel,
   runMode
 } from "../../chapter_1/utils.js";
-import { ALL_MODEL_NAMES } from "../../chapter_1/models.js";
+import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../../chapter_1/models.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.langchain.agent_routing");
-
-export const CHAPTER_1_TOOL_NAMES = ["summarize_text"];
 
 export const ALL_TOOL_NAMES = [
   "summarize_text",
@@ -102,15 +100,17 @@ function extractOutput(result) {
 export class LangChainAgentRoutingManager {
   framework = "LangChain Agent Routing";
   toolNames = ALL_TOOL_NAMES;
-  modelNames = ALL_MODEL_NAMES;
+  modelIdentifiers = ALL_MODEL_IDENTIFIERS;
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority').";
 
-  constructor(model = "gpt-5.2") {
-    this.model = model;
-    logger.info(`Initializing LangChain routing agent | model=${model}`);
+  constructor(model) {
+    const config = getIdentifierMappings()[model];
+    this.provider = config?.provider ?? "unknown";
+    this.model = config?.model ?? model;
+    logger.info(`Initializing LangChain routing agent | provider=${this.provider} | model=${this.model}`);
     this.agent = createAgent({
-      model,
+      model: this.model,
       tools: selectTools(logToolCall, logger, ALL_TOOL_NAMES),
       systemPrompt:
         "You are an AI assistant that can use tools. Think step-by-step, use tools when needed, and return a concise final answer."
@@ -121,12 +121,12 @@ export class LangChainAgentRoutingManager {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
       const result = await this.agent.invoke({ messages: [{ role: "user", content: topic }] });
-      return { success: true, provider: "openai", model: this.model, prompt: topic, response: extractOutput(result) };
+      return { success: true, provider: this.provider, model: this.model, prompt: topic, response: extractOutput(result) };
     } catch (error) {
       logger.error("LangChain askQuestion failed", error);
       return {
         success: false,
-        provider: "openai",
+        provider: this.provider,
         model: this.model,
         prompt: topic,
         error: error.message,
@@ -142,7 +142,7 @@ export class LangChainAgentRoutingManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const startupModel = await selectStartupModel(ALL_MODEL_NAMES, args.mode, args.model);
+  const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
   const manager = new LangChainAgentRoutingManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }

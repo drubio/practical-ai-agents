@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import * as tools from "../tools.js";
-import { LLAMAINDEX_MODEL_NAMES, createLlamaindexLLM } from "../models.js";
+import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM } from "../models.js";
 
 import {
   buildCommonArgs,
@@ -51,7 +51,7 @@ export class LlamaIndexAgentManager {
   toolNames = Object.keys(TOOL_MAP);
   toolTriggerHelp = "Tools are selected automatically from your prompt; you do not need to type a tool name.";
 
-  constructor(model = "gpt-5.2") {
+  constructor(model) {
     const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
     this.provider = provider;
     this.model = resolvedModel;
@@ -119,7 +119,7 @@ export class LlamaIndexAgentManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const startupModel = await selectStartupModel(LLAMAINDEX_MODEL_NAMES, args.mode, args.model);
+  const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
   const manager = new LlamaIndexAgentManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }

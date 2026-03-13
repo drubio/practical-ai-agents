@@ -19,7 +19,7 @@ from langchain.agents import create_agent
 from langchain.tools import tool
 
 import tools
-from models import ALL_MODEL_NAMES
+from models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
 
 
 logger = get_chapter_logger("volume_2.chapter_1.langchain.agent")
@@ -49,15 +49,17 @@ def _extract_output(result: Dict[str, Any]) -> str:
 class LangChainAgentManager:
     framework = "LangChain Agent"
     tool_names = ["summarize_text"]
-    model_names = ALL_MODEL_NAMES
+    model_identifiers = ALL_MODEL_IDENTIFIERS
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'summarize this')."
     )
 
     def __init__(self, model: str):
-        self.model = model
-        logger.info("Initializing LangChain agent | model=%s", self.model)
+        config = get_identifier_mappings().get(model)
+        self.provider = config.provider if config else "unknown"
+        self.model = config.model if config else model
+        logger.info("Initializing LangChain agent | provider=%s | model=%s", self.provider, self.model)
         self.agent = create_agent(
             model=self.model,
             tools=AGENT_TOOLS,
@@ -73,7 +75,7 @@ class LangChainAgentManager:
             result = self.agent.invoke({"messages": [{"role": "user", "content": topic}]})
             return {
                 "success": True,
-                "provider": 'openai',
+                "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
                 "response": _extract_output(result),
@@ -82,7 +84,7 @@ class LangChainAgentManager:
             logger.exception("LangChain ask_question failed")
             return {
                 "success": False,
-                "provider": 'openai',
+                "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
                 "error": str(exc),
@@ -93,7 +95,7 @@ class LangChainAgentManager:
 def main() -> None:
     parser = build_common_parser("LangChain Agent")
     args = parser.parse_args()
-    startup_model = select_startup_model(ALL_MODEL_NAMES, args.mode, args.model)
+    startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
     manager = LangChainAgentManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 

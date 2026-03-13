@@ -13,7 +13,7 @@ import {
   selectStartupModel,
   runMode
 } from "../utils.js";
-import { ALL_MODEL_NAMES } from "../models.js";
+import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../models.js";
 
 const logger = getChapterLogger("volume_2.chapter_1.langchain.agent");
 
@@ -38,12 +38,14 @@ function extractOutput(result) {
 export class LangChainAgentManager {
   framework = "LangChain Agent";
   toolNames = ["summarize_text"];
-  modelNames = ALL_MODEL_NAMES;
+  modelIdentifiers = ALL_MODEL_IDENTIFIERS;
   toolTriggerHelp = "Tools are selected automatically from your prompt; you do not need to type a tool name.";
 
-  constructor(model = "gpt-5.2") {
-    this.model = model;
-    logger.info(`Initializing LangChain agent | model=${this.model}`);
+  constructor(model) {
+    const config = getIdentifierMappings()[model];
+    this.provider = config?.provider ?? "unknown";
+    this.model = config?.model ?? model;
+    logger.info(`Initializing LangChain agent | provider=${this.provider} | model=${this.model}`);
     this.agent = createAgent({
       model: this.model,
       tools: buildTools(),
@@ -56,12 +58,12 @@ export class LangChainAgentManager {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
       const result = await this.agent.invoke({ messages: [{ role: "user", content: topic }] });
-      return { success: true, provider: "openai", model: this.model, prompt: topic, response: extractOutput(result) };
+      return { success: true, provider: this.provider, model: this.model, prompt: topic, response: extractOutput(result) };
     } catch (error) {
       logger.error("LangChain askQuestion failed", error);
       return {
         success: false,
-        provider: "openai",
+        provider: this.provider,
         model: this.model,
         prompt: topic,
         error: error.message,
@@ -77,7 +79,7 @@ export class LangChainAgentManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const startupModel = await selectStartupModel(ALL_MODEL_NAMES, args.mode, args.model);
+  const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
   const manager = new LangChainAgentManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }

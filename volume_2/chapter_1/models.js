@@ -1,8 +1,6 @@
 import { OpenAI } from "@llamaindex/openai";
 
-export const CHAPTER_1_MODEL_NAMES = ["openai_gpt_5_2"];
-
-export const ALL_MODEL_NAMES = [
+export const ALL_MODEL_IDENTIFIERS = [
   "openai_gpt_4o_mini",
   "openai_gpt_5_2",
   "openai_gpt_4_1",
@@ -17,9 +15,7 @@ export const ALL_MODEL_NAMES = [
   "xai_grok_4"
 ];
 
-export const LLAMAINDEX_MODEL_NAMES = [...ALL_MODEL_NAMES];
-
-export function buildModels() {
+export function getIdentifierMappings() {
   return {
     openai_gpt_4o_mini: { name: "openai_gpt_4o_mini", provider: "openai", model: "gpt-4o-mini" },
     openai_gpt_5_2: { name: "openai_gpt_5_2", provider: "openai", model: "gpt-5.2" },
@@ -40,7 +36,7 @@ export function buildModels() {
 export function parseLlamaindexProviderModel(selectedModel) {
   const [provider, model] = selectedModel.includes(":")
     ? selectedModel.split(/:(.+)/)
-    : ["openai", selectedModel];
+    : [null, selectedModel];
   return { provider, model };
 }
 
@@ -75,7 +71,16 @@ function requireOpenAICompatibleBase(provider, cfg) {
 }
 
 export function resolveLlamaindexModel(selectedModel) {
-  const { provider, model } = parseLlamaindexProviderModel(selectedModel);
+  const available = getIdentifierMappings();
+  const fromIdentifier = available[selectedModel];
+  const parsed = parseLlamaindexProviderModel(selectedModel);
+  const provider = fromIdentifier?.provider ?? parsed.provider;
+  const model = fromIdentifier?.model ?? parsed.model;
+
+  if (!provider) {
+    throw new Error(`Unsupported model '${selectedModel}'. Use a model identifier from ALL_MODEL_IDENTIFIERS or provider:model syntax.`);
+  }
+
   const configBuilder = LLAMAINDEX_PROVIDER_CONFIG[provider];
   if (!configBuilder) {
     throw new Error(`Unsupported provider '${provider}' for '${selectedModel}'. Supported: ${Object.keys(LLAMAINDEX_PROVIDER_CONFIG).join(", ")}`);

@@ -228,7 +228,7 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--stream", action="store_true", help="Enable /query/stream endpoint in web mode")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
-    parser.add_argument("--model", help="Explicit model id (skips interactive model selection in CLI mode)")
+    parser.add_argument("--model-identifier", dest="model_identifier", help="Explicit model identifier (skips interactive model selection in CLI mode)")
     return parser
 
 
@@ -251,14 +251,14 @@ def _model_label(model_name: str, model_uri: str, provider: str) -> str:
     return f"{model_name} ({provider_label}, {model_uri})"
 
 
-def _build_model_catalog(model_names: Iterable[str] | None) -> list[dict[str, str]]:
+def _build_model_catalog(model_identifiers: Iterable[str] | None) -> list[dict[str, str]]:
     try:
-        from models import build_models  # local import to avoid circular dependency at module load
+        from models import get_identifier_mappings  # local import to avoid circular dependency at module load
     except Exception:  # noqa: BLE001
         return []
 
-    available = build_models()
-    selected_names = list(model_names or available.keys())
+    available = get_identifier_mappings()
+    selected_names = list(model_identifiers or available.keys())
     catalog = []
     for name in selected_names:
         config = available.get(name)
@@ -269,38 +269,35 @@ def _build_model_catalog(model_names: Iterable[str] | None) -> list[dict[str, st
                 "name": name,
                 "provider": config.provider,
                 "model": config.model,
+                "identifier": name,
                 "label": _model_label(config.name, config.model, config.provider),
             }
         )
     return catalog
 
 
-def select_startup_model(model_names: Iterable[str] | None, mode: str, explicit_model: str | None) -> str:
+def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, explicit_model_identifier: str | None) -> str:
     """Resolve startup model with env-aware provider filtering.
 
-    - explicit `--model` always wins
+    - explicit `--model-identifier` always wins
     - in CLI mode, offer an interactive list of configured models
     - default to the OpenAI option when available, otherwise first configured model
     """
-    if explicit_model:
-        return explicit_model
+    if explicit_model_identifier:
+        return explicit_model_identifier
 
-    catalog = _build_model_catalog(model_names)
+    catalog = _build_model_catalog(model_identifiers)
     if not catalog:
-        return "openai:gpt-5.2"
+        raise ValueError("No model configurations available for startup selection.")
 
     configured = [entry for entry in catalog if _provider_is_configured(entry["provider"])]
     if not configured:
         configured = catalog
 
     default_index = 0
-    for idx, entry in enumerate(configured):
-        if entry["provider"] == "openai":
-            default_index = idx
-            break
 
     if mode != "cli" or not sys.stdin.isatty() or not sys.stdout.isatty():
-        return configured[default_index]["model"]
+        return configured[default_index]["identifier"]
 
     print("\nModel selection (configured via environment variables):")
     for idx, entry in enumerate(configured, start=1):
@@ -310,14 +307,14 @@ def select_startup_model(model_names: Iterable[str] | None, mode: str, explicit_
     while True:
         raw = input(f"Select model (1-{len(configured)}, default {default_index + 1}): ").strip()
         if not raw:
-            return configured[default_index]["model"]
+            return configured[default_index]["identifier"]
         try:
             choice = int(raw) - 1
         except ValueError:
             print("Invalid input. Please enter a number.")
             continue
         if 0 <= choice < len(configured):
-            return configured[choice]["model"]
+            return configured[choice]["identifier"]
         print("Invalid selection. Please try again.")
 
 
