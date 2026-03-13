@@ -13,10 +13,9 @@ if str(CHAPTER_1_ROOT) not in sys.path:
 
 from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.core.tools import FunctionTool
-from llama_index.llms.openai import OpenAI
 
 import tools
-from models import CHAPTER_1_MODEL_NAMES
+from models import LLAMAINDEX_MODEL_NAMES, resolve_llamaindex_model
 from stream import chunk_text
 from utils import build_common_parser, get_chapter_logger, log_tool_call, run_awaitable_sync, run_mode, select_startup_model
 
@@ -92,16 +91,18 @@ def _extract_text(result: Any) -> str:
 class LlamaIndexAgentRoutingManager:
     framework = "LlamaIndex Agent Routing"
     tool_names = ALL_TOOL_NAMES
-    model_names = CHAPTER_1_MODEL_NAMES
+    model_names = LLAMAINDEX_MODEL_NAMES
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority')."
     )
 
     def __init__(self, model: str = "gpt-5.2"):
-        self.model = model
-        logger.info("Initializing LlamaIndex routing agent | model=%s", model)
-        self.llm = OpenAI(model=model)
+        resolved_model, llm = resolve_llamaindex_model(model)
+        self.provider = resolved_model.provider
+        self.model = resolved_model.model
+        logger.info("Initializing LlamaIndex routing agent | provider=%s | model=%s", self.provider, self.model)
+        self.llm = llm
         self.agent = FunctionAgent(
             llm=self.llm,
             tools=select_tools(log_tool_call, logger, ALL_TOOL_NAMES),
@@ -121,7 +122,7 @@ class LlamaIndexAgentRoutingManager:
             raw = run_awaitable_sync(_run_agent())
             return {
                 "success": True,
-                "provider": "openai",
+                "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
                 "response": _extract_text(raw),
@@ -130,7 +131,7 @@ class LlamaIndexAgentRoutingManager:
             logger.exception("LlamaIndex ask_question failed")
             return {
                 "success": False,
-                "provider": "openai",
+                "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
                 "error": str(exc),
@@ -146,7 +147,7 @@ class LlamaIndexAgentRoutingManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 2 LlamaIndex agent routing")
     args = parser.parse_args()
-    startup_model = select_startup_model(CHAPTER_1_MODEL_NAMES, args.mode, args.model)
+    startup_model = select_startup_model(LLAMAINDEX_MODEL_NAMES, args.mode, args.model)
     manager = LlamaIndexAgentRoutingManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 

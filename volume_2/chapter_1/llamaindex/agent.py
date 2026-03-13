@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, Iterator
-
 import sys
 
 CHAPTER_ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +13,6 @@ if str(CHAPTER_ROOT) not in sys.path:
 
 from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.core.tools import FunctionTool
-from llama_index.llms.openai import OpenAI
 from stream import chunk_text
 
 from utils import (
@@ -27,7 +25,7 @@ from utils import (
 )
 
 import tools  # noqa: E402
-from models import CHAPTER_1_MODEL_NAMES
+from models import LLAMAINDEX_MODEL_NAMES, resolve_llamaindex_model
 
 
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
@@ -59,9 +57,11 @@ class LlamaIndexAgentManager:
     )
 
     def __init__(self, model: str = "gpt-5.2"):
-        self.model = model
-        logger.info("Initializing LlamaIndex agent | model=%s", model)
-        self.llm = OpenAI(model=model)
+        resolved_model, llm = resolve_llamaindex_model(model)
+        self.provider = resolved_model.provider
+        self.model = resolved_model.model
+        logger.info("Initializing LlamaIndex agent | provider=%s | model=%s", self.provider, self.model)
+        self.llm = llm
         self.agent = FunctionAgent(
             llm=self.llm,
             tools=TOOLS,
@@ -81,7 +81,7 @@ class LlamaIndexAgentManager:
             raw = run_awaitable_sync(_run_agent())
             return {
                 "success": True,
-                "provider": "openai",
+                "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
                 "response": _extract_text(raw),
@@ -90,7 +90,7 @@ class LlamaIndexAgentManager:
             logger.exception("LlamaIndex ask_question failed")
             return {
                 "success": False,
-                "provider": "openai",
+                "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
                 "error": str(exc),
@@ -106,7 +106,7 @@ class LlamaIndexAgentManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 1 LlamaIndex agent")
     args = parser.parse_args()
-    startup_model = select_startup_model(CHAPTER_1_MODEL_NAMES, args.mode, args.model)
+    startup_model = select_startup_model(LLAMAINDEX_MODEL_NAMES, args.mode, args.model)
     manager = LlamaIndexAgentManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 

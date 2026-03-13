@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-import { OpenAI } from "../../chapter_1/node_modules/@llamaindex/openai/dist/index.js";
-
 import * as tools from "../../chapter_1/tools.js";
 import {
   buildCommonArgs,
@@ -11,7 +9,7 @@ import {
   selectStartupModel,
   runMode
 } from "../../chapter_1/utils.js";
-import { CHAPTER_1_MODEL_NAMES } from "../../chapter_1/models.js";
+import { LLAMAINDEX_MODEL_NAMES, createLlamaindexLLM } from "../../chapter_1/models.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.llamaindex.agent_routing");
 
@@ -62,6 +60,7 @@ function extractText(result) {
   return String(content ?? result ?? "");
 }
 
+
 function parseToolCall(text, activeToolMap) {
   const match = text.match(/TOOL:\s*([a-z_]+)\s*\nINPUT:\s*([\s\S]*)$/i);
   if (!match) return null;
@@ -80,14 +79,16 @@ function parseToolCall(text, activeToolMap) {
 export class LlamaIndexAgentRoutingManager {
   framework = "LlamaIndex Agent Routing";
   toolNames = ALL_TOOL_NAMES;
-  modelNames = CHAPTER_1_MODEL_NAMES;
+  modelNames = LLAMAINDEX_MODEL_NAMES;
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority').";
 
   constructor(model = "gpt-5.2") {
-    this.model = model;
-    logger.info(`Initializing LlamaIndex routing agent | model=${model}`);
-    this.llm = new OpenAI({ model });
+    const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
+    this.provider = provider;
+    this.model = resolvedModel;
+    logger.info(`Initializing LlamaIndex routing agent | provider=${this.provider} | model=${this.model}`);
+    this.llm = llm;
     this.toolMap = selectToolMap(logToolCall, logger, ALL_TOOL_NAMES);
   }
 
@@ -115,7 +116,7 @@ export class LlamaIndexAgentRoutingManager {
         const toolCall = parseToolCall(text, this.toolMap);
 
         if (!toolCall) {
-          return { success: true, provider: "openai", model: this.model, prompt: topic, response: text };
+          return { success: true, provider: this.provider, model: this.model, prompt: topic, response: text };
         }
 
         const observation = this.toolMap[toolCall.name](toolCall.input);
@@ -125,7 +126,7 @@ export class LlamaIndexAgentRoutingManager {
 
       return {
         success: false,
-        provider: "openai",
+        provider: this.provider,
         model: this.model,
         prompt: topic,
         error: "Agent exceeded tool-call iteration limit.",
@@ -135,7 +136,7 @@ export class LlamaIndexAgentRoutingManager {
       logger.error("LlamaIndex askQuestion failed", error);
       return {
         success: false,
-        provider: "openai",
+        provider: this.provider,
         model: this.model,
         prompt: topic,
         error: error.message,
@@ -151,7 +152,7 @@ export class LlamaIndexAgentRoutingManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const startupModel = await selectStartupModel(CHAPTER_1_MODEL_NAMES, args.mode, args.model);
+  const startupModel = await selectStartupModel(LLAMAINDEX_MODEL_NAMES, args.mode, args.model);
   const manager = new LlamaIndexAgentRoutingManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }

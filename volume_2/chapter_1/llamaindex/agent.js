@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-import { OpenAI } from "@llamaindex/openai";
-
 import * as tools from "../tools.js";
-import { CHAPTER_1_MODEL_NAMES } from "../models.js";
+import { LLAMAINDEX_MODEL_NAMES, createLlamaindexLLM } from "../models.js";
 
 import {
   buildCommonArgs,
@@ -19,6 +17,7 @@ const logger = getChapterLogger("volume_2.chapter_1.llamaindex.agent");
 const TOOL_MAP = {
   summarize_text: logToolCall(logger, "summarize_text", tools.summarizeText)
 };
+
 
 function extractText(result) {
   const content = result?.message?.content;
@@ -53,9 +52,11 @@ export class LlamaIndexAgentManager {
   toolTriggerHelp = "Tools are selected automatically from your prompt; you do not need to type a tool name.";
 
   constructor(model = "gpt-5.2") {
-    this.model = model;
-    logger.info(`Initializing LlamaIndex agent | model=${model}`);
-    this.llm = new OpenAI({ model });
+    const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
+    this.provider = provider;
+    this.model = resolvedModel;
+    logger.info(`Initializing LlamaIndex agent | provider=${this.provider} | model=${this.model}`);
+    this.llm = llm;
   }
 
   async askQuestion(topic) {
@@ -82,7 +83,7 @@ export class LlamaIndexAgentManager {
         const toolCall = parseToolCall(text);
 
         if (!toolCall) {
-          return { success: true, provider: "openai", model: this.model, prompt: topic, response: text };
+          return { success: true, provider: this.provider, model: this.model, prompt: topic, response: text };
         }
 
         const observation = TOOL_MAP[toolCall.name](toolCall.input);
@@ -92,7 +93,7 @@ export class LlamaIndexAgentManager {
 
       return {
         success: false,
-        provider: "openai",
+        provider: this.provider,
         model: this.model,
         prompt: topic,
         error: "Agent exceeded tool-call iteration limit.",
@@ -102,7 +103,7 @@ export class LlamaIndexAgentManager {
       logger.error("LlamaIndex askQuestion failed", error);
       return {
         success: false,
-        provider: "openai",
+        provider: this.provider,
         model: this.model,
         prompt: topic,
         error: error.message,
@@ -118,7 +119,7 @@ export class LlamaIndexAgentManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const startupModel = await selectStartupModel(CHAPTER_1_MODEL_NAMES, args.mode, args.model);
+  const startupModel = await selectStartupModel(LLAMAINDEX_MODEL_NAMES, args.mode, args.model);
   const manager = new LlamaIndexAgentManager(startupModel);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }

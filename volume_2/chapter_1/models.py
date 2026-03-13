@@ -8,6 +8,7 @@ This mirrors the local-tool architecture used in tools.py:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from typing import Iterable, Sequence
 
 
@@ -38,6 +39,8 @@ ALL_MODEL_NAMES = [
     "xai_grok_2",
     "xai_grok_3_beta",
 ]
+
+LLAMAINDEX_MODEL_NAMES = list(ALL_MODEL_NAMES)
 
 
 def build_models() -> dict[str, ModelConfig]:
@@ -239,3 +242,62 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_nam
     # Final safety fallback.
     first_available = next(iter(selected_pool)) if selected_pool else CHAPTER_1_MODEL_NAMES[0]
     return build_models()[first_available]
+
+
+@dataclass(frozen=True)
+class ResolvedLlamaIndexModel:
+    provider: str
+    model: str
+
+
+def _create_openai_llm(model: str):
+    from llama_index.llms.openai import OpenAI
+
+    return OpenAI(model=model)
+
+
+def _create_xai_llm(model: str):
+    from llama_index.llms.openai_like import OpenAILike
+
+    return OpenAILike(
+        model=model,
+        api_base=os.getenv("XAI_API_BASE", "https://api.x.ai/v1"),
+        api_key=os.getenv("XAI_API_KEY"),
+        is_function_calling_model=True,
+    )
+
+
+def _create_anthropic_llm(model: str):
+    from llama_index.llms.anthropic import Anthropic
+
+    return Anthropic(model=model, api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+
+def _create_google_genai_llm(model: str):
+    from llama_index.llms.google_genai import GoogleGenAI
+
+    return GoogleGenAI(model=model, api_key=os.getenv("GOOGLE_API_KEY"))
+
+
+LLAMAINDEX_PROVIDER_FACTORIES = {
+    "openai": _create_openai_llm,
+    "xai": _create_xai_llm,
+    "anthropic": _create_anthropic_llm,
+    "google": _create_google_genai_llm,
+    "google_genai": _create_google_genai_llm,
+}
+
+
+def resolve_llamaindex_model(selected_model: str):
+    if ":" in selected_model:
+        provider, raw_model_name = selected_model.split(":", 1)
+    else:
+        provider, raw_model_name = "openai", selected_model
+
+    factory = LLAMAINDEX_PROVIDER_FACTORIES.get(provider)
+    if factory is None:
+        supported = ", ".join(sorted(LLAMAINDEX_PROVIDER_FACTORIES))
+        raise ValueError(f"Unsupported provider '{provider}' for '{selected_model}'. Supported: {supported}")
+
+    resolved = ResolvedLlamaIndexModel(provider=provider, model=raw_model_name)
+    return resolved, factory(raw_model_name)

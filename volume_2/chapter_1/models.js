@@ -1,3 +1,5 @@
+import { OpenAI } from "@llamaindex/openai";
+
 export const CHAPTER_1_MODEL_NAMES = ["openai_gpt_5_2"];
 
 export const ALL_MODEL_NAMES = [
@@ -15,6 +17,8 @@ export const ALL_MODEL_NAMES = [
   "xai_grok_3_beta"
 ];
 
+export const LLAMAINDEX_MODEL_NAMES = [...ALL_MODEL_NAMES];
+
 export function buildModels() {
   return {
     openai_gpt_4o_mini: { name: "openai_gpt_4o_mini", provider: "openai", model: "openai:gpt-4o-mini" },
@@ -30,4 +34,68 @@ export function buildModels() {
     xai_grok_2: { name: "xai_grok_2", provider: "xai", model: "xai:grok-2" },
     xai_grok_3_beta: { name: "xai_grok_3_beta", provider: "xai", model: "xai:grok-3-beta" }
   };
+}
+
+
+export function parseLlamaindexProviderModel(selectedModel) {
+  const [provider, model] = selectedModel.includes(":")
+    ? selectedModel.split(/:(.+)/)
+    : ["openai", selectedModel];
+  return { provider, model };
+}
+
+export const LLAMAINDEX_PROVIDER_CONFIG = {
+  openai: () => ({}),
+  xai: () => ({
+    baseURL: process.env.XAI_API_BASE || "https://api.x.ai/v1",
+    apiKey: process.env.XAI_API_KEY
+  }),
+  anthropic: () => ({
+    baseURL: process.env.ANTHROPIC_OPENAI_BASE_URL,
+    apiKey: process.env.ANTHROPIC_API_KEY
+  }),
+  google: () => ({
+    baseURL: process.env.GOOGLE_OPENAI_BASE_URL,
+    apiKey: process.env.GOOGLE_API_KEY
+  }),
+  google_genai: () => ({
+    baseURL: process.env.GOOGLE_GENAI_OPENAI_BASE_URL || process.env.GOOGLE_OPENAI_BASE_URL,
+    apiKey: process.env.GOOGLE_API_KEY
+  })
+};
+
+function requireOpenAICompatibleBase(provider, cfg) {
+  if (provider === "openai" || provider === "xai") return;
+  if (!cfg.baseURL) {
+    throw new Error(
+      `Provider '${provider}' in JS LlamaIndex requires an OpenAI-compatible base URL env var. ` +
+      "Set ANTHROPIC_OPENAI_BASE_URL / GOOGLE_OPENAI_BASE_URL / GOOGLE_GENAI_OPENAI_BASE_URL, or use the Python LlamaIndex scripts for native provider adapters."
+    );
+  }
+}
+
+export function resolveLlamaindexModel(selectedModel) {
+  const { provider, model } = parseLlamaindexProviderModel(selectedModel);
+  const configBuilder = LLAMAINDEX_PROVIDER_CONFIG[provider];
+  if (!configBuilder) {
+    throw new Error(`Unsupported provider '${provider}' for '${selectedModel}'. Supported: ${Object.keys(LLAMAINDEX_PROVIDER_CONFIG).join(", ")}`);
+  }
+
+  const providerConfig = configBuilder();
+  requireOpenAICompatibleBase(provider, providerConfig);
+
+  return {
+    provider,
+    model,
+    llmConfig: {
+      model,
+      ...(providerConfig.baseURL ? { baseURL: providerConfig.baseURL } : {}),
+      ...(providerConfig.apiKey ? { apiKey: providerConfig.apiKey } : {})
+    }
+  };
+}
+
+export function createLlamaindexLLM(selectedModel) {
+  const resolved = resolveLlamaindexModel(selectedModel);
+  return { ...resolved, llm: new OpenAI(resolved.llmConfig) };
 }
