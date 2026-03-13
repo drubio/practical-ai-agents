@@ -263,6 +263,7 @@ def _create_xai_llm(model: str):
         model=model,
         api_base=os.getenv("XAI_API_BASE", "https://api.x.ai/v1"),
         api_key=os.getenv("XAI_API_KEY"),
+        is_chat_model=True,
         is_function_calling_model=True,
     )
 
