@@ -35,9 +35,9 @@ ALL_MODEL_NAMES = [
     "google_gemini_1_5_flash",
     "google_gemini_1_5_pro",
     "google_gemini_2_5_flash",
-    "xai_grok_2_mini",
-    "xai_grok_2",
-    "xai_grok_3_beta",
+    "xai_grok_3_mini",
+    "xai_grok_3",
+    "xai_grok_4",
 ]
 
 LLAMAINDEX_MODEL_NAMES = list(ALL_MODEL_NAMES)
@@ -109,24 +109,24 @@ def build_models() -> dict[str, ModelConfig]:
             tier="advanced",
             strengths=("reasoning", "tool-use", "multimodal"),
         ),
-        "xai_grok_2_mini": ModelConfig(
-            name="xai_grok_2_mini",
+        "xai_grok_3_mini": ModelConfig(
+            name="xai_grok_3_mini",
             provider="xai",
-            model="xai:grok-2-mini",
+            model="grok-3-mini",
             tier="lite",
             strengths=("social", "fast", "cost-efficient"),
         ),
-        "xai_grok_2": ModelConfig(
-            name="xai_grok_2",
+        "xai_grok_3": ModelConfig(
+            name="xai_grok_3",
             provider="xai",
-            model="xai:grok-2",
+            model="grok-3",
             tier="standard",
             strengths=("social", "trends", "analysis"),
         ),
-        "xai_grok_3_beta": ModelConfig(
-            name="xai_grok_3_beta",
+        "xai_grok_4": ModelConfig(
+            name="xai_grok_4",
             provider="xai",
-            model="xai:grok-3-beta",
+            model="grok-4",
             tier="advanced",
             strengths=("deep-analysis", "social", "long-form"),
         ),
@@ -226,9 +226,9 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_nam
             "advanced": "google_gemini_2_5_flash",
         },
         "xai": {
-            "lite": "xai_grok_2_mini",
-            "standard": "xai_grok_2",
-            "advanced": "xai_grok_3_beta",
+            "lite": "xai_grok_3_mini",
+            "standard": "xai_grok_3",
+            "advanced": "xai_grok_4",
         },
     }
 

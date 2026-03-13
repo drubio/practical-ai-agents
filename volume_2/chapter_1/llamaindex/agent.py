@@ -25,7 +25,7 @@ from utils import (
 )
 
 import tools  # noqa: E402
-from models import LLAMAINDEX_MODEL_NAMES, resolve_llamaindex_model
+from models import LLAMAINDEX_MODEL_NAMES
 
 
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
@@ -56,7 +56,7 @@ class LlamaIndexAgentManager:
         "If you want a specific behavior, ask explicitly (for example: 'summarize this')."
     )
 
-    def __init__(self, model: str = "gpt-5.2"):
+    def __init__(self, model: str):
         resolved_model, llm = resolve_llamaindex_model(model)
         self.provider = resolved_model.provider
         self.model = resolved_model.model

@@ -12,9 +12,9 @@ export const ALL_MODEL_NAMES = [
   "google_gemini_1_5_flash",
   "google_gemini_1_5_pro",
   "google_gemini_2_5_flash",
-  "xai_grok_2_mini",
-  "xai_grok_2",
-  "xai_grok_3_beta"
+  "xai_grok_3_mini",
+  "xai_grok_3",
+  "xai_grok_4"
 ];
 
 export const LLAMAINDEX_MODEL_NAMES = [...ALL_MODEL_NAMES];
@@ -30,9 +30,9 @@ export function buildModels() {
     google_gemini_1_5_flash: { name: "google_gemini_1_5_flash", provider: "google", model: "google:gemini-1.5-flash" },
     google_gemini_1_5_pro: { name: "google_gemini_1_5_pro", provider: "google", model: "google:gemini-1.5-pro" },
     google_gemini_2_5_flash: { name: "google_gemini_2_5_flash", provider: "google_genai", model: "google_genai:gemini-2.5-flash" },
-    xai_grok_2_mini: { name: "xai_grok_2_mini", provider: "xai", model: "xai:grok-2-mini" },
-    xai_grok_2: { name: "xai_grok_2", provider: "xai", model: "xai:grok-2" },
-    xai_grok_3_beta: { name: "xai_grok_3_beta", provider: "xai", model: "xai:grok-3-beta" }
+    xai_grok_3_mini: { name: "xai_grok_3_mini", provider: "xai", model: "grok-3-mini" },
+    xai_grok_3: { name: "xai_grok_3", provider: "xai", model: "grok-3" },
+    xai_grok_4: { name: "xai_grok_4", provider: "xai", model: "grok-4" }
   };
 }
 

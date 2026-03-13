@@ -55,7 +55,7 @@ class LangChainAgentManager:
         "If you want a specific behavior, ask explicitly (for example: 'summarize this')."
     )
 
-    def __init__(self, model: str = "gpt-5.2"):
+    def __init__(self, model: str):
         self.model = model
         logger.info("Initializing LangChain agent | model=%s", self.model)
         self.agent = create_agent(
