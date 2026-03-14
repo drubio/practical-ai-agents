@@ -47,7 +47,7 @@ export class LangChainAgentManager {
     this.model = config?.model ?? model;
     logger.info(`Initializing LangChain agent | provider=${this.provider} | model=${this.model}`);
     this.agent = createAgent({
-      model: this.model,
+      model: `${this.provider}:${this.model}`,
       tools: buildTools(),
       systemPrompt:
         "You are an AI assistant that can use tools. Think step-by-step, use tools when needed, and return a concise final answer."

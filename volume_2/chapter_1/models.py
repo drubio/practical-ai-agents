@@ -142,15 +142,7 @@ def _infer_provider(prompt_l: str, selected_tools: Iterable[str]) -> str:
     coding_markers = {"code", "bug", "debug", "refactor", "typescript", "python", "sql", "api"}
     research_markers = {"research", "paper", "citation", "study", "benchmark", "literature", "compare"}
 
-    if any(token in prompt_l for token in social_markers):
-        return "xai"
-
-    if any(token in prompt_l for token in coding_markers) or "calculator" in tools:
-        return "anthropic"
-
-    if any(token in prompt_l for token in research_markers) or "parse_content" in tools:
-        return "google"
-
+    # Hard provider mentions in the prompt should win over heuristic routing.
     if any(token in prompt_l for token in {"chatgpt", "openai", "gpt"}):
         return "openai"
     if any(token in prompt_l for token in {"claude", "anthropic"}):
@@ -159,6 +151,18 @@ def _infer_provider(prompt_l: str, selected_tools: Iterable[str]) -> str:
         return "google"
     if any(token in prompt_l for token in {"grok", "xai"}):
         return "xai"
+
+    if any(token in prompt_l for token in social_markers):
+        return "xai"
+
+    # "calculator" can appear when all tools are enabled as a fallback, so only use it
+    # as a provider signal when it is one of a narrow set of selected tools.
+    calculator_is_primary = "calculator" in tools and len(tools) <= 2
+    if any(token in prompt_l for token in coding_markers) or calculator_is_primary:
+        return "anthropic"
+
+    if any(token in prompt_l for token in research_markers) or "parse_content" in tools:
+        return "google"
 
     return "openai"
 

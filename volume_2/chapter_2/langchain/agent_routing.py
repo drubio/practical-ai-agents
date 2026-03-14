@@ -183,12 +183,12 @@ class LangChainAgentRoutingManager:
             self.model,
         )
 
-    def _get_agent(self, model: str, selected_tool_names: Sequence[str]):
-        key = (model, tuple(selected_tool_names))
+    def _get_agent(self, provider: str, model: str, selected_tool_names: Sequence[str]):
+        key = (provider, model, tuple(selected_tool_names))
         if key not in self._agent_cache:
-            logger.info("Building LangChain agent | model=%s | tools=%s", model, ",".join(selected_tool_names))
+            logger.info("Building LangChain agent | provider=%s | model=%s | tools=%s", provider, model, ",".join(selected_tool_names))
             self._agent_cache[key] = create_agent(
-                model=model,
+                model=f"{provider}:{model}",
                 tools=select_tools(log_tool_call, logger, selected_tool_names),
                 system_prompt=(
                     "You are an AI assistant that can use tools. "
@@ -216,7 +216,7 @@ class LangChainAgentRoutingManager:
                 ",".join(selected_tool_names),
             )
 
-            agent = self._get_agent(selected_model.model, selected_tool_names)
+            agent = self._get_agent(selected_model.provider, selected_model.model, selected_tool_names)
             result = agent.invoke({"messages": [{"role": "user", "content": topic}]})
             return {
                 "success": True,

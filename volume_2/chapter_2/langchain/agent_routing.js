@@ -110,7 +110,7 @@ export class LangChainAgentRoutingManager {
     this.model = config?.model ?? model;
     logger.info(`Initializing LangChain routing agent | provider=${this.provider} | model=${this.model}`);
     this.agent = createAgent({
-      model: this.model,
+      model: `${this.provider}:${this.model}`,
       tools: selectTools(logToolCall, logger, ALL_TOOL_NAMES),
       systemPrompt:
         "You are an AI assistant that can use tools. Think step-by-step, use tools when needed, and return a concise final answer."
