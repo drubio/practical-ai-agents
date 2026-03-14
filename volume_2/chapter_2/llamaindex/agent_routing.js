@@ -4,6 +4,7 @@ import * as tools from "../../chapter_1/tools.js";
 import {
   buildCommonArgs,
   defaultChunkIterator,
+  extractOutputText,
   getChapterLogger,
   logToolCall,
   selectStartupModel,
@@ -45,19 +46,6 @@ export function selectToolMap(logToolCallFn, activeLogger, toolNames) {
   const available = buildToolMap(logToolCallFn, activeLogger);
   return Object.fromEntries(toolNames.map((name) => [name, available[name]]));
 }
-
-function extractText(result) {
-  const content = result?.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((block) => block?.type === "text" && typeof block?.text === "string")
-      .map((block) => block.text)
-      .join("\n");
-  }
-  return String(content ?? result ?? "");
-}
-
 
 function parseToolCall(text, activeToolMap) {
   const match = text.match(/TOOL:\s*([a-z_]+)\s*\nINPUT:\s*([\s\S]*)$/i);
@@ -110,7 +98,7 @@ export class LlamaIndexAgentRoutingManager {
 
       for (let attempt = 0; attempt < 6; attempt += 1) {
         const result = await this.llm.chat({ messages });
-        const text = extractText(result).trim();
+        const text = extractOutputText(result).trim();
         const toolCall = parseToolCall(text, this.toolMap);
 
         if (!toolCall) {

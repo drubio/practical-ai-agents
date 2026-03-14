@@ -11,7 +11,15 @@ CHAPTER_ROOT = Path(__file__).resolve().parents[1]
 if str(CHAPTER_ROOT) not in sys.path:
     sys.path.append(str(CHAPTER_ROOT))
 
-from utils import build_common_parser, chapter_root_from_file, get_chapter_logger, log_tool_call, run_mode, select_startup_model
+from utils import (
+    build_common_parser,
+    chapter_root_from_file,
+    extract_output_text,
+    get_chapter_logger,
+    log_tool_call,
+    run_mode,
+    select_startup_model,
+)
 
 chapter_root_from_file(__file__)
 
@@ -33,17 +41,6 @@ def summarize_text_tool(text: str):
 
 AGENT_TOOLS = [summarize_text_tool]
 
-
-def _extract_output(result: Dict[str, Any]) -> str:
-    output = result.get("output")
-    if isinstance(output, str):
-        return output
-    messages = result.get("messages") or []
-    if messages:
-        content = getattr(messages[-1], "content", None)
-        if isinstance(content, str):
-            return content
-    return str(result)
 
 
 class LangChainAgentManager:
@@ -78,7 +75,7 @@ class LangChainAgentManager:
                 "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
-                "response": _extract_output(result),
+                "response": extract_output_text(result),
             }
         except Exception as exc:
             logger.exception("LangChain ask_question failed")

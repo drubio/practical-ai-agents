@@ -138,6 +138,36 @@ def log_tool_call(logger: logging.Logger, tool_name: str, fn: Callable[[Any], An
     return wrapper
 
 
+def extract_output_text(result: Any) -> str:
+    """Extract a human-readable final answer from framework result payloads."""
+    if result is None:
+        return ""
+
+    if isinstance(result, str):
+        return result
+
+    if isinstance(result, dict):
+        output = result.get("output")
+        if isinstance(output, str):
+            return output
+
+        messages = result.get("messages") or []
+        if messages:
+            content = getattr(messages[-1], "content", None)
+            if isinstance(content, str):
+                return content
+
+    response = getattr(result, "response", None)
+    if isinstance(response, str):
+        return response
+
+    content = getattr(result, "content", None)
+    if isinstance(content, str):
+        return content
+
+    return str(result)
+
+
 def run_awaitable_sync(value: Any) -> Any:
     """Resolve awaitables in both plain Python and running event-loop contexts."""
     if not asyncio.iscoroutine(value) and not hasattr(value, "__await__"):

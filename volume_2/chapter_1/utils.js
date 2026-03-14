@@ -63,6 +63,29 @@ export function logToolCall(logger, toolName, fn) {
   };
 }
 
+export function extractOutputText(result) {
+  if (typeof result === "string") return result;
+
+  if (typeof result?.output === "string") return result.output;
+
+  const messages = result?.messages ?? [];
+  const messageContent = messages[messages.length - 1]?.content;
+  if (typeof messageContent === "string") return messageContent;
+
+  const content = result?.message?.content ?? result?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const text = content
+      .filter((block) => block?.type === "text" && typeof block?.text === "string")
+      .map((block) => block.text)
+      .join("\n");
+    if (text) return text;
+  }
+
+  if (typeof result?.response === "string") return result.response;
+  return String(result ?? "");
+}
+
 
 
 const PROVIDER_ENV_KEYS = {

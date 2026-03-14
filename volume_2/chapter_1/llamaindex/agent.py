@@ -17,6 +17,7 @@ from stream import chunk_text
 
 from utils import (
     build_common_parser,
+    extract_output_text,
     get_chapter_logger,
     log_tool_call,
     run_awaitable_sync,
@@ -30,17 +31,6 @@ from models import ALL_MODEL_IDENTIFIERS, resolve_llamaindex_model
 
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
 
-
-def _extract_text(result: Any) -> str:
-    if isinstance(result, str):
-        return result
-    response = getattr(result, "response", None)
-    if isinstance(response, str):
-        return response
-    content = getattr(result, "content", None)
-    if isinstance(content, str):
-        return content
-    return str(result)
 
 
 TOOLS = [
@@ -84,7 +74,7 @@ class LlamaIndexAgentManager:
                 "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
-                "response": _extract_text(raw),
+                "response": extract_output_text(raw),
             }
         except Exception as exc:
             logger.exception("LlamaIndex ask_question failed")

@@ -8,6 +8,7 @@ import * as tools from "../tools.js";
 import {
   buildCommonArgs,
   defaultChunkIterator,
+  extractOutputText,
   getChapterLogger,
   logToolCall,
   selectStartupModel,
@@ -25,14 +26,6 @@ function buildTools() {
       schema: z.object({ text: z.string() })
     })
   ];
-}
-
-function extractOutput(result) {
-  if (typeof result?.output === "string") return result.output;
-  const messages = result?.messages ?? [];
-  const content = messages[messages.length - 1]?.content;
-  if (typeof content === "string") return content;
-  return String(result ?? "");
 }
 
 export class LangChainAgentManager {
@@ -58,7 +51,7 @@ export class LangChainAgentManager {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
       const result = await this.agent.invoke({ messages: [{ role: "user", content: topic }] });
-      return { success: true, provider: this.provider, model: this.model, prompt: topic, response: extractOutput(result) };
+      return { success: true, provider: this.provider, model: this.model, prompt: topic, response: extractOutputText(result) };
     } catch (error) {
       logger.error("LangChain askQuestion failed", error);
       return {

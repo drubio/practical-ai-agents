@@ -17,7 +17,7 @@ from langchain.tools import tool
 
 import tools
 from models import ALL_MODEL_IDENTIFIERS, ModelConfig, get_identifier_mappings, route_model_for_prompt
-from utils import build_common_parser, get_chapter_logger, log_tool_call, run_mode, select_startup_model
+from utils import build_common_parser, extract_output_text, get_chapter_logger, log_tool_call, run_mode, select_startup_model
 
 logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
 
@@ -151,17 +151,6 @@ def route_tools_for_prompt(prompt: str) -> list[str]:
     return [name for name in ALL_TOOL_NAMES if name in selected]
 
 
-def _extract_output(result: Dict[str, Any]) -> str:
-    output = result.get("output")
-    if isinstance(output, str):
-        return output
-    messages = result.get("messages") or []
-    if messages:
-        content = getattr(messages[-1], "content", None)
-        if isinstance(content, str):
-            return content
-    return str(result)
-
 
 class LangChainAgentRoutingManager:
     framework = "LangChain Agent Routing"
@@ -226,7 +215,7 @@ class LangChainAgentRoutingManager:
                 "model_tier": selected_model.tier,
                 "selected_tools": selected_tool_names,
                 "prompt": topic,
-                "response": _extract_output(result),
+                "response": extract_output_text(result),
             }
         except Exception as exc:
             logger.exception("LangChain ask_question failed")

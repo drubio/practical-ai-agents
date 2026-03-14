@@ -6,6 +6,7 @@ import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM } from "../models.js";
 import {
   buildCommonArgs,
   defaultChunkIterator,
+  extractOutputText,
   getChapterLogger,
   logToolCall,
   selectStartupModel,
@@ -18,18 +19,6 @@ const TOOL_MAP = {
   summarize_text: logToolCall(logger, "summarize_text", tools.summarizeText)
 };
 
-
-function extractText(result) {
-  const content = result?.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((block) => block?.type === "text" && typeof block?.text === "string")
-      .map((block) => block.text)
-      .join("\n");
-  }
-  return String(content ?? result ?? "");
-}
 
 function parseToolCall(text) {
   const match = text.match(/TOOL:\s*([a-z_]+)\s*\nINPUT:\s*([\s\S]*)$/i);
@@ -79,7 +68,7 @@ export class LlamaIndexAgentManager {
 
       for (let attempt = 0; attempt < 4; attempt += 1) {
         const result = await this.llm.chat({ messages });
-        const text = extractText(result).trim();
+        const text = extractOutputText(result).trim();
         const toolCall = parseToolCall(text);
 
         if (!toolCall) {

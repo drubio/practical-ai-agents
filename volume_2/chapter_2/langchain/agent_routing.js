@@ -7,6 +7,7 @@ import * as tools from "../../chapter_1/tools.js";
 import {
   buildCommonArgs,
   defaultChunkIterator,
+  extractOutputText,
   getChapterLogger,
   logToolCall,
   selectStartupModel,
@@ -89,14 +90,6 @@ export function selectTools(logToolCallFn, activeLogger, toolNames) {
   return toolNames.map((name) => available[name]);
 }
 
-function extractOutput(result) {
-  if (typeof result?.output === "string") return result.output;
-  const messages = result?.messages ?? [];
-  const content = messages[messages.length - 1]?.content;
-  if (typeof content === "string") return content;
-  return String(result ?? "");
-}
-
 export class LangChainAgentRoutingManager {
   framework = "LangChain Agent Routing";
   toolNames = ALL_TOOL_NAMES;
@@ -121,7 +114,7 @@ export class LangChainAgentRoutingManager {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
       const result = await this.agent.invoke({ messages: [{ role: "user", content: topic }] });
-      return { success: true, provider: this.provider, model: this.model, prompt: topic, response: extractOutput(result) };
+      return { success: true, provider: this.provider, model: this.model, prompt: topic, response: extractOutputText(result) };
     } catch (error) {
       logger.error("LangChain askQuestion failed", error);
       return {
