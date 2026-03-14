@@ -61,7 +61,7 @@ class LangChainAgentManager:
         self.model = config.model if config else model
         logger.info("Initializing LangChain agent | provider=%s | model=%s", self.provider, self.model)
         self.agent = create_agent(
-            model=self.model,
+            model='{}:{}'.format(self.provider,self.model),
             tools=AGENT_TOOLS,
             system_prompt=(
                 "You are an AI assistant that can use tools. "

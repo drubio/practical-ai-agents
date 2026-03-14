@@ -30,9 +30,9 @@ ALL_MODEL_IDENTIFIERS = [
     "anthropic_claude_opus_4_6",
     "anthropic_claude_sonnet_4_6",
     "anthropic_claude_haiku_4_5",
-    "google_gemini_3_1_pro",
-    "google_gemini_3_1_flash",
-    "google_gemini_3_1_flash_lite",
+    "google_genai_gemini_3_1_pro",
+    "google_genai_gemini_3_1_flash",
+    "google_genai_gemini_3_1_flash_lite",
     "xai_grok_4",
     "xai_grok_3",
     "xai_grok_3_mini",
@@ -84,23 +84,23 @@ def get_identifier_mappings() -> dict[str, ModelConfig]:
             tier="lite",
             strengths=("speed", "coding", "cost-efficient"),        
         ),
-        "google_gemini_3_1_pro": ModelConfig(
-            name="google_gemini_3_1_pro",
-            provider="google",
+        "google_genai_gemini_3_1_pro": ModelConfig(
+            name="google_genai_gemini_3_1_pro",
+            provider="google_genai",
             model="gemini-3.1-pro-preview",
             tier="advanced",
             strengths=("reasoning", "tool-use", "multimodal"),            
         ),
-        "google_gemini_3_1_flash": ModelConfig(
-            name="google_gemini_3_1_flash",
-            provider="google",
+        "google_genai_gemini_3_1_flash": ModelConfig(
+            name="google_genai_gemini_3_1_flash",
+            provider="google_genai",
             model="gemini-3.1-flash-preview",
             tier="standard",
             strengths=("long-context", "research", "synthesis"),
         ),        
-        "google_gemini_3_1_flash_lite": ModelConfig(
-            name="google_gemini_3_1_flash_lite",
-            provider="google",
+        "google_genai_gemini_3_1_flash_lite": ModelConfig(
+            name="google_genai_gemini_3_1_flash_lite",
+            provider="google_genai",
             model="gemini-3.1-flash-lite-preview",
             tier="lite",
             strengths=("fast", "retrieval", "classification"),
@@ -217,9 +217,9 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_ide
             "lite": "anthropic_claude_haiku_4_5",
         },
         "google": {
-            "advanced": "google_gemini_3_1_pro",
-            "standard": "google_gemini_3_1_flash",
-            "lite": "google_gemini_3_1_flash_lite",
+            "advanced": "google_genai_gemini_3_1_pro",
+            "standard": "google_genai_gemini_3_1_flash",
+            "lite": "google_genai_gemini_3_1_flash_lite",
         },
         "xai": {
             "advanced": "xai_grok_4",            
