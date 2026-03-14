@@ -250,50 +250,6 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_ide
     return next(iter(all_available.values()))
 
 
-@dataclass(frozen=True)
-class ResolvedLlamaIndexModel:
-    provider: str
-    model: str
-
-
-def _create_openai_llm(model: str):
-    from llama_index.llms.openai import OpenAI
-
-    return OpenAI(model=model)
-
-
-def _create_xai_llm(model: str):
-    from llama_index.llms.openai_like import OpenAILike
-
-    return OpenAILike(
-        model=model,
-        api_base=os.getenv("XAI_API_BASE", "https://api.x.ai/v1"),
-        api_key=os.getenv("XAI_API_KEY"),
-        is_chat_model=True,
-        is_function_calling_model=True,
-    )
-
-
-def _create_anthropic_llm(model: str):
-    from llama_index.llms.anthropic import Anthropic
-
-    return Anthropic(model=model, api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-
-def _create_google_genai_llm(model: str):
-    from llama_index.llms.google_genai import GoogleGenAI
-
-    return GoogleGenAI(model=model, api_key=os.getenv("GOOGLE_API_KEY"))
-
-
-LLAMAINDEX_PROVIDER_FACTORIES = {
-    "openai": _create_openai_llm,
-    "xai": _create_xai_llm,
-    "anthropic": _create_anthropic_llm,
-    "google": _create_google_genai_llm,
-}
-
-
 def resolve_llamaindex_model(selected_model: str):
     config = get_identifier_mappings().get(selected_model)
     if config is None:
@@ -316,8 +272,14 @@ def resolve_llamaindex_model(selected_model: str):
         from llama_index.llms.google_genai import GoogleGenAI
         llm = GoogleGenAI(model=model)
     elif provider == "xai":
-        from llama_index.llms.xai import XAI
-        llm = XAI(model=model)
+        from llama_index.llms.openai_like import OpenAILike        
+        llm = OpenAILike(
+            model=model,
+            api_base=os.getenv("XAI_API_BASE", "https://api.x.ai/v1"),
+            api_key=os.getenv("XAI_API_KEY"),
+            is_chat_model=True,
+            is_function_calling_model=True,
+        )
     else:
         supported = "anthropic, google, openai, xai"
         raise ValueError(
@@ -325,26 +287,3 @@ def resolve_llamaindex_model(selected_model: str):
         )
 
     return config, llm
-
-
-"""
-def resolve_llamaindex_model(selected_model: str):
-    available = get_identifier_mappings()
-    if selected_model in available:
-        config = available[selected_model]
-        provider, raw_model_name = config.provider, config.model
-    elif ":" in selected_model:
-        provider, raw_model_name = selected_model.split(":", 1)
-    else:
-        raise ValueError(
-            f"Unsupported model '{selected_model}'. Use a model identifier from ALL_MODEL_IDENTIFIERS or provider:model syntax."
-        )
-
-    factory = LLAMAINDEX_PROVIDER_FACTORIES.get(provider)
-    if factory is None:
-        supported = ", ".join(sorted(LLAMAINDEX_PROVIDER_FACTORIES))
-        raise ValueError(f"Unsupported provider '{provider}' for '{selected_model}'. Supported: {supported}")
-
-    resolved = ResolvedLlamaIndexModel(provider=provider, model=raw_model_name)
-    return resolved, factory(raw_model_name)
-"""

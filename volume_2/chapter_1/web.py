@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from stream import normalize_response_text, to_sse_line
-from utils import get_chapter_logger
+from utils import default_chunk_iterator, get_chapter_logger
 
 
 logger = get_chapter_logger("volume_2.chapter_1.web")
@@ -71,7 +71,7 @@ def create_web_api(manager, enable_streaming: bool = False) -> FastAPI:
 
         async def event_generator():
             try:
-                for chunk in manager.iter_answer_chunks(payload.topic):
+                for chunk in default_chunk_iterator(manager, payload.topic):
                     text = normalize_response_text(chunk)
                     if text:
                         yield to_sse_line({"type": "token", "token": text})

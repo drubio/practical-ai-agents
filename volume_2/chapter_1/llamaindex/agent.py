@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterator
+from typing import Any, Dict
 import sys
 
 CHAPTER_ROOT = Path(__file__).resolve().parents[1]
@@ -13,14 +13,11 @@ if str(CHAPTER_ROOT) not in sys.path:
 
 from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.core.tools import FunctionTool
-from stream import chunk_text
-
 from utils import (
     build_common_parser,
-    extract_output_text,
     get_chapter_logger,
     log_tool_call,
-    run_awaitable_sync,
+    run_llamaindex_handler_sync,
     run_mode,
     select_startup_model,
 )
@@ -73,12 +70,26 @@ class LlamaIndexAgentManager:
         try:
             logger.info("Processing prompt | chars=%s", len(topic))
 
-            handler = self.agent.run(topic)
+            def _non_stream_result() -> Any:
+                handler = self.agent.run(topic)
+                result = handler
+                return result
+
+            def _stream_result() -> Any:
+                handler = self.agent.run(topic)
+                result = handler.stream_events()
+                return result
 
             if self.stream:
-                result = handler
+                result = run_llamaindex_handler_sync(
+                    _stream_result,
+                    stream=True,
+                )
             else:
-                result = run_awaitable_sync(handler)
+                result = run_llamaindex_handler_sync(
+                    _non_stream_result,
+                    stream=False,
+                )
 
             return {
                 "success": True,

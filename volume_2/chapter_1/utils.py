@@ -16,7 +16,6 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, Protocol
 
-
 class AgentManagerProtocol(Protocol):
     framework: str
     model: str
@@ -24,10 +23,6 @@ class AgentManagerProtocol(Protocol):
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         ...
-
-    def iter_answer_chunks(self, topic: str) -> Iterator[str]:
-        ...
-
 
 def _iter_tool_names(manager: AgentManagerProtocol) -> Iterable[str]:
     names = getattr(manager, "tool_names", None)
@@ -231,6 +226,30 @@ def _looks_like_langchain_stream_chunk(chunk: Any) -> bool:
     return isinstance(chunk, tuple) and len(chunk) == 2
 
 
+def _append_stream_text(parts: list[str], text: str) -> None:
+    """Append only new incremental content when stream events are cumulative."""
+    if not text:
+        return
+
+    current = "".join(parts)
+    if not current:
+        parts.append(text)
+        return
+
+    # Some providers emit full accumulated text on every event. Keep only the suffix.
+    if text.startswith(current):
+        suffix = text[len(current):]
+        if suffix:
+            parts.append(suffix)
+        return
+
+    # Exact duplicate event.
+    if text == current or text == parts[-1]:
+        return
+
+    parts.append(text)
+
+
 async def _collect_llamaindex_stream_text(handler: Any) -> str:
     """
     Collect streamed text from a LlamaIndex workflow handler.
@@ -245,12 +264,29 @@ async def _collect_llamaindex_stream_text(handler: Any) -> str:
     async for event in handler.stream_events():
         delta = getattr(event, "delta", None)
         if isinstance(delta, str) and delta:
-            parts.append(delta)
+            _append_stream_text(parts, delta)
             continue
 
         text = _extract_text_from_message_like(event)
         if text:
-            parts.append(text)
+            _append_stream_text(parts, text)
+
+    return "".join(parts).strip()
+
+
+async def _collect_async_event_stream_text(event_stream: Any) -> str:
+    """Collect text from an async iterator that yields event-like objects."""
+    parts: list[str] = []
+
+    async for event in event_stream:
+        delta = getattr(event, "delta", None)
+        if isinstance(delta, str) and delta:
+            _append_stream_text(parts, delta)
+            continue
+
+        text = _extract_text_from_message_like(event)
+        if text:
+            _append_stream_text(parts, text)
 
     return "".join(parts).strip()
 
@@ -303,6 +339,12 @@ def extract_stream_text(result: Any) -> str:
     if result is None:
         return ""
 
+    if isinstance(result, str):
+        return result.strip()
+
+    if hasattr(result, "__aiter__"):
+        return run_awaitable_sync(_collect_async_event_stream_text(result))
+
     if _looks_like_llamaindex_stream_handler(result):
         return run_awaitable_sync(_collect_llamaindex_stream_text(result))
 
@@ -326,7 +368,7 @@ def extract_output_text(result: Any) -> str:
     if text:
         return text.strip()
 
-    if inspect.isawaitable(result):
+    if asyncio.isfuture(result) or asyncio.iscoroutine(result) or hasattr(result, "__await__"):
         resolved = run_awaitable_sync(result)
         return extract_output_text(resolved)
 
@@ -365,6 +407,38 @@ def run_awaitable_sync(value: Any) -> Any:
     if "error" in error:
         raise error["error"]
     return result.get("value")
+
+
+def run_llamaindex_handler_sync(build_result: Callable[[], Any], stream: bool) -> Any:
+    """Execute LlamaIndex workflow result construction in an active event loop.
+
+    This avoids `RuntimeError: no running event loop` in synchronous callers by
+    creating handler/stream objects inside an async context.
+    """
+
+    async def _runner() -> Any:
+        result = build_result()
+
+        if stream:
+            return await _collect_async_event_stream_text(result)
+
+        return await result
+
+    return run_awaitable_sync(_runner())
+
+
+def default_chunk_iterator(manager: AgentManagerProtocol, topic: str) -> Iterator[str]:
+    """Default chunk iterator used when a manager does not implement one."""
+    from stream import chunk_text  # local import keeps utils import-safe across execution contexts
+
+    result = manager.ask_question(topic)
+
+    if result.get("success"):
+        response_text = render_response_text(result.get("response"), stream=getattr(manager, "stream", False))
+    else:
+        response_text = str(result.get("error") or "")
+
+    yield from chunk_text(response_text)
 
 
 def load_chapter_env() -> Path | None:
