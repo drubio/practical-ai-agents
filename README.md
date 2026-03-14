@@ -21,8 +21,9 @@ Covers how LLMs work, their evolution and how to access them via APIs (OpenAI, A
 
 Explores:
 
-- Multi-agent orchestration using frameworks <!---like CrewAI-->
-- Managing model infrastructure <!---with LiteLLM and OpenRouter-->
+
+- Agent ReAct ("Reasoning + Acting") pattern, routing (tool and models) and memory management
+- Multi-agent orchestration using frameworks and managing model infrastructure <!---with LiteLLM and OpenRouter--><!---like CrewAI-->
 - Designing scalable, fault-tolerant systems with context and robustness in mind
 
 ### Advanced LLM Applications – RAG, Personalization and MCP _(Volume 3)_ _(coming soon)_
