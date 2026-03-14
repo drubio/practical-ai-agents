@@ -295,6 +295,40 @@ LLAMAINDEX_PROVIDER_FACTORIES = {
 
 
 def resolve_llamaindex_model(selected_model: str):
+    config = get_identifier_mappings().get(selected_model)
+    if config is None:
+        raise ValueError(f"Unknown model identifier '{selected_model}'")
+
+    provider = config.provider
+    model = config.model
+
+    # Normalize aliases
+    if provider == "google_genai":
+        provider = "google"
+
+    if provider == "openai":
+        from llama_index.llms.openai import OpenAI
+        llm = OpenAI(model=model)
+    elif provider == "anthropic":
+        from llama_index.llms.anthropic import Anthropic
+        llm = Anthropic(model=model)
+    elif provider == "google":
+        from llama_index.llms.google_genai import GoogleGenAI
+        llm = GoogleGenAI(model=model)
+    elif provider == "xai":
+        from llama_index.llms.xai import XAI
+        llm = XAI(model=model)
+    else:
+        supported = "anthropic, google, openai, xai"
+        raise ValueError(
+            f"Unsupported provider '{config.provider}' for '{selected_model}'. Supported: {supported}"
+        )
+
+    return config, llm
+
+
+"""
+def resolve_llamaindex_model(selected_model: str):
     available = get_identifier_mappings()
     if selected_model in available:
         config = available[selected_model]
@@ -313,3 +347,4 @@ def resolve_llamaindex_model(selected_model: str):
 
     resolved = ResolvedLlamaIndexModel(provider=provider, model=raw_model_name)
     return resolved, factory(raw_model_name)
+"""

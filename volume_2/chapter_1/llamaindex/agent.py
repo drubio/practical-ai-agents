@@ -46,11 +46,19 @@ class LlamaIndexAgentManager:
         "If you want a specific behavior, ask explicitly (for example: 'summarize this')."
     )
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, stream: bool = False):
         resolved_model, llm = resolve_llamaindex_model(model)
         self.provider = resolved_model.provider
         self.model = resolved_model.model
-        logger.info("Initializing LlamaIndex agent | provider=%s | model=%s", self.provider, self.model)
+        self.stream = stream
+
+        logger.info(
+            "Initializing LlamaIndex agent | provider=%s | model=%s | stream=%s",
+            self.provider,
+            self.model,
+            self.stream,
+        )
+
         self.llm = llm
         self.agent = FunctionAgent(
             llm=self.llm,
@@ -65,21 +73,27 @@ class LlamaIndexAgentManager:
         try:
             logger.info("Processing prompt | chars=%s", len(topic))
 
-            async def _run_agent() -> Any:
-                return await self.agent.run(topic)
+            handler = self.agent.run(topic)
 
-            raw = run_awaitable_sync(_run_agent())
+            if self.stream:
+                result = handler
+            else:
+                result = run_awaitable_sync(handler)
+
             return {
                 "success": True,
+                "stream": self.stream,
                 "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
-                "response": extract_output_text(raw),
+                "response": result,
             }
+
         except Exception as exc:
             logger.exception("LlamaIndex ask_question failed")
             return {
                 "success": False,
+                "stream": self.stream,
                 "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
@@ -87,17 +101,12 @@ class LlamaIndexAgentManager:
                 "response": None,
             }
 
-    def iter_answer_chunks(self, topic: str) -> Iterator[str]:
-        final = self.ask_question(topic)
-        text = final.get("response") or ""
-        yield from chunk_text(text)
-
 
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 1 LlamaIndex agent")
     args = parser.parse_args()
     startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
-    manager = LlamaIndexAgentManager(model=startup_model)
+    manager = LlamaIndexAgentManager(model=startup_model, stream=args.stream)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 

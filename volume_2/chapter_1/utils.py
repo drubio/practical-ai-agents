@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Protocol
 class AgentManagerProtocol(Protocol):
     framework: str
     model: str
+    stream: bool
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         ...
@@ -138,34 +139,204 @@ def log_tool_call(logger: logging.Logger, tool_name: str, fn: Callable[[Any], An
     return wrapper
 
 
+def _extract_text_from_content(content: Any) -> str:
+    """Extract readable text from common LangChain/LlamaIndex content shapes."""
+    if content is None:
+        return ""
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    text = item.get("text", "")
+                    if isinstance(text, str):
+                        parts.append(text)
+                    continue
+
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                    continue
+
+                delta = item.get("delta")
+                if isinstance(delta, str):
+                    parts.append(delta)
+
+        return "".join(parts)
+
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+
+        delta = content.get("delta")
+        if isinstance(delta, str):
+            return delta
+
+    return ""
+
+
+def _extract_text_from_message_like(obj: Any) -> str:
+    """Best-effort extraction from message/result objects across frameworks."""
+    if obj is None:
+        return ""
+
+    if isinstance(obj, str):
+        return obj
+
+    direct = _extract_text_from_content(obj)
+    if direct:
+        return direct
+
+    for attr_name in ("content", "text", "response", "message", "output", "delta"):
+        value = getattr(obj, attr_name, None)
+        text = _extract_text_from_content(value)
+        if text:
+            return text
+
+        if value is not None and value is not obj:
+            nested = _extract_text_from_message_like(value)
+            if nested:
+                return nested
+
+    if isinstance(obj, dict):
+        for key in ("output", "response", "content", "text", "delta"):
+            text = _extract_text_from_content(obj.get(key))
+            if text:
+                return text
+
+        messages = obj.get("messages") or []
+        for message in reversed(messages):
+            text = _extract_text_from_message_like(message)
+            if text:
+                return text
+
+    return ""
+
+
+def _looks_like_llamaindex_stream_handler(result: Any) -> bool:
+    return hasattr(result, "stream_events") and callable(getattr(result, "stream_events"))
+
+
+def _looks_like_langchain_stream_chunk(chunk: Any) -> bool:
+    return isinstance(chunk, tuple) and len(chunk) == 2
+
+
+async def _collect_llamaindex_stream_text(handler: Any) -> str:
+    """
+    Collect streamed text from a LlamaIndex workflow handler.
+
+    Works with patterns like:
+        handler = workflow.run(...)
+        async for event in handler.stream_events():
+            ...
+    """
+    parts: list[str] = []
+
+    async for event in handler.stream_events():
+        delta = getattr(event, "delta", None)
+        if isinstance(delta, str) and delta:
+            parts.append(delta)
+            continue
+
+        text = _extract_text_from_message_like(event)
+        if text:
+            parts.append(text)
+
+    return "".join(parts).strip()
+
+
+def _collect_langchain_stream_text(result: Any) -> str:
+    """
+    Collect streamed text from LangChain/LangGraph stream output.
+
+    Common shapes:
+      ('messages', (message_chunk, metadata))
+      ('messages', (message_chunk,))
+      ('messages', message_chunk)
+    """
+    parts: list[str] = []
+
+    for chunk in result:
+        if not _looks_like_langchain_stream_chunk(chunk):
+            continue
+
+        stream_mode, payload = chunk
+        if stream_mode != "messages":
+            continue
+
+        message_chunk = None
+
+        if isinstance(payload, tuple):
+            if len(payload) >= 1:
+                message_chunk = payload[0]
+        else:
+            message_chunk = payload
+
+        if message_chunk is None:
+            continue
+
+        text = _extract_text_from_message_like(message_chunk)
+        if text:
+            parts.append(text)
+
+    return "".join(parts).strip()
+
+
+def extract_stream_text(result: Any) -> str:
+    """
+    Global streamed-output extractor.
+
+    Handles:
+      - LangChain/LangGraph iterators
+      - LlamaIndex workflow handlers with stream_events()
+    """
+    if result is None:
+        return ""
+
+    if _looks_like_llamaindex_stream_handler(result):
+        return run_awaitable_sync(_collect_llamaindex_stream_text(result))
+
+    return _collect_langchain_stream_text(result)
+
+
 def extract_output_text(result: Any) -> str:
-    """Extract a human-readable final answer from framework result payloads."""
+    """
+    Global non-stream output extractor.
+
+    Handles plain strings, dict payloads, LangChain message dicts,
+    and LlamaIndex result objects.
+    """
     if result is None:
         return ""
 
     if isinstance(result, str):
-        return result
+        return result.strip()
 
-    if isinstance(result, dict):
-        output = result.get("output")
-        if isinstance(output, str):
-            return output
+    text = _extract_text_from_message_like(result)
+    if text:
+        return text.strip()
 
-        messages = result.get("messages") or []
-        if messages:
-            content = getattr(messages[-1], "content", None)
-            if isinstance(content, str):
-                return content
-
-    response = getattr(result, "response", None)
-    if isinstance(response, str):
-        return response
-
-    content = getattr(result, "content", None)
-    if isinstance(content, str):
-        return content
+    if inspect.isawaitable(result):
+        resolved = run_awaitable_sync(result)
+        return extract_output_text(resolved)
 
     return str(result)
+
+def render_response_text(raw_response: Any, stream: bool) -> str:
+    """Single framework-agnostic response normalizer for CLI/web callers."""
+    if stream:
+        return extract_stream_text(raw_response)
+    return extract_output_text(raw_response)
 
 
 def run_awaitable_sync(value: Any) -> Any:
@@ -368,7 +539,16 @@ def run_interactive_cli(manager: AgentManagerProtocol) -> None:
             print("*** Agent working with LLM, awaiting response ***")
             result = manager.ask_question(user_input)
             print("\n============= LLM RESPONSE =============")
-            print(result.get("response") if result.get("success") else result.get("error"))
+
+            if result.get("success"):
+                response = render_response_text(
+                    raw_response=result.get("response"),
+                    stream=getattr(manager, "stream", False),
+                )
+                print(response)
+            elif result.get("error"):
+                print(result.get("error"))
+                
             print("========================================\n")
         except KeyboardInterrupt:
             print("\nExiting.")

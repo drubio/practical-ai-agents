@@ -52,11 +52,12 @@ class LangChainAgentManager:
         "If you want a specific behavior, ask explicitly (for example: 'summarize this')."
     )
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, stream: bool = True):
         config = get_identifier_mappings().get(model)
         self.provider = config.provider if config else "unknown"
         self.model = config.model if config else model
-        logger.info("Initializing LangChain agent | provider=%s | model=%s", self.provider, self.model)
+        self.stream = stream
+        logger.info("Initializing LangChain agent | provider=%s | model=%s | stream=%s", self.provider, self.model, self.stream)
         self.agent = create_agent(
             model='{}:{}'.format(self.provider,self.model),
             tools=AGENT_TOOLS,
@@ -69,20 +70,29 @@ class LangChainAgentManager:
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
             logger.info("Processing prompt | chars=%s", len(topic))
-            result = self.agent.invoke({"messages": [{"role": "user", "content": topic}]})
+            input = {"messages": [{"role": "user", "content": topic}]}
+            if self.stream:
+                result = self.agent.stream(input,
+                                           stream_mode=["messages", "updates"])
+            else:
+                result = self.agent.invoke(input)
+                
             return {
                 "success": True,
+                "stream": self.stream,
                 "provider": self.provider,
                 "model": self.model,
                 "prompt": topic,
-                "response": extract_output_text(result),
-            }
+                "response": result,
+            }     
+                
         except Exception as exc:
             logger.exception("LangChain ask_question failed")
             return {
                 "success": False,
                 "provider": self.provider,
                 "model": self.model,
+                "stream": self.stream,
                 "prompt": topic,
                 "error": str(exc),
                 "response": None,
@@ -93,7 +103,7 @@ def main() -> None:
     parser = build_common_parser("LangChain Agent")
     args = parser.parse_args()
     startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
-    manager = LangChainAgentManager(model=startup_model)
+    manager = LangChainAgentManager(model=startup_model, stream=args.stream)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 
