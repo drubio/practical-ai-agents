@@ -6,8 +6,8 @@ import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM } from "../models.js";
 import {
   buildCommonArgs,
   defaultChunkIterator,
-  extractOutputText,
   getChapterLogger,
+  collectAsyncEventStreamText,
   logToolCall,
   selectStartupModel,
   runMode
@@ -15,10 +15,9 @@ import {
 
 const logger = getChapterLogger("volume_2.chapter_1.llamaindex.agent");
 
-const TOOL_MAP = {
+const TOOLS = {
   summarize_text: logToolCall(logger, "summarize_text", tools.summarizeText)
 };
-
 
 function parseToolCall(text) {
   const match = text.match(/TOOL:\s*([a-z_]+)\s*\nINPUT:\s*([\s\S]*)$/i);
@@ -26,7 +25,7 @@ function parseToolCall(text) {
 
   const name = match[1].trim();
   const rawInput = match[2].trim();
-  if (!(name in TOOL_MAP)) return null;
+  if (!(name in TOOLS)) return null;
 
   try {
     return { name, input: JSON.parse(rawInput) };
@@ -35,67 +34,109 @@ function parseToolCall(text) {
   }
 }
 
+class LlamaIndexWorkflowHandler {
+  constructor(runPromise) {
+    this.runPromise = runPromise;
+  }
+
+  async *stream_events() {
+    const text = await this.runPromise;
+    if (text) {
+      yield { delta: text };
+    }
+  }
+
+  [Symbol.asyncIterator]() {
+    return this.stream_events();
+  }
+
+  then(onFulfilled, onRejected) {
+    return this.runPromise.then(onFulfilled, onRejected);
+  }
+}
+
 export class LlamaIndexAgentManager {
   framework = "LlamaIndex Agent";
-  toolNames = Object.keys(TOOL_MAP);
-  toolTriggerHelp = "Tools are selected automatically from your prompt; you do not need to type a tool name.";
+  toolNames = ["summarize_text"];
+  toolTriggerHelp =
+    "Tools are selected automatically from your prompt; you do not need to type a tool name. " +
+    "If you want a specific behavior, ask explicitly (for example: 'summarize this').";
 
-  constructor(model) {
+  constructor(model, stream = false) {
     const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
     this.provider = provider;
     this.model = resolvedModel;
-    logger.info(`Initializing LlamaIndex agent | provider=${this.provider} | model=${this.model}`);
+    this.stream = stream;
+
+    logger.info(
+      `Initializing LlamaIndex agent | provider=${this.provider} | model=${this.model} | stream=${this.stream}`
+    );
+
     this.llm = llm;
+    this.agent = {
+      run: (topic) => new LlamaIndexWorkflowHandler(this.runWithToolLoop(topic))
+    };
+  }
+
+  async runWithToolLoop(topic) {
+    const messages = [
+      {
+        role: "system",
+        content: [
+          "You are an AI assistant that can use tools.",
+          "Think step-by-step, use tools when needed, and return a concise final answer.",
+          "If a tool is needed, respond in this exact format:",
+          "TOOL: <tool_name>",
+          "INPUT: <valid JSON or plain text>"
+        ].join("\n")
+      },
+      { role: "user", content: topic }
+    ];
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const result = await this.llm.chat({ messages });
+      const text = String(result?.message?.content || result?.content || "").trim();
+      const toolCall = parseToolCall(text);
+
+      if (!toolCall) {
+        return text;
+      }
+
+      const observation = TOOLS[toolCall.name](toolCall.input);
+      messages.push({ role: "assistant", content: text });
+      messages.push({ role: "user", content: `Tool result for ${toolCall.name}: ${JSON.stringify(observation)}` });
+    }
+
+    throw new Error("Agent exceeded tool-call iteration limit.");
   }
 
   async askQuestion(topic) {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
 
-      const messages = [
-        {
-          role: "system",
-          content: [
-            "You are an AI assistant that can use tools.",
-            "When needed, reply strictly in this format and nothing else:",
-            "TOOL: <tool_name>",
-            "INPUT: <valid JSON or plain text>",
-            "If no tool is needed, return a concise final answer directly."
-          ].join("\n")
-        },
-        { role: "user", content: topic }
-      ];
+      const result = this.agent.run(topic);
 
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        const result = await this.llm.chat({ messages });
-        const text = extractOutputText(result).trim();
-        const toolCall = parseToolCall(text);
-
-        if (!toolCall) {
-          return { success: true, provider: this.provider, model: this.model, prompt: topic, response: text };
-        }
-
-        const observation = TOOL_MAP[toolCall.name](toolCall.input);
-        messages.push({ role: "assistant", content: text });
-        messages.push({ role: "user", content: `Tool result for ${toolCall.name}: ${JSON.stringify(observation)}` });
-      }
+      const response = this.stream
+        ? await collectAsyncEventStreamText(result.stream_events())
+        : await collectAsyncEventStreamText(result);
 
       return {
-        success: false,
+        success: true,
+        stream: this.stream,
         provider: this.provider,
         model: this.model,
         prompt: topic,
-        error: "Agent exceeded tool-call iteration limit.",
-        response: null
+        response
       };
     } catch (error) {
       logger.error("LlamaIndex askQuestion failed", error);
       return {
         success: false,
+        stream: this.stream,
         provider: this.provider,
         model: this.model,
         prompt: topic,
-        error: error.message,
+        error: error?.message || String(error),
         response: null
       };
     }
@@ -109,7 +150,7 @@ export class LlamaIndexAgentManager {
 async function main() {
   const args = buildCommonArgs();
   const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
-  const manager = new LlamaIndexAgentManager(startupModel);
+  const manager = new LlamaIndexAgentManager(startupModel, args.stream);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }
 

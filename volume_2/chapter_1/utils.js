@@ -24,10 +24,9 @@ export function loadChapterEnv() {
       const [rawKey, ...rest] = line.split("=");
       const key = rawKey.trim();
       const value = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
-      if (key && !(key in process.env)) {
-        process.env[key] = value;
-      }
+      if (key && !(key in process.env)) process.env[key] = value;
     }
+
     return candidate;
   }
 
@@ -63,30 +62,177 @@ export function logToolCall(logger, toolName, fn) {
   };
 }
 
-export function extractOutputText(result) {
-  if (typeof result === "string") return result;
-
-  if (typeof result?.output === "string") return result.output;
-
-  const messages = result?.messages ?? [];
-  const messageContent = messages[messages.length - 1]?.content;
-  if (typeof messageContent === "string") return messageContent;
-
-  const content = result?.message?.content ?? result?.content;
+function extractTextFromContent(content) {
+  if (content == null) return "";
   if (typeof content === "string") return content;
+
   if (Array.isArray(content)) {
-    const text = content
-      .filter((block) => block?.type === "text" && typeof block?.text === "string")
-      .map((block) => block.text)
-      .join("\n");
-    if (text) return text;
+    const parts = [];
+    for (const item of content) {
+      if (typeof item === "string") {
+        parts.push(item);
+        continue;
+      }
+
+      if (item && typeof item === "object") {
+        if (item.type === "text" && typeof item.text === "string") {
+          parts.push(item.text);
+          continue;
+        }
+        if (typeof item.text === "string") {
+          parts.push(item.text);
+          continue;
+        }
+        if (typeof item.delta === "string") {
+          parts.push(item.delta);
+        }
+      }
+    }
+    return parts.join("");
   }
 
-  if (typeof result?.response === "string") return result.response;
-  return String(result ?? "");
+  if (typeof content === "object") {
+    if (typeof content.text === "string") return content.text;
+    if (typeof content.delta === "string") return content.delta;
+  }
+
+  return "";
 }
 
+function extractTextFromMessageLike(obj) {
+  if (obj == null) return "";
+  if (typeof obj === "string") return obj;
 
+  const direct = extractTextFromContent(obj);
+  if (direct) return direct;
+
+  for (const key of ["content", "text", "response", "message", "output", "delta"]) {
+    const value = obj?.[key];
+    const text = extractTextFromContent(value);
+    if (text) return text;
+
+    if (value != null && value !== obj) {
+      const nested = extractTextFromMessageLike(value);
+      if (nested) return nested;
+    }
+  }
+
+  if (typeof obj === "object") {
+    for (const key of ["output", "response", "content", "text", "delta"]) {
+      const text = extractTextFromContent(obj[key]);
+      if (text) return text;
+    }
+
+    const messages = obj.messages || [];
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const text = extractTextFromMessageLike(messages[i]);
+      if (text) return text;
+    }
+  }
+
+  return "";
+}
+
+function appendStreamText(parts, text) {
+  if (!text) return;
+
+  const current = parts.join("");
+  if (!current) {
+    parts.push(text);
+    return;
+  }
+
+  if (text.startsWith(current)) {
+    const suffix = text.slice(current.length);
+    if (suffix) parts.push(suffix);
+    return;
+  }
+
+  if (text === current || text === parts[parts.length - 1]) return;
+  parts.push(text);
+}
+
+function collectLangchainStreamText(result) {
+  const parts = [];
+
+  for (const chunk of result || []) {
+    if (!Array.isArray(chunk) || chunk.length !== 2) continue;
+    const [streamMode, payload] = chunk;
+    if (streamMode !== "messages") continue;
+
+    const messageChunk = Array.isArray(payload) ? payload[0] : payload;
+    if (!messageChunk) continue;
+
+    const text = extractTextFromMessageLike(messageChunk);
+    if (text) parts.push(text);
+  }
+
+  return parts.join("").trim();
+}
+
+export async function collectAsyncEventStreamText(eventStream) {
+  const parts = [];
+  for await (const event of eventStream) {
+    if (Array.isArray(event) && event.length === 2 && typeof event[0] === "string") {
+      const [streamMode, payload] = event;
+      if (streamMode !== "messages") {
+        continue;
+      }
+
+      const messageChunk = Array.isArray(payload) ? payload[0] : payload;
+      const messageText = extractTextFromMessageLike(messageChunk);
+      if (messageText) {
+        appendStreamText(parts, messageText);
+      }
+      continue;
+    }
+
+    const delta = event?.delta;
+    if (typeof delta === "string" && delta) {
+      appendStreamText(parts, delta);
+      continue;
+    }
+
+    const text = extractTextFromMessageLike(event);
+    if (text) appendStreamText(parts, text);
+  }
+  return parts.join("").trim();
+}
+
+export async function extractStreamText(result) {
+  if (result == null) return "";
+  if (typeof result === "string") return result.trim();
+
+  if (typeof result?.[Symbol.asyncIterator] === "function") {
+    return collectAsyncEventStreamText(result);
+  }
+
+  if (typeof result?.stream_events === "function") {
+    return collectAsyncEventStreamText(result.stream_events());
+  }
+
+  return collectLangchainStreamText(result);
+}
+
+export async function extractOutputText(result) {
+  if (result == null) return "";
+  if (typeof result === "string") return result.trim();
+
+  const text = extractTextFromMessageLike(result);
+  if (text) return text.trim();
+
+  if (typeof result?.then === "function") {
+    const resolved = await result;
+    return extractOutputText(resolved);
+  }
+
+  return String(result);
+}
+
+export async function renderResponseText(rawResponse, stream) {
+  if (stream) return extractStreamText(rawResponse);
+  return extractOutputText(rawResponse);
+}
 
 const PROVIDER_ENV_KEYS = {
   openai: ["OPENAI_API_KEY"],
@@ -162,7 +308,11 @@ export async function selectStartupModel(modelIdentifiers, mode, explicitModelId
     console.log(`${idx + 1}. ${entry.label}${suffix}`);
   });
 
-  const selected = await chooseFromList(configured, defaultIndex, `Select model (1-${configured.length}, default ${defaultIndex + 1}): `);
+  const selected = await chooseFromList(
+    configured,
+    defaultIndex,
+    `Select model (1-${configured.length}, default ${defaultIndex + 1}): `
+  );
   return selected.identifier;
 }
 
@@ -224,7 +374,11 @@ export async function runInteractiveCli(manager) {
     console.log("*** Agent working with LLM, awaiting response ***");
     const result = await manager.askQuestion(userInput);
     console.log("\n============= LLM RESPONSE =============");
-    console.log(result.success ? result.response : result.error);
+    if (result.success) {
+      console.log(await renderResponseText(result.response, manager.stream));
+    } else {
+      console.log(result.error || "");
+    }
     console.log("========================================\n");
   }
 
@@ -242,5 +396,13 @@ export async function runMode(manager, mode, host, port, stream) {
 
 export async function* defaultChunkIterator(manager, topic) {
   const result = await manager.askQuestion(topic);
-  yield* chunkText(result.response || "");
+
+  let responseText = "";
+  if (result.success) {
+    responseText = await renderResponseText(result.response, manager.stream);
+  } else {
+    responseText = String(result.error || "");
+  }
+
+  yield* chunkText(responseText);
 }
