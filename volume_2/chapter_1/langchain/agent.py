@@ -13,15 +13,11 @@ if str(CHAPTER_ROOT) not in sys.path:
 
 from utils import (
     build_common_parser,
-    chapter_root_from_file,
-    extract_output_text,
     get_chapter_logger,
     log_tool_call,
     run_mode,
     select_startup_model,
 )
-
-chapter_root_from_file(__file__)
 
 from langchain.agents import create_agent
 from langchain.tools import tool
@@ -59,7 +55,7 @@ class LangChainAgentManager:
         self.stream = stream
         logger.info("Initializing LangChain agent | provider=%s | model=%s | stream=%s", self.provider, self.model, self.stream)
         self.agent = create_agent(
-            model='{}:{}'.format(self.provider,self.model),
+            model=f"{self.provider}:{self.model}",
             tools=AGENT_TOOLS,
             system_prompt=(
                 "You are an AI assistant that can use tools. "

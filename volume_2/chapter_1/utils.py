@@ -259,9 +259,14 @@ async def _collect_llamaindex_stream_text(handler: Any) -> str:
         async for event in handler.stream_events():
             ...
     """
+    return await _collect_stream_text_from_events(handler.stream_events())
+
+
+async def _collect_stream_text_from_events(event_stream: Any) -> str:
+    """Collect text from an async event stream with LLM delta/message payloads."""
     parts: list[str] = []
 
-    async for event in handler.stream_events():
+    async for event in event_stream:
         delta = getattr(event, "delta", None)
         if isinstance(delta, str) and delta:
             _append_stream_text(parts, delta)
@@ -276,19 +281,7 @@ async def _collect_llamaindex_stream_text(handler: Any) -> str:
 
 async def _collect_async_event_stream_text(event_stream: Any) -> str:
     """Collect text from an async iterator that yields event-like objects."""
-    parts: list[str] = []
-
-    async for event in event_stream:
-        delta = getattr(event, "delta", None)
-        if isinstance(delta, str) and delta:
-            _append_stream_text(parts, delta)
-            continue
-
-        text = _extract_text_from_message_like(event)
-        if text:
-            _append_stream_text(parts, text)
-
-    return "".join(parts).strip()
+    return await _collect_stream_text_from_events(event_stream)
 
 
 def _collect_langchain_stream_text(result: Any) -> str:

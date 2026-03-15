@@ -70,24 +70,14 @@ class LlamaIndexAgentManager:
         try:
             logger.info("Processing prompt | chars=%s", len(topic))
 
-            def _non_stream_result() -> Any:
-                handler = self.agent.run(topic)
-                result = handler
-                return result
-
-            def _stream_result() -> Any:
-                handler = self.agent.run(topic)
-                result = handler.stream_events()
-                return result
-
             if self.stream:
                 result = run_llamaindex_handler_sync(
-                    _stream_result,
+                    lambda: self.agent.run(topic).stream_events(),
                     stream=True,
                 )
             else:
                 result = run_llamaindex_handler_sync(
-                    _non_stream_result,
+                    lambda: self.agent.run(topic),
                     stream=False,
                 )
 

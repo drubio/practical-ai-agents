@@ -31,7 +31,7 @@ ALL_MODEL_IDENTIFIERS = [
     "anthropic_claude_sonnet_4_6",
     "anthropic_claude_haiku_4_5",
     "google_genai_gemini_3_1_pro",
-    "google_genai_gemini_3_1_flash",
+    "google_genai_gemini_3_flash",
     "google_genai_gemini_3_1_flash_lite",
     "xai_grok_4",
     "xai_grok_3",
@@ -91,10 +91,10 @@ def get_identifier_mappings() -> dict[str, ModelConfig]:
             tier="advanced",
             strengths=("reasoning", "tool-use", "multimodal"),            
         ),
-        "google_genai_gemini_3_1_flash": ModelConfig(
-            name="google_genai_gemini_3_1_flash",
+        "google_genai_gemini_3_flash": ModelConfig(
+            name="google_genai_gemini_3_flash",
             provider="google_genai",
-            model="gemini-3.1-flash-preview",
+            model="gemini-3-flash-preview",
             tier="standard",
             strengths=("long-context", "research", "synthesis"),
         ),        
@@ -213,7 +213,7 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_ide
         "openai": {
             "advanced": "openai_gpt_5_4_pro",
             "standard": "openai_gpt_5_4",
-            "lite": "openai_gpt5_mini",
+            "lite": "openai_gpt_5_mini",
         },
         "anthropic": {
             "advanced": "anthropic_claude_opus_4_6",
@@ -222,7 +222,7 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_ide
         },
         "google": {
             "advanced": "google_genai_gemini_3_1_pro",
-            "standard": "google_genai_gemini_3_1_flash",
+            "standard": "google_genai_gemini_3_flash",
             "lite": "google_genai_gemini_3_1_flash_lite",
         },
         "xai": {
