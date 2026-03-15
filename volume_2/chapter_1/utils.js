@@ -371,15 +371,19 @@ export async function runInteractiveCli(manager) {
     }
 
     console.log("*** Agent is working locally ***");
-    console.log("*** Agent working with LLM, awaiting response ***");
     const result = await manager.askQuestion(userInput);
-    console.log("\n============= LLM RESPONSE =============");
+    if (result.localOnly) {
+      console.log("*** Local tool response generated (LLM bypassed) ***");
+    } else {
+      console.log("*** Agent working with LLM, awaiting response ***");
+    }
+    console.log("\n============= AGENT RESPONSE =============");
     if (result.success) {
       console.log(await renderResponseText(result.response, manager.stream));
     } else {
       console.log(result.error || "");
     }
-    console.log("========================================\n");
+    console.log("==========================================\n");
   }
 
   rl.close();

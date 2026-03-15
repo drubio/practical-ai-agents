@@ -30,50 +30,25 @@ from utils import (
 logger = get_chapter_logger("volume_2.chapter_2.llamaindex.agent_routing")
 
 ALL_TOOL_NAMES = [
-    "summarize_text",
-    "extract_keywords",
-    "extract_tasks",
-    "score_priority",
-    "route_workflow",
-    "parse_content",
+    "calculator",
     "resolve_datetime",
     "format_json",
-    "calculator",
-    "analyze_text",
 ]
 
 
 def build_tools(log_tool_call_fn, active_logger):
     return {
-        "summarize_text": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "summarize_text", tools.summarize_text), name="summarize_text"
-        ),
-        "extract_keywords": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "extract_keywords", tools.extract_keywords), name="extract_keywords"
-        ),
-        "extract_tasks": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "extract_tasks", tools.extract_tasks), name="extract_tasks"
-        ),
-        "score_priority": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "score_priority", tools.score_priority), name="score_priority"
-        ),
-        "route_workflow": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "route_workflow", tools.route_workflow), name="route_workflow"
-        ),
-        "parse_content": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "parse_content", tools.parse_content), name="parse_content"
+        "calculator": FunctionTool.from_defaults(
+            fn=log_tool_call_fn(active_logger, "calculator", tools.calculator),
+            name="calculator",
         ),
         "resolve_datetime": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "resolve_datetime", tools.resolve_datetime), name="resolve_datetime"
+            fn=log_tool_call_fn(active_logger, "resolve_datetime", tools.resolve_datetime),
+            name="resolve_datetime",
         ),
         "format_json": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "format_json", tools.format_json), name="format_json"
-        ),
-        "calculator": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "calculator", tools.calculator), name="calculator"
-        ),
-        "analyze_text": FunctionTool.from_defaults(
-            fn=log_tool_call_fn(active_logger, "analyze_text", tools.analyze_text), name="analyze_text"
+            fn=log_tool_call_fn(active_logger, "format_json", tools.format_json),
+            name="format_json",
         ),
     }
 
@@ -95,16 +70,9 @@ def route_tools_for_prompt(prompt: str) -> list[str]:
     selected = set()
 
     keyword_routes = {
-        "summarize_text": ["summarize", "tl;dr", "overview", "recap"],
-        "extract_keywords": ["keyword", "key phrase", "tags", "topics"],
-        "extract_tasks": ["todo", "task", "action item", "next steps"],
-        "score_priority": ["priority", "urgent", "severity", "p0", "p1"],
-        "route_workflow": ["workflow", "route", "triage", "handoff"],
-        "parse_content": ["parse", "extract fields", "structured", "html"],
+        "calculator": ["calculate", "math", "equation", "percentage"],
         "resolve_datetime": ["date", "time", "schedule", "tomorrow", "next week"],
         "format_json": ["json", "yaml", "format", "schema"],
-        "calculator": ["calculate", "math", "equation", "percentage"],
-        "analyze_text": ["analyze", "analysis", "sentiment", "tone", "readability"],
     }
 
     for tool_name, triggers in keyword_routes.items():
@@ -118,11 +86,6 @@ def route_tools_for_prompt(prompt: str) -> list[str]:
     if not selected:
         return ALL_TOOL_NAMES
 
-    if "extract_tasks" in selected and "score_priority" not in selected:
-        selected.add("score_priority")
-    if "route_workflow" in selected and "extract_tasks" not in selected:
-        selected.add("extract_tasks")
-
     return [name for name in ALL_TOOL_NAMES if name in selected]
 
 
@@ -132,7 +95,7 @@ class LlamaIndexAgentRoutingManager:
     model_identifiers = ALL_MODEL_IDENTIFIERS
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
-        "If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority')."
+        "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or format this JSON')."
     )
 
     def __init__(self, model: str, stream: bool = False):

@@ -22,16 +22,9 @@ from utils import build_common_parser, get_chapter_logger, log_tool_call, run_mo
 logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
 
 ALL_TOOL_NAMES = [
-    "summarize_text",
-    "extract_keywords",
-    "extract_tasks",
-    "score_priority",
-    "route_workflow",
-    "parse_content",
+    "calculator",
     "resolve_datetime",
     "format_json",
-    "calculator",
-    "analyze_text",
 ]
 
 
@@ -39,34 +32,9 @@ def build_tools(log_tool_call_fn, active_logger):
     """Build all available LangChain tools once and return by name."""
 
     @tool
-    def summarize_text_tool(text: str):
-        """Summarize text."""
-        return log_tool_call_fn(active_logger, "summarize_text", tools.summarize_text)(text)
-
-    @tool
-    def extract_keywords_tool(text: str):
-        """Extract keywords."""
-        return log_tool_call_fn(active_logger, "extract_keywords", tools.extract_keywords)(text)
-
-    @tool
-    def extract_tasks_tool(text: str):
-        """Extract tasks from text."""
-        return log_tool_call_fn(active_logger, "extract_tasks", tools.extract_tasks)(text)
-
-    @tool
-    def score_priority_tool(text: str):
-        """Score priority from text."""
-        return log_tool_call_fn(active_logger, "score_priority", tools.score_priority)(text)
-
-    @tool
-    def route_workflow_tool(text: str):
-        """Route workflow from text."""
-        return log_tool_call_fn(active_logger, "route_workflow", tools.route_workflow)(text)
-
-    @tool
-    def parse_content_tool(content: str):
-        """Parse content."""
-        return log_tool_call_fn(active_logger, "parse_content", tools.parse_content)(content)
+    def calculator_tool(expression: str):
+        """Evaluate expression."""
+        return log_tool_call_fn(active_logger, "calculator", tools.calculator)(expression)
 
     @tool
     def resolve_datetime_tool(text: str):
@@ -78,27 +46,10 @@ def build_tools(log_tool_call_fn, active_logger):
         """Format JSON-like input."""
         return log_tool_call_fn(active_logger, "format_json", tools.format_json)(input)
 
-    @tool
-    def calculator_tool(expression: str):
-        """Evaluate expression."""
-        return log_tool_call_fn(active_logger, "calculator", tools.calculator)(expression)
-
-    @tool
-    def analyze_text_tool(text: str):
-        """Analyze text."""
-        return log_tool_call_fn(active_logger, "analyze_text", tools.analyze_text)(text)
-
     return {
-        "summarize_text": summarize_text_tool,
-        "extract_keywords": extract_keywords_tool,
-        "extract_tasks": extract_tasks_tool,
-        "score_priority": score_priority_tool,
-        "route_workflow": route_workflow_tool,
-        "parse_content": parse_content_tool,
+        "calculator": calculator_tool,
         "resolve_datetime": resolve_datetime_tool,
         "format_json": format_json_tool,
-        "calculator": calculator_tool,
-        "analyze_text": analyze_text_tool,
     }
 
 
@@ -119,16 +70,9 @@ def route_tools_for_prompt(prompt: str) -> list[str]:
     selected = set()
 
     keyword_routes = {
-        "summarize_text": ["summarize", "tl;dr", "overview", "recap"],
-        "extract_keywords": ["keyword", "key phrase", "tags", "topics"],
-        "extract_tasks": ["todo", "task", "action item", "next steps"],
-        "score_priority": ["priority", "urgent", "severity", "p0", "p1"],
-        "route_workflow": ["workflow", "route", "triage", "handoff"],
-        "parse_content": ["parse", "extract fields", "structured", "html"],
+        "calculator": ["calculate", "math", "equation", "percentage"],
         "resolve_datetime": ["date", "time", "schedule", "tomorrow", "next week"],
         "format_json": ["json", "yaml", "format", "schema"],
-        "calculator": ["calculate", "math", "equation", "percentage"],
-        "analyze_text": ["analyze", "analysis", "sentiment", "tone", "readability"],
     }
 
     for tool_name, triggers in keyword_routes.items():
@@ -142,11 +86,6 @@ def route_tools_for_prompt(prompt: str) -> list[str]:
     if not selected:
         return ALL_TOOL_NAMES
 
-    if "extract_tasks" in selected and "score_priority" not in selected:
-        selected.add("score_priority")
-    if "route_workflow" in selected and "extract_tasks" not in selected:
-        selected.add("extract_tasks")
-
     return [name for name in ALL_TOOL_NAMES if name in selected]
 
 
@@ -156,7 +95,7 @@ class LangChainAgentRoutingManager:
     model_identifiers = ALL_MODEL_IDENTIFIERS
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
-        "If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority')."
+        "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or format this JSON')."
     )
 
     def __init__(self, model: str, stream: bool = True):

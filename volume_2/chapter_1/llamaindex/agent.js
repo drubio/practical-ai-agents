@@ -16,8 +16,45 @@ import {
 const logger = getChapterLogger("volume_2.chapter_1.llamaindex.agent");
 
 const TOOLS = {
-  summarize_text: logToolCall(logger, "summarize_text", tools.summarizeText)
+  calculator: logToolCall(logger, "calculator", tools.calculator),
+  resolve_datetime: logToolCall(logger, "resolve_datetime", tools.resolveDatetime),
+  format_json: logToolCall(logger, "format_json", tools.formatJson)
 };
+
+function pickLocalTool(topic) {
+  const text = String(topic || "").trim();
+  if (!text) return null;
+
+  const calculatorMatch = text.match(/^(?:calculate|calc|compute)\s+(.+)$/i);
+  if (calculatorMatch) {
+    return { name: "calculator", input: calculatorMatch[1].trim() };
+  }
+
+  if (["+", "-", "*", "/", "="].some((op) => text.includes(op))) {
+    return { name: "calculator", input: text.replace(/=/g, " ").trim() };
+  }
+
+  if (["{", "["].some((char) => text.startsWith(char))) {
+    return { name: "format_json", input: text };
+  }
+
+  const formatMatch = text.match(/^(?:format\s+json|pretty\s+print\s+json)\s*[:\-]?\s*(.+)$/i);
+  if (formatMatch) {
+    return { name: "format_json", input: formatMatch[1].trim() };
+  }
+
+  const datetimeMatch = text.match(/^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$/i);
+  if (datetimeMatch) {
+    return { name: "resolve_datetime", input: datetimeMatch[1].trim() };
+  }
+
+  const lower = text.toLowerCase();
+  if (["tomorrow", "next week", "next month", "today", " at "].some((token) => lower.includes(token))) {
+    return { name: "resolve_datetime", input: text };
+  }
+
+  return null;
+}
 
 function parseToolCall(text) {
   const match = text.match(/TOOL:\s*([a-z_]+)\s*\nINPUT:\s*([\s\S]*)$/i);
@@ -57,10 +94,10 @@ class LlamaIndexWorkflowHandler {
 
 export class LlamaIndexAgentManager {
   framework = "LlamaIndex Agent";
-  toolNames = ["summarize_text"];
+  toolNames = ["calculator", "resolve_datetime", "format_json"];
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. " +
-    "If you want a specific behavior, ask explicitly (for example: 'summarize this').";
+    "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or parse tomorrow at 2pm').";
 
   constructor(model, stream = false) {
     const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
@@ -112,7 +149,23 @@ export class LlamaIndexAgentManager {
 
   async askQuestion(topic) {
     try {
-      logger.info(`Processing prompt | chars=${topic.length}`);
+      const localToolCall = pickLocalTool(topic);
+      if (localToolCall) {
+        logger.info(`Processing prompt locally | tool=${localToolCall.name} | chars=${topic.length}`);
+        const observation = tools.runTool(localToolCall.name, localToolCall.input);
+        return {
+          success: true,
+          stream: false,
+          provider: this.provider,
+          model: this.model,
+          prompt: topic,
+          localOnly: true,
+          selectedTool: localToolCall.name,
+          response: JSON.stringify(observation, null, 2)
+        };
+      }
+
+      logger.info(`Processing prompt with LLM | chars=${topic.length}`);
 
       const result = this.agent.run(topic);
 

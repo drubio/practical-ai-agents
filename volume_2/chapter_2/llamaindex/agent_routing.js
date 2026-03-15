@@ -14,31 +14,13 @@ import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM } from "../../chapter_1/mode
 
 const logger = getChapterLogger("volume_2.chapter_2.llamaindex.agent_routing");
 
-export const ALL_TOOL_NAMES = [
-  "summarize_text",
-  "extract_keywords",
-  "extract_tasks",
-  "score_priority",
-  "route_workflow",
-  "parse_content",
-  "resolve_datetime",
-  "format_json",
-  "calculator",
-  "analyze_text"
-];
+export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "format_json"];
 
 export function buildToolMap(logToolCallFn, activeLogger) {
   return {
-    summarize_text: logToolCallFn(activeLogger, "summarize_text", tools.summarizeText),
-    extract_keywords: logToolCallFn(activeLogger, "extract_keywords", tools.extractKeywords),
-    extract_tasks: logToolCallFn(activeLogger, "extract_tasks", tools.extractTasks),
-    score_priority: logToolCallFn(activeLogger, "score_priority", tools.scorePriority),
-    route_workflow: logToolCallFn(activeLogger, "route_workflow", tools.routeWorkflow),
-    parse_content: logToolCallFn(activeLogger, "parse_content", tools.parseContent),
-    resolve_datetime: logToolCallFn(activeLogger, "resolve_datetime", tools.resolveDatetime),
-    format_json: logToolCallFn(activeLogger, "format_json", tools.formatJson),
     calculator: logToolCallFn(activeLogger, "calculator", tools.calculator),
-    analyze_text: logToolCallFn(activeLogger, "analyze_text", tools.analyzeText)
+    resolve_datetime: logToolCallFn(activeLogger, "resolve_datetime", tools.resolveDatetime),
+    format_json: logToolCallFn(activeLogger, "format_json", tools.formatJson)
   };
 }
 
@@ -63,16 +45,9 @@ export function routeToolsForPrompt(prompt) {
   const selected = new Set();
 
   const keywordRoutes = {
-    summarize_text: ["summarize", "tl;dr", "overview", "recap"],
-    extract_keywords: ["keyword", "key phrase", "tags", "topics"],
-    extract_tasks: ["todo", "task", "action item", "next steps"],
-    score_priority: ["priority", "urgent", "severity", "p0", "p1"],
-    route_workflow: ["workflow", "route", "triage", "handoff"],
-    parse_content: ["parse", "extract fields", "structured", "html"],
-    resolve_datetime: ["date", "time", "schedule", "tomorrow", "next week"],
-    format_json: ["json", "yaml", "format", "schema"],
     calculator: ["calculate", "math", "equation", "percentage"],
-    analyze_text: ["analyze", "analysis", "sentiment", "tone", "readability"]
+    resolve_datetime: ["date", "time", "schedule", "tomorrow", "next week"],
+    format_json: ["json", "yaml", "format", "schema"]
   };
 
   for (const [toolName, triggers] of Object.entries(keywordRoutes)) {
@@ -87,13 +62,6 @@ export function routeToolsForPrompt(prompt) {
   }
 
   if (!selected.size) return ALL_TOOL_NAMES;
-
-  if (selected.has("extract_tasks") && !selected.has("score_priority")) {
-    selected.add("score_priority");
-  }
-  if (selected.has("route_workflow") && !selected.has("extract_tasks")) {
-    selected.add("extract_tasks");
-  }
 
   return ALL_TOOL_NAMES.filter((name) => selected.has(name));
 }
@@ -118,7 +86,7 @@ export class LlamaIndexAgentRoutingManager {
   toolNames = ALL_TOOL_NAMES;
   modelIdentifiers = ALL_MODEL_IDENTIFIERS;
   toolTriggerHelp =
-    "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority').";
+    "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or format this JSON').";
 
   constructor(model, stream = false) {
     const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);

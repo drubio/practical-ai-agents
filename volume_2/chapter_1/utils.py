@@ -603,9 +603,13 @@ def run_interactive_cli(manager: AgentManagerProtocol) -> None:
                 continue
 
             print("*** Agent is working locally ***")
-            print("*** Agent working with LLM, awaiting response ***")
             result = manager.ask_question(user_input)
-            print("\n============= LLM RESPONSE =============")
+            if result.get("local_only"):
+                print("*** Local tool response generated (LLM bypassed) ***")
+            else:
+                print("*** Agent working with LLM, awaiting response ***")
+
+            print("\n============= AGENT RESPONSE =============")
 
             if result.get("success"):
                 response = render_response_text(
@@ -616,7 +620,7 @@ def run_interactive_cli(manager: AgentManagerProtocol) -> None:
             elif result.get("error"):
                 print(result.get("error"))
                 
-            print("========================================\n")
+            print("==========================================\n")
         except KeyboardInterrupt:
             print("\nExiting.")
             break
