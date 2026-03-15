@@ -7,7 +7,6 @@ import * as tools from "../../chapter_1/tools.js";
 import {
   buildCommonArgs,
   defaultChunkIterator,
-  extractOutputText,
   getChapterLogger,
   logToolCall,
   selectStartupModel,
@@ -90,6 +89,57 @@ export function selectTools(logToolCallFn, activeLogger, toolNames) {
   return toolNames.map((name) => available[name]);
 }
 
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function triggerMatch(promptLower, trigger) {
+  if (trigger.includes(" ") || [":", "/", ".", "-"].some((ch) => trigger.includes(ch))) {
+    return promptLower.includes(trigger);
+  }
+  return new RegExp(`\\b${escapeRegex(trigger)}\\b`).test(promptLower);
+}
+
+export function routeToolsForPrompt(prompt) {
+  const promptLower = prompt.toLowerCase();
+  const selected = new Set();
+
+  const keywordRoutes = {
+    summarize_text: ["summarize", "tl;dr", "overview", "recap"],
+    extract_keywords: ["keyword", "key phrase", "tags", "topics"],
+    extract_tasks: ["todo", "task", "action item", "next steps"],
+    score_priority: ["priority", "urgent", "severity", "p0", "p1"],
+    route_workflow: ["workflow", "route", "triage", "handoff"],
+    parse_content: ["parse", "extract fields", "structured", "html"],
+    resolve_datetime: ["date", "time", "schedule", "tomorrow", "next week"],
+    format_json: ["json", "yaml", "format", "schema"],
+    calculator: ["calculate", "math", "equation", "percentage"],
+    analyze_text: ["analyze", "analysis", "sentiment", "tone", "readability"]
+  };
+
+  for (const [toolName, triggers] of Object.entries(keywordRoutes)) {
+    if (triggers.some((trigger) => triggerMatch(promptLower, trigger))) {
+      selected.add(toolName);
+    }
+  }
+
+  const hasMathExpression = ["+", "*", "/", "="].some((op) => prompt.includes(op)) || prompt.includes(" - ");
+  if (hasMathExpression) {
+    selected.add("calculator");
+  }
+
+  if (!selected.size) return ALL_TOOL_NAMES;
+
+  if (selected.has("extract_tasks") && !selected.has("score_priority")) {
+    selected.add("score_priority");
+  }
+  if (selected.has("route_workflow") && !selected.has("extract_tasks")) {
+    selected.add("extract_tasks");
+  }
+
+  return ALL_TOOL_NAMES.filter((name) => selected.has(name));
+}
+
 export class LangChainAgentRoutingManager {
   framework = "LangChain Agent Routing";
   toolNames = ALL_TOOL_NAMES;
@@ -97,32 +147,63 @@ export class LangChainAgentRoutingManager {
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority').";
 
-  constructor(model) {
+  constructor(model, stream = true) {
     const config = getIdentifierMappings()[model];
     this.provider = config?.provider ?? "unknown";
     this.model = config?.model ?? model;
-    logger.info(`Initializing LangChain routing agent | provider=${this.provider} | model=${this.model}`);
-    this.agent = createAgent({
-      model: `${this.provider}:${this.model}`,
-      tools: selectTools(logToolCall, logger, ALL_TOOL_NAMES),
-      systemPrompt:
-        "You are an AI assistant that can use tools. Think step-by-step, use tools when needed, and return a concise final answer."
-    });
+    this.stream = stream;
+    this.agentCache = new Map();
+    logger.info(
+      `Initializing LangChain routing agent | provider=${this.provider} | initial_model=${this.model} | stream=${this.stream}`
+    );
+  }
+
+  getAgent(provider, model, selectedToolNames) {
+    const key = `${provider}:${model}:${selectedToolNames.join(",")}`;
+    if (!this.agentCache.has(key)) {
+      logger.info(`Building LangChain agent | provider=${provider} | model=${model} | tools=${selectedToolNames.join(",")}`);
+      this.agentCache.set(
+        key,
+        createAgent({
+          model: `${provider}:${model}`,
+          tools: selectTools(logToolCall, logger, selectedToolNames),
+          systemPrompt:
+            "You are an AI assistant that can use tools. " +
+            "Choose the best tool(s) among those provided, then return a concise final answer."
+        })
+      );
+    }
+    return this.agentCache.get(key);
   }
 
   async askQuestion(topic) {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
-      const result = await this.agent.invoke({ messages: [{ role: "user", content: topic }] });
-      return { success: true, provider: this.provider, model: this.model, prompt: topic, response: extractOutputText(result) };
+      const selectedToolNames = routeToolsForPrompt(topic);
+      const agent = this.getAgent(this.provider, this.model, selectedToolNames);
+      const input = { messages: [{ role: "user", content: topic }] };
+      const result = this.stream
+        ? await agent.stream(input, { streamMode: ["messages", "updates"] })
+        : await agent.invoke(input);
+
+      return {
+        success: true,
+        stream: this.stream,
+        provider: this.provider,
+        model: this.model,
+        selectedTools: selectedToolNames,
+        prompt: topic,
+        response: result
+      };
     } catch (error) {
       logger.error("LangChain askQuestion failed", error);
       return {
         success: false,
+        stream: this.stream,
         provider: this.provider,
         model: this.model,
         prompt: topic,
-        error: error.message,
+        error: error?.message || String(error),
         response: null
       };
     }
@@ -136,7 +217,7 @@ export class LangChainAgentRoutingManager {
 async function main() {
   const args = buildCommonArgs();
   const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
-  const manager = new LangChainAgentRoutingManager(startupModel);
+  const manager = new LangChainAgentRoutingManager(startupModel, args.stream);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }
 

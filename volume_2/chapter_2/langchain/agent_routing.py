@@ -17,7 +17,7 @@ from langchain.tools import tool
 
 import tools
 from models import ALL_MODEL_IDENTIFIERS, ModelConfig, get_identifier_mappings, route_model_for_prompt
-from utils import build_common_parser, extract_output_text, get_chapter_logger, log_tool_call, run_mode, select_startup_model
+from utils import build_common_parser, get_chapter_logger, log_tool_call, run_mode, select_startup_model
 
 logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
 
@@ -107,12 +107,11 @@ def select_tools(log_tool_call_fn, active_logger, tool_names):
     return [available[name] for name in tool_names]
 
 
-
-
 def _trigger_match(prompt_l: str, trigger: str) -> bool:
     if " " in trigger or any(ch in trigger for ch in [":", "/", ".", "-"]):
         return trigger in prompt_l
     return re.search(rf"\b{re.escape(trigger)}\b", prompt_l) is not None
+
 
 def route_tools_for_prompt(prompt: str) -> list[str]:
     """Select relevant tools from the prompt and keep the list minimal when possible."""
@@ -151,7 +150,6 @@ def route_tools_for_prompt(prompt: str) -> list[str]:
     return [name for name in ALL_TOOL_NAMES if name in selected]
 
 
-
 class LangChainAgentRoutingManager:
     framework = "LangChain Agent Routing"
     tool_names = ALL_TOOL_NAMES
@@ -161,19 +159,21 @@ class LangChainAgentRoutingManager:
         "If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority')."
     )
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, stream: bool = True):
         config = get_identifier_mappings().get(model)
         self.provider = config.provider if config else "unknown"
         self.model = config.model if config else model
+        self.stream = stream
         self._agent_cache: dict[tuple[str, tuple[str, ...]], Any] = {}
         logger.info(
-            "Initializing LangChain routing agent | provider=%s | initial_model=%s",
+            "Initializing LangChain routing agent | provider=%s | initial_model=%s | stream=%s",
             self.provider,
             self.model,
+            self.stream,
         )
 
     def _get_agent(self, provider: str, model: str, selected_tool_names: Sequence[str]):
-        key = (provider, model, tuple(selected_tool_names))
+        key = (f"{provider}:{model}", tuple(selected_tool_names))
         if key not in self._agent_cache:
             logger.info("Building LangChain agent | provider=%s | model=%s | tools=%s", provider, model, ",".join(selected_tool_names))
             self._agent_cache[key] = create_agent(
@@ -206,21 +206,27 @@ class LangChainAgentRoutingManager:
             )
 
             agent = self._get_agent(selected_model.provider, selected_model.model, selected_tool_names)
-            result = agent.invoke({"messages": [{"role": "user", "content": topic}]})
+            input_payload = {"messages": [{"role": "user", "content": topic}]}
+            if self.stream:
+                result = agent.stream(input_payload, stream_mode=["messages", "updates"])
+            else:
+                result = agent.invoke(input_payload)
             return {
                 "success": True,
+                "stream": self.stream,
                 "provider": selected_model.provider,
                 "model": selected_model.model,
                 "model_name": selected_model.name,
                 "model_tier": selected_model.tier,
                 "selected_tools": selected_tool_names,
                 "prompt": topic,
-                "response": extract_output_text(result),
+                "response": result,
             }
         except Exception as exc:
             logger.exception("LangChain ask_question failed")
             return {
                 "success": False,
+                "stream": self.stream,
                 "provider": "unknown",
                 "model": self.model,
                 "prompt": topic,
@@ -233,7 +239,7 @@ def main() -> None:
     parser = build_common_parser("Volume 2 chapter 2 LangChain agent routing")
     args = parser.parse_args()
     startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
-    manager = LangChainAgentRoutingManager(model=startup_model)
+    manager = LangChainAgentRoutingManager(model=startup_model, stream=args.stream)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 

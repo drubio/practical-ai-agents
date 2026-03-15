@@ -47,6 +47,57 @@ export function selectToolMap(logToolCallFn, activeLogger, toolNames) {
   return Object.fromEntries(toolNames.map((name) => [name, available[name]]));
 }
 
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function triggerMatch(promptLower, trigger) {
+  if (trigger.includes(" ") || [":", "/", ".", "-"].some((ch) => trigger.includes(ch))) {
+    return promptLower.includes(trigger);
+  }
+  return new RegExp(`\\b${escapeRegex(trigger)}\\b`).test(promptLower);
+}
+
+export function routeToolsForPrompt(prompt) {
+  const promptLower = prompt.toLowerCase();
+  const selected = new Set();
+
+  const keywordRoutes = {
+    summarize_text: ["summarize", "tl;dr", "overview", "recap"],
+    extract_keywords: ["keyword", "key phrase", "tags", "topics"],
+    extract_tasks: ["todo", "task", "action item", "next steps"],
+    score_priority: ["priority", "urgent", "severity", "p0", "p1"],
+    route_workflow: ["workflow", "route", "triage", "handoff"],
+    parse_content: ["parse", "extract fields", "structured", "html"],
+    resolve_datetime: ["date", "time", "schedule", "tomorrow", "next week"],
+    format_json: ["json", "yaml", "format", "schema"],
+    calculator: ["calculate", "math", "equation", "percentage"],
+    analyze_text: ["analyze", "analysis", "sentiment", "tone", "readability"]
+  };
+
+  for (const [toolName, triggers] of Object.entries(keywordRoutes)) {
+    if (triggers.some((trigger) => triggerMatch(promptLower, trigger))) {
+      selected.add(toolName);
+    }
+  }
+
+  const hasMathExpression = ["+", "*", "/", "="].some((op) => prompt.includes(op)) || prompt.includes(" - ");
+  if (hasMathExpression) {
+    selected.add("calculator");
+  }
+
+  if (!selected.size) return ALL_TOOL_NAMES;
+
+  if (selected.has("extract_tasks") && !selected.has("score_priority")) {
+    selected.add("score_priority");
+  }
+  if (selected.has("route_workflow") && !selected.has("extract_tasks")) {
+    selected.add("extract_tasks");
+  }
+
+  return ALL_TOOL_NAMES.filter((name) => selected.has(name));
+}
+
 function parseToolCall(text, activeToolMap) {
   const match = text.match(/TOOL:\s*([a-z_]+)\s*\nINPUT:\s*([\s\S]*)$/i);
   if (!match) return null;
@@ -69,18 +120,20 @@ export class LlamaIndexAgentRoutingManager {
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'extract tasks and score priority').";
 
-  constructor(model) {
+  constructor(model, stream = false) {
     const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
     this.provider = provider;
     this.model = resolvedModel;
-    logger.info(`Initializing LlamaIndex routing agent | provider=${this.provider} | model=${this.model}`);
+    this.stream = stream;
+    logger.info(`Initializing LlamaIndex routing agent | provider=${this.provider} | model=${this.model} | stream=${this.stream}`);
     this.llm = llm;
-    this.toolMap = selectToolMap(logToolCall, logger, ALL_TOOL_NAMES);
   }
 
   async askQuestion(topic) {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
+      const selectedToolNames = routeToolsForPrompt(topic);
+      const toolMap = selectToolMap(logToolCall, logger, selectedToolNames);
 
       const messages = [
         {
@@ -99,19 +152,28 @@ export class LlamaIndexAgentRoutingManager {
       for (let attempt = 0; attempt < 6; attempt += 1) {
         const result = await this.llm.chat({ messages });
         const text = extractOutputText(result).trim();
-        const toolCall = parseToolCall(text, this.toolMap);
+        const toolCall = parseToolCall(text, toolMap);
 
         if (!toolCall) {
-          return { success: true, provider: this.provider, model: this.model, prompt: topic, response: text };
+          return {
+            success: true,
+            stream: this.stream,
+            provider: this.provider,
+            model: this.model,
+            selectedTools: selectedToolNames,
+            prompt: topic,
+            response: text
+          };
         }
 
-        const observation = this.toolMap[toolCall.name](toolCall.input);
+        const observation = toolMap[toolCall.name](toolCall.input);
         messages.push({ role: "assistant", content: text });
         messages.push({ role: "user", content: `Tool result for ${toolCall.name}: ${JSON.stringify(observation)}` });
       }
 
       return {
         success: false,
+        stream: this.stream,
         provider: this.provider,
         model: this.model,
         prompt: topic,
@@ -122,10 +184,11 @@ export class LlamaIndexAgentRoutingManager {
       logger.error("LlamaIndex askQuestion failed", error);
       return {
         success: false,
+        stream: this.stream,
         provider: this.provider,
         model: this.model,
         prompt: topic,
-        error: error.message,
+        error: error?.message || String(error),
         response: null
       };
     }
@@ -139,7 +202,7 @@ export class LlamaIndexAgentRoutingManager {
 async function main() {
   const args = buildCommonArgs();
   const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
-  const manager = new LlamaIndexAgentRoutingManager(startupModel);
+  const manager = new LlamaIndexAgentRoutingManager(startupModel, args.stream);
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }
 
