@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 
-import { normalizeResponseText, toSseLine } from "./stream.js";
+import { defaultChunkIterator, normalizeResponseText, toSseLine } from "./utils.js";
 
 export function createWebApi(manager, enableStreaming = false) {
   const app = express();
@@ -45,7 +45,7 @@ export function createWebApi(manager, enableStreaming = false) {
     res.setHeader("Connection", "keep-alive");
 
     try {
-      for await (const chunk of manager.iterAnswerChunks(topic)) {
+      for await (const chunk of defaultChunkIterator(manager, topic)) {
         const text = normalizeResponseText(chunk);
         if (text) {
           res.write(toSseLine({ type: "token", token: text }));

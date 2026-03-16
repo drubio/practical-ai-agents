@@ -9,8 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from stream import normalize_response_text, to_sse_line
-from utils import default_chunk_iterator, get_chapter_logger
+from utils import default_chunk_iterator, get_chapter_logger, normalize_response_text, to_sse_line
 
 
 logger = get_chapter_logger("volume_2.chapter_1.web")

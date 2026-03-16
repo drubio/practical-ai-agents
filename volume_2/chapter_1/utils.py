@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import select
@@ -15,6 +16,32 @@ import sys
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, Protocol
+
+
+def normalize_response_text(payload: Any) -> str:
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("response", "answer", "content", "text", "message"):
+            value = payload.get(key)
+            if isinstance(value, str):
+                return value
+    return str(payload)
+
+
+def chunk_text(text: str, chunk_size: int = 28) -> Iterable[str]:
+    clean = text or ""
+    if not clean:
+        yield ""
+        return
+    for i in range(0, len(clean), chunk_size):
+        yield clean[i : i + chunk_size]
+
+
+def to_sse_line(data: dict) -> str:
+    return f"data: {json.dumps(data)}\\n\\n"
 
 class AgentManagerProtocol(Protocol):
     framework: str
@@ -422,8 +449,6 @@ def run_llamaindex_handler_sync(build_result: Callable[[], Any], stream: bool) -
 
 def default_chunk_iterator(manager: AgentManagerProtocol, topic: str) -> Iterator[str]:
     """Default chunk iterator used when a manager does not implement one."""
-    from stream import chunk_text  # local import keeps utils import-safe across execution contexts
-
     result = manager.ask_question(topic)
 
     if result.get("success"):
