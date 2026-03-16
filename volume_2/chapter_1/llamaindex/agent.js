@@ -18,7 +18,7 @@ const logger = getChapterLogger("volume_2.chapter_1.llamaindex.agent");
 const TOOLS = {
   calculator: logToolCall(logger, "calculator", tools.calculator),
   resolve_datetime: logToolCall(logger, "resolve_datetime", tools.resolveDatetime),
-  format_json: logToolCall(logger, "format_json", tools.formatJson)
+  generate_uuid: () => logToolCall(logger, "generate_uuid", tools.generateUUID)()
 };
 
 function pickLocalTool(topic) {
@@ -34,15 +34,6 @@ function pickLocalTool(topic) {
     return { name: "calculator", input: text.replace(/=/g, " ").trim() };
   }
 
-  if (["{", "["].some((char) => text.startsWith(char))) {
-    return { name: "format_json", input: text };
-  }
-
-  const formatMatch = text.match(/^(?:format\s+json|pretty\s+print\s+json)\s*[:\-]?\s*(.+)$/i);
-  if (formatMatch) {
-    return { name: "format_json", input: formatMatch[1].trim() };
-  }
-
   const datetimeMatch = text.match(/^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$/i);
   if (datetimeMatch) {
     return { name: "resolve_datetime", input: datetimeMatch[1].trim() };
@@ -51,6 +42,29 @@ function pickLocalTool(topic) {
   const lower = text.toLowerCase();
   if (["tomorrow", "next week", "next month", "today", " at "].some((token) => lower.includes(token))) {
     return { name: "resolve_datetime", input: text };
+  }
+
+  const uuidMatch = text.match(
+    /^(?:generate|create|make)\s+(?:a\s+)?(?:unique\s+)?(?:uuid|id|identifier|ticket id|ticket identifier)\b.*$/i
+  );
+  if (uuidMatch) {
+    return { name: "generate_uuid", input: "" };
+  }
+
+  if (
+    [
+      "generate a unique id",
+      "generate an id",
+      "generate a uuid",
+      "create a unique id",
+      "create an id",
+      "create a uuid",
+      "new ticket id",
+      "unique ticket id",
+      "unique identifier"
+    ].some((phrase) => lower.includes(phrase))
+  ) {
+    return { name: "generate_uuid", input: "" };
   }
 
   return null;
@@ -94,10 +108,11 @@ class LlamaIndexWorkflowHandler {
 
 export class LlamaIndexAgentManager {
   framework = "LlamaIndex Agent";
-  toolNames = ["calculator", "resolve_datetime", "format_json"];
+  toolNames = ["calculator", "resolve_datetime", "generate_uuid"];
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. " +
-    "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or parse tomorrow at 2pm').";
+    "If you want a specific behavior, ask explicitly " +
+    "(for example: 'calculate 20 * 5', 'parse tomorrow at 2pm', or 'generate a unique ticket ID').";
 
   constructor(model, stream = false) {
     const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
@@ -121,6 +136,7 @@ export class LlamaIndexAgentManager {
         role: "system",
         content: [
           "You are an AI assistant that can use tools.",
+          "Use the calculator for arithmetic, resolve_datetime for date/time phrases, and generate_uuid when the user asks for a unique ID, UUID, ticket ID, or identifier.",
           "Think step-by-step, use tools when needed, and return a concise final answer.",
           "If a tool is needed, respond in this exact format:",
           "TOOL: <tool_name>",
@@ -141,7 +157,10 @@ export class LlamaIndexAgentManager {
 
       const observation = TOOLS[toolCall.name](toolCall.input);
       messages.push({ role: "assistant", content: text });
-      messages.push({ role: "user", content: `Tool result for ${toolCall.name}: ${JSON.stringify(observation)}` });
+      messages.push({
+        role: "user",
+        content: `Tool result for ${toolCall.name}: ${JSON.stringify(observation)}`
+      });
     }
 
     throw new Error("Agent exceeded tool-call iteration limit.");

@@ -35,16 +35,16 @@ const resolveDatetimeTool = tool(
   }
 );
 
-const formatJsonTool = tool(
-  ({ input }) => logToolCall(logger, "format_json", tools.formatJson)(input),
+const generateUuidTool = tool(
+  () => logToolCall(logger, "generate_uuid", tools.generateUUID)(),
   {
-    name: "format_json",
-    description: "Pretty-format JSON-compatible input.",
-    schema: z.object({ input: z.string() })
+    name: "generate_uuid",
+    description: "Generate a unique UUID identifier.",
+    schema: z.object({})
   }
 );
 
-const AGENT_TOOLS = [calculatorTool, resolveDatetimeTool, formatJsonTool];
+const AGENT_TOOLS = [calculatorTool, resolveDatetimeTool, generateUuidTool];
 
 function pickLocalTool(topic) {
   const text = String(topic || "").trim();
@@ -59,15 +59,6 @@ function pickLocalTool(topic) {
     return { name: "calculator", input: text.replace(/=/g, " ").trim() };
   }
 
-  if (["{", "["].some((char) => text.startsWith(char))) {
-    return { name: "format_json", input: text };
-  }
-
-  const formatMatch = text.match(/^(?:format\s+json|pretty\s+print\s+json)\s*[:\-]?\s*(.+)$/i);
-  if (formatMatch) {
-    return { name: "format_json", input: formatMatch[1].trim() };
-  }
-
   const datetimeMatch = text.match(/^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$/i);
   if (datetimeMatch) {
     return { name: "resolve_datetime", input: datetimeMatch[1].trim() };
@@ -78,16 +69,40 @@ function pickLocalTool(topic) {
     return { name: "resolve_datetime", input: text };
   }
 
+  const uuidMatch = text.match(
+    /^(?:generate|create|make)\s+(?:a\s+)?(?:unique\s+)?(?:uuid|id|identifier|ticket id|ticket identifier)\b.*$/i
+  );
+  if (uuidMatch) {
+    return { name: "generate_uuid", input: "" };
+  }
+
+  if (
+    [
+      "generate a unique id",
+      "generate an id",
+      "generate a uuid",
+      "create a unique id",
+      "create an id",
+      "create a uuid",
+      "new ticket id",
+      "unique ticket id",
+      "unique identifier"
+    ].some((phrase) => lower.includes(phrase))
+  ) {
+    return { name: "generate_uuid", input: "" };
+  }
+
   return null;
 }
 
 export class LangChainAgentManager {
   framework = "LangChain Agent";
-  toolNames = ["calculator", "resolve_datetime", "format_json"];
+  toolNames = ["calculator", "resolve_datetime", "generate_uuid"];
   modelIdentifiers = ALL_MODEL_IDENTIFIERS;
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. " +
-    "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or parse tomorrow at 2pm').";
+    "If you want a specific behavior, ask explicitly " +
+    "(for example: 'calculate 20 * 5', 'parse tomorrow at 2pm', or 'generate a unique ticket ID').";
 
   constructor(model, stream = true) {
     const config = getIdentifierMappings()[model];
@@ -104,6 +119,8 @@ export class LangChainAgentManager {
       tools: AGENT_TOOLS,
       systemPrompt:
         "You are an AI assistant that can use tools. " +
+        "Use the calculator for arithmetic, resolve_datetime for date/time phrases, " +
+        "and generate_uuid when the user asks for a unique ID, UUID, ticket ID, or identifier. " +
         "Think step-by-step, use tools when needed, and return a concise final answer."
     });
   }

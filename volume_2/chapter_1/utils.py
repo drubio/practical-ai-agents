@@ -47,7 +47,7 @@ def _print_cli_banner(manager: AgentManagerProtocol) -> None:
     trigger_help = getattr(
         manager,
         "tool_trigger_help",
-        "Tools are triggered automatically based on your prompt. You can mention a specific task (for example: summarize, extract tasks, or calculate) to encourage tool use.",
+        "Tools are triggered automatically based on your prompt. You can mention a specific task (for example: calculate) to encourage tool use.",
     )
     print(f"\n{trigger_help}")
     print("Tip: multi-line pasted text is accepted as a single prompt.")

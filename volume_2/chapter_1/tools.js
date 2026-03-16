@@ -3,25 +3,10 @@
  */
 
 import * as chrono from "chrono-node";
+import { randomUUID } from "crypto";
+
 function normalizeWhitespace(text) {
   return String(text ?? "").replace(/\s+/g, " ").trim();
-}
-
-function safeParseJsonOrString(value) {
-  if (typeof value !== "string") {
-    return value;
-  }
-
-  const stripped = value.trim();
-  if (!stripped) {
-    return value;
-  }
-
-  try {
-    return JSON.parse(stripped);
-  } catch {
-    return value;
-  }
 }
 
 export function resolveDatetime(text) {
@@ -47,20 +32,6 @@ export function resolveDatetime(text) {
       minute: "2-digit"
     })
   };
-}
-
-export function formatJson(value) {
-  const parsed = safeParseJsonOrString(value);
-
-  try {
-    return {
-      formatted_json: JSON.stringify(parsed, null, 2)
-    };
-  } catch (error) {
-    return {
-      error: `Could not format JSON: ${error.message}`
-    };
-  }
 }
 
 export function calculator(expression) {
@@ -93,6 +64,7 @@ export function calculator(expression) {
       ...Object.keys(scope),
       `"use strict"; return (${cleaned});`
     );
+
     return {
       expression: cleaned,
       result: evaluator(...Object.values(scope))
@@ -104,16 +76,22 @@ export function calculator(expression) {
   }
 }
 
+export function generateUUID() {
+  return {
+    uuid: randomUUID()
+  };
+}
+
 export const tools = {
   calculator,
   resolve_datetime: resolveDatetime,
-  format_json: formatJson
+  generate_uuid: generateUUID
 };
 
 const TOOL_DESCRIPTIONS = {
   calculator: "Safely evaluate arithmetic expressions.",
   resolve_datetime: "Resolve date/time phrases into ISO and human-readable values.",
-  format_json: "Pretty-format JSON-compatible input."
+  generate_uuid: "Generate a unique UUID identifier."
 };
 
 export function listTools() {

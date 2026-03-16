@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import ast
-import json
 import math
 import re
+import uuid
 from typing import Any, Callable, Dict
 
 from dateutil import parser as date_parser
@@ -13,18 +13,6 @@ from dateutil import parser as date_parser
 
 def _normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
-
-
-def _safe_parse_json_or_string(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    stripped = value.strip()
-    if not stripped:
-        return value
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        return value
 
 
 def resolve_datetime(text: str) -> Dict[str, Any]:
@@ -45,16 +33,6 @@ def resolve_datetime(text: str) -> Dict[str, Any]:
     }
 
 
-def format_json(value: Any) -> Dict[str, Any]:
-    """Pretty-formats JSON-compatible input."""
-    parsed = _safe_parse_json_or_string(value)
-    try:
-        formatted = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
-        return {"formatted_json": formatted}
-    except (TypeError, ValueError) as exc:
-        return {"error": f"Could not format JSON: {exc}"}
-
-
 class _SafeMathEvaluator(ast.NodeVisitor):
     ALLOWED_BINOPS = {
         ast.Add: lambda a, b: a + b,
@@ -65,14 +43,17 @@ class _SafeMathEvaluator(ast.NodeVisitor):
         ast.Mod: lambda a, b: a % b,
         ast.Pow: lambda a, b: a**b,
     }
+
     ALLOWED_UNARYOPS = {
         ast.UAdd: lambda a: +a,
         ast.USub: lambda a: -a,
     }
+
     ALLOWED_NAMES = {
         "pi": math.pi,
         "e": math.e,
     }
+
     ALLOWED_FUNCS = {
         "sqrt": math.sqrt,
         "sin": math.sin,
@@ -101,29 +82,39 @@ class _SafeMathEvaluator(ast.NodeVisitor):
         operator = type(node.op)
         if operator not in self.ALLOWED_BINOPS:
             raise ValueError(f"Unsupported operator: {operator.__name__}")
+
         left = self.visit(node.left)
         right = self.visit(node.right)
+
         return self.ALLOWED_BINOPS[operator](left, right)
 
     def visit_UnaryOp(self, node: ast.UnaryOp) -> Any:
         operator = type(node.op)
+
         if operator not in self.ALLOWED_UNARYOPS:
             raise ValueError(f"Unsupported unary operator: {operator.__name__}")
+
         operand = self.visit(node.operand)
+
         return self.ALLOWED_UNARYOPS[operator](operand)
 
     def visit_Name(self, node: ast.Name) -> Any:
         if node.id in self.ALLOWED_NAMES:
             return self.ALLOWED_NAMES[node.id]
+
         raise ValueError(f"Unsupported name: {node.id}")
 
     def visit_Call(self, node: ast.Call) -> Any:
         if not isinstance(node.func, ast.Name):
             raise ValueError("Only direct function calls are allowed.")
+
         func_name = node.func.id
+
         if func_name not in self.ALLOWED_FUNCS:
             raise ValueError(f"Unsupported function: {func_name}")
+
         args = [self.visit(arg) for arg in node.args]
+
         return self.ALLOWED_FUNCS[func_name](*args)
 
     def generic_visit(self, node: ast.AST) -> Any:
@@ -133,6 +124,7 @@ class _SafeMathEvaluator(ast.NodeVisitor):
 def calculator(expression: str) -> Dict[str, Any]:
     """Safely evaluates arithmetic expressions."""
     expression = _normalize_whitespace(expression)
+
     if not expression:
         return {"error": "No expression provided."}
 
@@ -140,24 +132,34 @@ def calculator(expression: str) -> Dict[str, Any]:
         tree = ast.parse(expression, mode="eval")
         evaluator = _SafeMathEvaluator()
         result = evaluator.visit(tree)
+
         return {
             "expression": expression,
             "result": result,
         }
+
     except Exception as exc:
         return {"error": f"Could not evaluate expression: {exc}"}
+
+
+def generate_uuid(_: Any = None) -> Dict[str, Any]:
+    """Generate a unique UUID identifier."""
+    return {
+        "uuid": str(uuid.uuid4())
+    }
 
 
 TOOLS: Dict[str, Callable[[Any], Dict[str, Any]]] = {
     "calculator": calculator,
     "resolve_datetime": resolve_datetime,
-    "format_json": format_json,
+    "generate_uuid": generate_uuid,
 }
+
 
 TOOL_DESCRIPTIONS: Dict[str, str] = {
     "calculator": "Safely evaluate arithmetic expressions.",
     "resolve_datetime": "Resolve date/time phrases into ISO and human-readable values.",
-    "format_json": "Pretty-format JSON-compatible input.",
+    "generate_uuid": "Generate a unique UUID identifier.",
 }
 
 
@@ -175,6 +177,7 @@ def build_tools_prompt() -> str:
         "You can use the following local deterministic tools:",
         "",
     ]
+
     for name, description in TOOL_DESCRIPTIONS.items():
         lines.append(f"- {name}: {description}")
 
@@ -186,15 +189,18 @@ def build_tools_prompt() -> str:
         "",
         "After receiving the tool result, continue your reasoning using the observation.",
     ])
+
     return "\n".join(lines)
 
 
 def run_tool(name: str, input_data: Any) -> Dict[str, Any]:
     tool = TOOLS.get(name)
+
     if tool is None:
         return {"error": f"Tool '{name}' not found."}
 
     try:
         return tool(input_data)
+
     except Exception as exc:
         return {"error": f"Tool '{name}' failed: {exc}"}

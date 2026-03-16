@@ -31,11 +31,22 @@ from models import ALL_MODEL_IDENTIFIERS, resolve_llamaindex_model
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
 
 
-
 TOOLS = [
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "calculator", tools.calculator), name="calculator"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "resolve_datetime", tools.resolve_datetime), name="resolve_datetime"),
-    FunctionTool.from_defaults(fn=log_tool_call(logger, "format_json", tools.format_json), name="format_json"),
+    FunctionTool.from_defaults(
+        fn=log_tool_call(logger, "calculator", tools.calculator),
+        name="calculator",
+        description="Safely evaluate arithmetic expressions.",
+    ),
+    FunctionTool.from_defaults(
+        fn=log_tool_call(logger, "resolve_datetime", tools.resolve_datetime),
+        name="resolve_datetime",
+        description="Resolve date/time phrases.",
+    ),
+    FunctionTool.from_defaults(
+        fn=log_tool_call(logger, "generate_uuid", tools.generate_uuid),
+        name="generate_uuid",
+        description="Generate a unique UUID identifier.",
+    ),
 ]
 
 
@@ -51,29 +62,51 @@ def _pick_local_tool(topic: str) -> tuple[str, str] | None:
     if any(op in text for op in ["+", "-", "*", "/", "="]):
         return ("calculator", text.replace("=", " ").strip())
 
-    if text.lstrip().startswith(("{", "[")):
-        return ("format_json", text)
-
-    format_match = re.match(r"^(?:format\s+json|pretty\s+print\s+json)\s*[:\-]?\s*(.+)$", text, flags=re.IGNORECASE)
-    if format_match:
-        return ("format_json", format_match.group(1).strip())
-
-    datetime_match = re.match(r"^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$", text, flags=re.IGNORECASE)
+    datetime_match = re.match(
+        r"^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$",
+        text,
+        flags=re.IGNORECASE,
+    )
     if datetime_match:
         return ("resolve_datetime", datetime_match.group(1).strip())
 
     if any(token in text.lower() for token in ["tomorrow", "next week", "next month", "today", " at "]):
         return ("resolve_datetime", text)
 
+    uuid_match = re.match(
+        r"^(?:generate|create|make)\s+(?:a\s+)?(?:unique\s+)?(?:uuid|id|identifier|ticket id|ticket identifier)\b.*$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if uuid_match:
+        return ("generate_uuid", "")
+
+    if any(
+        phrase in text.lower()
+        for phrase in [
+            "generate a unique id",
+            "generate an id",
+            "generate a uuid",
+            "create a unique id",
+            "create an id",
+            "create a uuid",
+            "new ticket id",
+            "unique ticket id",
+            "unique identifier",
+        ]
+    ):
+        return ("generate_uuid", "")
+
     return None
 
 
 class LlamaIndexAgentManager:
     framework = "LlamaIndex Agent"
-    tool_names = ["calculator", "resolve_datetime", "format_json"]
+    tool_names = ["calculator", "resolve_datetime", "generate_uuid"]
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
-        "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or parse tomorrow at 2pm')."
+        "If you want a specific behavior, ask explicitly "
+        "(for example: 'calculate 20 * 5', 'parse tomorrow at 2pm', or 'generate a unique ticket ID')."
     )
 
     def __init__(self, model: str, stream: bool = False):
@@ -95,8 +128,10 @@ class LlamaIndexAgentManager:
             tools=TOOLS,
             system_prompt=(
                 "You are an AI assistant that can use tools. "
+                "Use the calculator for arithmetic, resolve_datetime for date/time phrases, "
+                "and generate_uuid when the user asks for a unique ID, UUID, ticket ID, or identifier. "
                 "Think step-by-step, use tools when needed, and return a concise final answer."
-            )
+            ),
         )
 
     def ask_question(self, topic: str) -> Dict[str, Any]:

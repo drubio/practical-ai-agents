@@ -44,12 +44,12 @@ def resolve_datetime_tool(text: str):
 
 
 @tool
-def format_json_tool(input: str):
-    """Pretty-format JSON-compatible input."""
-    return log_tool_call(logger, "format_json", tools.format_json)(input)
+def generate_uuid_tool(_: str = ""):
+    """Generate a unique UUID identifier."""
+    return log_tool_call(logger, "generate_uuid", tools.generate_uuid)()
 
 
-AGENT_TOOLS = [calculator_tool, resolve_datetime_tool, format_json_tool]
+AGENT_TOOLS = [calculator_tool, resolve_datetime_tool, generate_uuid_tool]
 
 
 def _pick_local_tool(topic: str) -> tuple[str, str] | None:
@@ -64,31 +64,52 @@ def _pick_local_tool(topic: str) -> tuple[str, str] | None:
     if any(op in text for op in ["+", "-", "*", "/", "="]):
         return ("calculator", text.replace("=", " ").strip())
 
-    if text.lstrip().startswith(("{", "[")):
-        return ("format_json", text)
-
-    format_match = re.match(r"^(?:format\s+json|pretty\s+print\s+json)\s*[:\-]?\s*(.+)$", text, flags=re.IGNORECASE)
-    if format_match:
-        return ("format_json", format_match.group(1).strip())
-
-    datetime_match = re.match(r"^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$", text, flags=re.IGNORECASE)
+    datetime_match = re.match(
+        r"^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$",
+        text,
+        flags=re.IGNORECASE,
+    )
     if datetime_match:
         return ("resolve_datetime", datetime_match.group(1).strip())
 
     if any(token in text.lower() for token in ["tomorrow", "next week", "next month", "today", " at "]):
         return ("resolve_datetime", text)
 
-    return None
+    uuid_match = re.match(
+        r"^(?:generate|create|make)\s+(?:a\s+)?(?:unique\s+)?(?:uuid|id|identifier|ticket id|ticket identifier)\b.*$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if uuid_match:
+        return ("generate_uuid", "")
 
+    if any(
+        phrase in text.lower()
+        for phrase in [
+            "generate a unique id",
+            "generate an id",
+            "generate a uuid",
+            "create a unique id",
+            "create an id",
+            "create a uuid",
+            "new ticket id",
+            "unique ticket id",
+            "unique identifier",
+        ]
+    ):
+        return ("generate_uuid", "")
+
+    return None
 
 
 class LangChainAgentManager:
     framework = "LangChain Agent"
-    tool_names = ["calculator", "resolve_datetime", "format_json"]
+    tool_names = ["calculator", "resolve_datetime", "generate_uuid"]
     model_identifiers = ALL_MODEL_IDENTIFIERS
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
-        "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or parse tomorrow at 2pm')."
+        "If you want a specific behavior, ask explicitly "
+        "(for example: 'calculate 20 * 5', 'parse tomorrow at 2pm', or 'generate a unique ticket ID')."
     )
 
     def __init__(self, model: str, stream: bool = True):
@@ -96,12 +117,19 @@ class LangChainAgentManager:
         self.provider = config.provider if config else "unknown"
         self.model = config.model if config else model
         self.stream = stream
-        logger.info("Initializing LangChain agent | provider=%s | model=%s | stream=%s", self.provider, self.model, self.stream)
+        logger.info(
+            "Initializing LangChain agent | provider=%s | model=%s | stream=%s",
+            self.provider,
+            self.model,
+            self.stream,
+        )
         self.agent = create_agent(
             model=f"{self.provider}:{self.model}",
             tools=AGENT_TOOLS,
             system_prompt=(
                 "You are an AI assistant that can use tools. "
+                "Use the calculator for arithmetic, resolve_datetime for date/time phrases, "
+                "and generate_uuid when the user asks for a unique ID, UUID, ticket ID, or identifier. "
                 "Think step-by-step, use tools when needed, and return a concise final answer."
             ),
         )
@@ -127,11 +155,10 @@ class LangChainAgentManager:
             logger.info("Processing prompt with LLM | chars=%s", len(topic))
             input = {"messages": [{"role": "user", "content": topic}]}
             if self.stream:
-                result = self.agent.stream(input,
-                                           stream_mode=["messages", "updates"])
+                result = self.agent.stream(input, stream_mode=["messages", "updates"])
             else:
                 result = self.agent.invoke(input)
-                
+
             return {
                 "success": True,
                 "stream": self.stream,
@@ -139,8 +166,8 @@ class LangChainAgentManager:
                 "model": self.model,
                 "prompt": topic,
                 "response": result,
-            }     
-                
+            }
+
         except Exception as exc:
             logger.exception("LangChain ask_question failed")
             return {

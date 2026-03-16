@@ -348,7 +348,7 @@ function printCliBanner(manager) {
     console.log("Available local tools: (none declared)");
   }
 
-  console.log(`\n${manager.toolTriggerHelp || "Tools are selected automatically from your prompt."}`);
+  console.log(`\n${manager.toolTriggerHelp || "Tools are selected automatically from your prompt. You can mention a specific task (for example: calculate) to encourage tool use."}`);
   console.log("Tip: multi-line pasted text is accepted as a single prompt.");
   console.log("====================================");
 }
