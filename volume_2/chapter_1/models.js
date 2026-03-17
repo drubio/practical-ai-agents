@@ -17,6 +17,7 @@ export const ALL_MODEL_IDENTIFIERS = [
   "xai_grok_3_mini",
 ];
 
+
 export function getIdentifierMappings() {
   return {
     openai_gpt_5_4_pro: { name: "openai_gpt_5_4", provider: "openai", model: "gpt-5.4-pro" },
@@ -25,9 +26,9 @@ export function getIdentifierMappings() {
     anthropic_claude_opus_4_6: { name: "anthropic_claude_opus_4_6", provider: "anthropic", model: "claude-opus-4-6" },
     anthropic_claude_sonnet_4_6: { name: "anthropic_claude_sonnet_4_6", provider: "anthropic", model: "claude-sonnet-4-6" },
     anthropic_claude_haiku_4_5: { name: "anthropic_claude_haiku_4_5", provider: "anthropic", model: "claude-haiku-4-5" },
-    google_genai_gemini_3_1_pro: { name: "google_genai_gemini_3_1_pro", provider: "google_genai", model: "gemini-3.1-pro-preview" },
-    google_genai_gemini_3_flash: { name: "google_genai_gemini_3_flash", provider: "google_genai", model: "gemini-3-flash-preview" },
-    google_genai_gemini_3_1_flash_lite: { name: "google_genai_gemini_3_1_flash_lite", provider: "google_genai", model: "gemini-3.1-flash-lite-preview" },
+    google_genai_gemini_3_1_pro: { name: "google_genai_gemini_3_1_pro", provider: "google-genai", model: "gemini-3.1-pro-preview" },
+    google_genai_gemini_3_flash: { name: "google_genai_gemini_3_flash", provider: "google-genai", model: "gemini-3-flash-preview" },
+    google_genai_gemini_3_1_flash_lite: { name: "google_genai_gemini_3_1_flash_lite", provider: "google-genai", model: "gemini-3.1-flash-lite-preview" },
     xai_grok_4: { name: "xai_grok_4", provider: "xai", model: "grok-4" },
     xai_grok_3: { name: "xai_grok_3", provider: "xai", model: "grok-3" },      
     xai_grok_3_mini: { name: "xai_grok_3_mini", provider: "xai", model: "grok-3-mini" }
@@ -44,7 +45,7 @@ function inferProvider(promptLower, selectedTools) {
 
   if (["chatgpt", "openai", "gpt"].some((token) => promptLower.includes(token))) return "openai";
   if (["claude", "anthropic"].some((token) => promptLower.includes(token))) return "anthropic";
-  if (["gemini", "google"].some((token) => promptLower.includes(token))) return "google_genai";
+  if (["gemini", "google"].some((token) => promptLower.includes(token))) return "google-genai";
   if (["grok", "xai"].some((token) => promptLower.includes(token))) return "xai";
 
   if (socialMarkers.some((token) => promptLower.includes(token))) return "xai";
@@ -52,7 +53,7 @@ function inferProvider(promptLower, selectedTools) {
   const calculatorIsPrimary = tools.has("calculator") && tools.size <= 2;
   if (codingMarkers.some((token) => promptLower.includes(token)) || calculatorIsPrimary) return "anthropic";
 
-  if (researchMarkers.some((token) => promptLower.includes(token))) return "google_genai";
+  if (researchMarkers.some((token) => promptLower.includes(token))) return "google-genai";
 
   return "openai";
 }
@@ -89,7 +90,7 @@ export function routeModelForPrompt(prompt, selectedTools, modelIdentifiers = AL
       standard: "anthropic_claude_sonnet_4_6",
       lite: "anthropic_claude_haiku_4_5"
     },
-    google_genai: {
+    "google-genai": {
       advanced: "google_genai_gemini_3_1_pro",
       standard: "google_genai_gemini_3_flash",
       lite: "google_genai_gemini_3_1_flash_lite"
@@ -159,6 +160,13 @@ export const LLAMAINDEX_PROVIDER_CONFIG = {
     }
   }),
   google_genai: () => ({
+    llmClass: Gemini,
+    llmConfig: {
+      model: null,
+      apiKey: process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY
+    }
+  }),
+  "google-genai": () => ({
     llmClass: Gemini,
     llmConfig: {
       model: null,

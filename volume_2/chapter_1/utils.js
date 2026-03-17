@@ -280,6 +280,7 @@ const PROVIDER_ENV_KEYS = {
   anthropic: ["ANTHROPIC_API_KEY"],
   google: ["GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"],
   google_genai: ["GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"],
+  "google-genai": ["GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"],
   xai: ["XAI_API_KEY"]
 };
 

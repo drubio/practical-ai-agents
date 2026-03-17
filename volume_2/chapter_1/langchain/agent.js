@@ -59,6 +59,9 @@ export class LangChainAgentManager {
     const config = getIdentifierMappings()[model];
     this.provider = config?.provider ?? "unknown";
     this.model = config?.model ?? model;
+    const selectedModel = this.provider && this.provider !== "unknown"
+      ? `${this.provider}:${this.model}`
+      : this.model;
     this.stream = stream;
 
     logger.info(
@@ -66,7 +69,7 @@ export class LangChainAgentManager {
     );
 
     this.agent = createAgent({
-      model: `${this.provider}:${this.model}`,
+      model: selectedModel,
       tools: AGENT_TOOLS,
       systemPrompt:
         "You are an AI assistant that can use tools. " +
