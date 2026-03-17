@@ -12,11 +12,11 @@ import {
   selectStartupModel,
   runMode
 } from "../../chapter_1/utils.js";
-import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../../chapter_1/models.js";
+import { ALL_MODEL_IDENTIFIERS, routeModelForPrompt } from "../../chapter_1/models.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.langchain.agent_routing");
 
-export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "format_json"];
+export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "generate_uuid"];
 
 export function buildTools(logToolCallFn, activeLogger) {
   return {
@@ -30,11 +30,11 @@ export function buildTools(logToolCallFn, activeLogger) {
       description: "Resolve datetime from text.",
       schema: z.object({ text: z.string() })
     }),
-    format_json: tool(logToolCallFn(activeLogger, "format_json", ({ input }) => tools.formatJson(input)), {
-      name: "format_json",
-      description: "Format JSON-like input.",
-      schema: z.object({ input: z.any() })
-    })
+    generate_uuid: tool(logToolCallFn(activeLogger, "generate_uuid", () => tools.generateUUID()), {
+      name: "generate_uuid",
+      description: "Generate unique UUID.",
+      schema: z.object({})
+    }),
   };
 }
 
@@ -43,54 +43,17 @@ export function selectTools(logToolCallFn, activeLogger, toolNames) {
   return toolNames.map((name) => available[name]);
 }
 
-function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function triggerMatch(promptLower, trigger) {
-  if (trigger.includes(" ") || [":", "/", ".", "-"].some((ch) => trigger.includes(ch))) {
-    return promptLower.includes(trigger);
-  }
-  return new RegExp(`\\b${escapeRegex(trigger)}\\b`).test(promptLower);
-}
-
-export function routeToolsForPrompt(prompt) {
-  const promptLower = prompt.toLowerCase();
-  const selected = new Set();
-
-  const keywordRoutes = {
-    calculator: ["calculate", "math", "equation", "percentage"],
-    resolve_datetime: ["date", "time", "schedule", "tomorrow", "next week"],
-    format_json: ["json", "yaml", "format", "schema"]
-  };
-
-  for (const [toolName, triggers] of Object.entries(keywordRoutes)) {
-    if (triggers.some((trigger) => triggerMatch(promptLower, trigger))) {
-      selected.add(toolName);
-    }
-  }
-
-  const hasMathExpression = ["+", "*", "/", "="].some((op) => prompt.includes(op)) || prompt.includes(" - ");
-  if (hasMathExpression) {
-    selected.add("calculator");
-  }
-
-  if (!selected.size) return ALL_TOOL_NAMES;
-
-  return ALL_TOOL_NAMES.filter((name) => selected.has(name));
-}
-
 export class LangChainAgentRoutingManager {
   framework = "LangChain Agent Routing";
   toolNames = ALL_TOOL_NAMES;
   modelIdentifiers = ALL_MODEL_IDENTIFIERS;
   toolTriggerHelp =
-    "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or format this JSON').";
+    "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm').";
 
   constructor(model, stream = true) {
-    const config = getIdentifierMappings()[model];
-    this.provider = config?.provider ?? "unknown";
-    this.model = config?.model ?? model;
+    this.modelIdentifier = model;
+    this.provider = "unknown";
+    this.model = model;
     this.stream = stream;
     this.agentCache = new Map();
     logger.info(
@@ -119,8 +82,13 @@ export class LangChainAgentRoutingManager {
   async askQuestion(topic) {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
-      const selectedToolNames = routeToolsForPrompt(topic);
-      const agent = this.getAgent(this.provider, this.model, selectedToolNames);
+      const selectedToolNames = ALL_TOOL_NAMES;
+      const selectedModel = routeModelForPrompt(topic, selectedToolNames, ALL_MODEL_IDENTIFIERS);
+      this.provider = selectedModel.provider;
+      this.model = selectedModel.model;
+      this.modelIdentifier = selectedModel.name;
+
+      const agent = this.getAgent(selectedModel.provider, selectedModel.model, selectedToolNames);
       const input = { messages: [{ role: "user", content: topic }] };
       const result = this.stream
         ? await agent.stream(input, { streamMode: ["messages", "updates"] })
@@ -129,8 +97,10 @@ export class LangChainAgentRoutingManager {
       return {
         success: true,
         stream: this.stream,
-        provider: this.provider,
-        model: this.model,
+        provider: selectedModel.provider,
+        model: selectedModel.model,
+        modelName: selectedModel.name,
+        modelTier: selectedModel.tier,
         selectedTools: selectedToolNames,
         prompt: topic,
         response: result

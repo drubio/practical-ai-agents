@@ -149,6 +149,7 @@ def generate_uuid(_: Any = None) -> Dict[str, Any]:
     }
 
 
+
 TOOLS: Dict[str, Callable[[Any], Dict[str, Any]]] = {
     "calculator": calculator,
     "resolve_datetime": resolve_datetime,
@@ -161,6 +162,98 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "resolve_datetime": "Resolve date/time phrases into ISO and human-readable values.",
     "generate_uuid": "Generate a unique UUID identifier.",
 }
+
+
+DEFAULT_TOOL_PRIORITY = ["calculator", "resolve_datetime", "generate_uuid"]
+DEFAULT_KEYWORD_ROUTES = {
+    "calculator": ["calculate", "calc", "compute", "math", "equation", "percentage"],
+    "resolve_datetime": ["resolve datetime", "parse date", "parse datetime", "when is", "tomorrow", "next week", "next month", "today"],
+    "generate_uuid": ["uuid", "unique id", "ticket id", "identifier"],
+}
+
+
+def _trigger_match(prompt_l: str, trigger: str) -> bool:
+    if " " in trigger or any(ch in trigger for ch in [":", "/", ".", "-"]):
+        return trigger in prompt_l
+    return re.search(rf"\b{re.escape(trigger)}\b", prompt_l) is not None
+
+
+def route_tool_for_prompt(prompt: str, available_tool_names: list[str] | None = None) -> tuple[str, str] | None:
+    """Route a prompt to a single deterministic local tool call when confidence is high."""
+    text = (prompt or "").strip()
+    if not text:
+        return None
+
+    available = set(available_tool_names or DEFAULT_TOOL_PRIORITY)
+
+    calculator_match = re.match(r"^(?:calculate|calc|compute)\s+(.+)$", text, flags=re.IGNORECASE)
+    if calculator_match and "calculator" in available:
+        return ("calculator", calculator_match.group(1).strip())
+
+    if any(op in text for op in ["+", "-", "*", "/", "="]) and "calculator" in available:
+        return ("calculator", text.replace("=", " ").strip())
+
+    datetime_match = re.match(
+        r"^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if datetime_match and "resolve_datetime" in available:
+        return ("resolve_datetime", datetime_match.group(1).strip())
+
+    if any(token in text.lower() for token in ["tomorrow", "next week", "next month", "today", " at "]) and "resolve_datetime" in available:
+        return ("resolve_datetime", text)
+
+    uuid_match = re.match(
+        r"^(?:generate|create|make)\s+(?:a\s+)?(?:unique\s+)?(?:uuid|id|identifier|ticket id|ticket identifier)\b.*$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if uuid_match and "generate_uuid" in available:
+        return ("generate_uuid", "")
+
+    if any(
+        phrase in text.lower()
+        for phrase in [
+            "generate a unique id",
+            "generate an id",
+            "generate a uuid",
+            "create a unique id",
+            "create an id",
+            "create a uuid",
+            "new ticket id",
+            "unique ticket id",
+            "unique identifier",
+        ]
+    ) and "generate_uuid" in available:
+        return ("generate_uuid", "")
+
+
+    return None
+
+
+def route_tools_for_prompt(prompt: str, available_tool_names: list[str] | None = None) -> list[str]:
+    """Route a prompt to a minimal relevant tool set, with stable fallback ordering."""
+    text = prompt or ""
+    prompt_l = text.lower()
+    available = available_tool_names or DEFAULT_TOOL_PRIORITY
+    available_set = set(available)
+    selected = set()
+
+    for tool_name, triggers in DEFAULT_KEYWORD_ROUTES.items():
+        if tool_name not in available_set:
+            continue
+        if any(_trigger_match(prompt_l, trigger) for trigger in triggers):
+            selected.add(tool_name)
+
+    has_math_expression = any(op in text for op in ["+", "*", "/", "="]) or (" - " in text)
+    if has_math_expression and "calculator" in available_set:
+        selected.add("calculator")
+
+    if not selected:
+        return [name for name in DEFAULT_TOOL_PRIORITY if name in available_set]
+
+    return [name for name in DEFAULT_TOOL_PRIORITY if name in selected and name in available_set]
 
 
 def list_tools() -> Dict[str, Any]:

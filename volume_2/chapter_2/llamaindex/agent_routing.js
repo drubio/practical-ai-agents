@@ -10,60 +10,23 @@ import {
   selectStartupModel,
   runMode
 } from "../../chapter_1/utils.js";
-import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM } from "../../chapter_1/models.js";
+import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, routeModelForPrompt } from "../../chapter_1/models.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.llamaindex.agent_routing");
 
-export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "format_json"];
+export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "generate_uuid"];
 
 export function buildToolMap(logToolCallFn, activeLogger) {
   return {
     calculator: logToolCallFn(activeLogger, "calculator", tools.calculator),
     resolve_datetime: logToolCallFn(activeLogger, "resolve_datetime", tools.resolveDatetime),
-    format_json: logToolCallFn(activeLogger, "format_json", tools.formatJson)
+    generate_uuid: logToolCallFn(activeLogger, "generate_uuid", tools.generateUUID),
   };
 }
 
 export function selectToolMap(logToolCallFn, activeLogger, toolNames) {
   const available = buildToolMap(logToolCallFn, activeLogger);
   return Object.fromEntries(toolNames.map((name) => [name, available[name]]));
-}
-
-function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function triggerMatch(promptLower, trigger) {
-  if (trigger.includes(" ") || [":", "/", ".", "-"].some((ch) => trigger.includes(ch))) {
-    return promptLower.includes(trigger);
-  }
-  return new RegExp(`\\b${escapeRegex(trigger)}\\b`).test(promptLower);
-}
-
-export function routeToolsForPrompt(prompt) {
-  const promptLower = prompt.toLowerCase();
-  const selected = new Set();
-
-  const keywordRoutes = {
-    calculator: ["calculate", "math", "equation", "percentage"],
-    resolve_datetime: ["date", "time", "schedule", "tomorrow", "next week"],
-    format_json: ["json", "yaml", "format", "schema"]
-  };
-
-  for (const [toolName, triggers] of Object.entries(keywordRoutes)) {
-    if (triggers.some((trigger) => triggerMatch(promptLower, trigger))) {
-      selected.add(toolName);
-    }
-  }
-
-  const hasMathExpression = ["+", "*", "/", "="].some((op) => prompt.includes(op)) || prompt.includes(" - ");
-  if (hasMathExpression) {
-    selected.add("calculator");
-  }
-
-  if (!selected.size) return ALL_TOOL_NAMES;
-
-  return ALL_TOOL_NAMES.filter((name) => selected.has(name));
 }
 
 function parseToolCall(text, activeToolMap) {
@@ -86,21 +49,35 @@ export class LlamaIndexAgentRoutingManager {
   toolNames = ALL_TOOL_NAMES;
   modelIdentifiers = ALL_MODEL_IDENTIFIERS;
   toolTriggerHelp =
-    "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or format this JSON').";
+    "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm').";
 
   constructor(model, stream = false) {
-    const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
-    this.provider = provider;
-    this.model = resolvedModel;
+    this.modelIdentifier = model;
+    this.provider = "unknown";
+    this.model = model;
     this.stream = stream;
     logger.info(`Initializing LlamaIndex routing agent | provider=${this.provider} | model=${this.model} | stream=${this.stream}`);
-    this.llm = llm;
+    this.llmCache = new Map();
+  }
+
+  getLlmByIdentifier(modelIdentifier) {
+    if (!this.llmCache.has(modelIdentifier)) {
+      this.llmCache.set(modelIdentifier, createLlamaindexLLM(modelIdentifier));
+    }
+    return this.llmCache.get(modelIdentifier);
   }
 
   async askQuestion(topic) {
     try {
       logger.info(`Processing prompt | chars=${topic.length}`);
-      const selectedToolNames = routeToolsForPrompt(topic);
+      const selectedToolNames = ALL_TOOL_NAMES;
+      const selectedModel = routeModelForPrompt(topic, selectedToolNames, ALL_MODEL_IDENTIFIERS);
+      this.modelIdentifier = selectedModel.name;
+
+      const resolved = this.getLlmByIdentifier(selectedModel.name);
+      this.provider = resolved.provider;
+      this.model = resolved.model;
+
       const toolMap = selectToolMap(logToolCall, logger, selectedToolNames);
 
       const messages = [
@@ -118,7 +95,7 @@ export class LlamaIndexAgentRoutingManager {
       ];
 
       for (let attempt = 0; attempt < 6; attempt += 1) {
-        const result = await this.llm.chat({ messages });
+        const result = await resolved.llm.chat({ messages });
         const text = extractOutputText(result).trim();
         const toolCall = parseToolCall(text, toolMap);
 
@@ -126,8 +103,10 @@ export class LlamaIndexAgentRoutingManager {
           return {
             success: true,
             stream: this.stream,
-            provider: this.provider,
-            model: this.model,
+            provider: resolved.provider,
+            model: resolved.model,
+            modelName: selectedModel.name,
+            modelTier: selectedModel.tier,
             selectedTools: selectedToolNames,
             prompt: topic,
             response: text

@@ -21,55 +21,6 @@ const TOOLS = {
   generate_uuid: () => logToolCall(logger, "generate_uuid", tools.generateUUID)()
 };
 
-function pickLocalTool(topic) {
-  const text = String(topic || "").trim();
-  if (!text) return null;
-
-  const calculatorMatch = text.match(/^(?:calculate|calc|compute)\s+(.+)$/i);
-  if (calculatorMatch) {
-    return { name: "calculator", input: calculatorMatch[1].trim() };
-  }
-
-  if (["+", "-", "*", "/", "="].some((op) => text.includes(op))) {
-    return { name: "calculator", input: text.replace(/=/g, " ").trim() };
-  }
-
-  const datetimeMatch = text.match(/^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$/i);
-  if (datetimeMatch) {
-    return { name: "resolve_datetime", input: datetimeMatch[1].trim() };
-  }
-
-  const lower = text.toLowerCase();
-  if (["tomorrow", "next week", "next month", "today", " at "].some((token) => lower.includes(token))) {
-    return { name: "resolve_datetime", input: text };
-  }
-
-  const uuidMatch = text.match(
-    /^(?:generate|create|make)\s+(?:a\s+)?(?:unique\s+)?(?:uuid|id|identifier|ticket id|ticket identifier)\b.*$/i
-  );
-  if (uuidMatch) {
-    return { name: "generate_uuid", input: "" };
-  }
-
-  if (
-    [
-      "generate a unique id",
-      "generate an id",
-      "generate a uuid",
-      "create a unique id",
-      "create an id",
-      "create a uuid",
-      "new ticket id",
-      "unique ticket id",
-      "unique identifier"
-    ].some((phrase) => lower.includes(phrase))
-  ) {
-    return { name: "generate_uuid", input: "" };
-  }
-
-  return null;
-}
-
 function parseToolCall(text) {
   const match = text.match(/TOOL:\s*([a-z_]+)\s*\nINPUT:\s*([\s\S]*)$/i);
   if (!match) return null;
@@ -168,7 +119,7 @@ export class LlamaIndexAgentManager {
 
   async askQuestion(topic) {
     try {
-      const localToolCall = pickLocalTool(topic);
+      const localToolCall = tools.routeToolForPrompt(topic, this.toolNames);
       if (localToolCall) {
         logger.info(`Processing prompt locally | tool=${localToolCall.name} | chars=${topic.length}`);
         const observation = tools.runTool(localToolCall.name, localToolCall.input);

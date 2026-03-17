@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import re
 from typing import Any, Dict
 import sys
 
@@ -50,56 +49,6 @@ TOOLS = [
 ]
 
 
-def _pick_local_tool(topic: str) -> tuple[str, str] | None:
-    text = (topic or "").strip()
-    if not text:
-        return None
-
-    calculator_match = re.match(r"^(?:calculate|calc|compute)\s+(.+)$", text, flags=re.IGNORECASE)
-    if calculator_match:
-        return ("calculator", calculator_match.group(1).strip())
-
-    if any(op in text for op in ["+", "-", "*", "/", "="]):
-        return ("calculator", text.replace("=", " ").strip())
-
-    datetime_match = re.match(
-        r"^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if datetime_match:
-        return ("resolve_datetime", datetime_match.group(1).strip())
-
-    if any(token in text.lower() for token in ["tomorrow", "next week", "next month", "today", " at "]):
-        return ("resolve_datetime", text)
-
-    uuid_match = re.match(
-        r"^(?:generate|create|make)\s+(?:a\s+)?(?:unique\s+)?(?:uuid|id|identifier|ticket id|ticket identifier)\b.*$",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if uuid_match:
-        return ("generate_uuid", "")
-
-    if any(
-        phrase in text.lower()
-        for phrase in [
-            "generate a unique id",
-            "generate an id",
-            "generate a uuid",
-            "create a unique id",
-            "create an id",
-            "create a uuid",
-            "new ticket id",
-            "unique ticket id",
-            "unique identifier",
-        ]
-    ):
-        return ("generate_uuid", "")
-
-    return None
-
-
 class LlamaIndexAgentManager:
     framework = "LlamaIndex Agent"
     tool_names = ["calculator", "resolve_datetime", "generate_uuid"]
@@ -136,7 +85,7 @@ class LlamaIndexAgentManager:
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
-            local_tool_call = _pick_local_tool(topic)
+            local_tool_call = tools.route_tool_for_prompt(topic, self.tool_names)
             if local_tool_call:
                 name, tool_input = local_tool_call
                 logger.info("Processing prompt locally | tool=%s | chars=%s", name, len(topic))

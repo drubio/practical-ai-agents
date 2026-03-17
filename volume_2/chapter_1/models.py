@@ -171,7 +171,7 @@ def _infer_tier(prompt_l: str, selected_tools: Iterable[str]) -> str:
     tools = {name.lower() for name in selected_tools}
 
     advanced_tools = {"analyze_text", "extract_tasks", "route_workflow", "summarize_text"}
-    lite_tools = {"calculator", "resolve_datetime", "format_json", "extract_keywords", "score_priority"}
+    lite_tools = {"calculator", "resolve_datetime", "extract_keywords", "score_priority"}
 
     advanced_markers = {
         "architecture",

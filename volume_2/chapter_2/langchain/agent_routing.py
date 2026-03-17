@@ -6,7 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 from typing import Any, Dict, Sequence
-import re
 
 CHAPTER_1_ROOT = Path(__file__).resolve().parents[2] / "chapter_1"
 if str(CHAPTER_1_ROOT) not in sys.path:
@@ -24,7 +23,7 @@ logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
 ALL_TOOL_NAMES = [
     "calculator",
     "resolve_datetime",
-    "format_json",
+    "generate_uuid",
 ]
 
 
@@ -42,14 +41,14 @@ def build_tools(log_tool_call_fn, active_logger):
         return log_tool_call_fn(active_logger, "resolve_datetime", tools.resolve_datetime)(text)
 
     @tool
-    def format_json_tool(input: str):
-        """Format JSON-like input."""
-        return log_tool_call_fn(active_logger, "format_json", tools.format_json)(input)
+    def generate_uuid_tool(_: str = ""):
+        """Generate unique UUID."""
+        return log_tool_call_fn(active_logger, "generate_uuid", tools.generate_uuid)()
 
     return {
         "calculator": calculator_tool,
         "resolve_datetime": resolve_datetime_tool,
-        "format_json": format_json_tool,
+        "generate_uuid": generate_uuid_tool,
     }
 
 
@@ -58,44 +57,13 @@ def select_tools(log_tool_call_fn, active_logger, tool_names):
     return [available[name] for name in tool_names]
 
 
-def _trigger_match(prompt_l: str, trigger: str) -> bool:
-    if " " in trigger or any(ch in trigger for ch in [":", "/", ".", "-"]):
-        return trigger in prompt_l
-    return re.search(rf"\b{re.escape(trigger)}\b", prompt_l) is not None
-
-
-def route_tools_for_prompt(prompt: str) -> list[str]:
-    """Select relevant tools from the prompt and keep the list minimal when possible."""
-    prompt_l = prompt.lower()
-    selected = set()
-
-    keyword_routes = {
-        "calculator": ["calculate", "math", "equation", "percentage"],
-        "resolve_datetime": ["date", "time", "schedule", "tomorrow", "next week"],
-        "format_json": ["json", "yaml", "format", "schema"],
-    }
-
-    for tool_name, triggers in keyword_routes.items():
-        if any(_trigger_match(prompt_l, trigger) for trigger in triggers):
-            selected.add(tool_name)
-
-    has_math_expression = any(op in prompt for op in ["+", "*", "/", "="]) or (" - " in prompt)
-    if has_math_expression:
-        selected.add("calculator")
-
-    if not selected:
-        return ALL_TOOL_NAMES
-
-    return [name for name in ALL_TOOL_NAMES if name in selected]
-
-
 class LangChainAgentRoutingManager:
     framework = "LangChain Agent Routing"
     tool_names = ALL_TOOL_NAMES
     model_identifiers = ALL_MODEL_IDENTIFIERS
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
-        "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5 or format this JSON')."
+        "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm')."
     )
 
     def __init__(self, model: str, stream: bool = True):
@@ -131,7 +99,7 @@ class LangChainAgentRoutingManager:
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
             logger.info("Processing prompt | chars=%s", len(topic))
-            selected_tool_names = route_tools_for_prompt(topic)
+            selected_tool_names = ALL_TOOL_NAMES
             selected_model = self._route_model(topic, selected_tool_names)
             self.provider = selected_model.provider
             self.model = selected_model.model
