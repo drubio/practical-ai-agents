@@ -45,7 +45,7 @@ This UI expects a backend on `http://localhost:8000` with:
 - `GET /providers`
 - `POST /query` (standard single provider)
 - `POST /query-all` (standard multi-provider)
-- `GET /capabilities` (feature discovery, returns `streaming: true|false`)
+- `GET /capabilities` (feature discovery, returns `streaming: true|false` and `coagent: true|false`)
 - `POST /query-stream` (streaming endpoint for progressive output)
 - Optional memory endpoints:
   - `GET /history`
@@ -123,6 +123,7 @@ Open `http://localhost:3000`.
 - **API Offline in UI**: verify backend is running on `localhost:8000`.
 - **No providers shown**: verify API keys are set for at least one provider.
 - **Streaming option disabled**: backend may not implement `/capabilities` with `streaming: true`.
+- **Co-agent sidebar**: it only appears when the backend reports `coagent: true` in `/capabilities`
 - **Memory buttons unavailable**: backend manager may not support memory/history.
 
 ---

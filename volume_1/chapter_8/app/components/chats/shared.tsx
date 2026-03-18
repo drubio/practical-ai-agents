@@ -36,6 +36,14 @@ type TokenUsage = {
   total_tokens?: number;
 };
 
+type ToolCallDetails = {
+  name: string;
+  arguments?: Record<string, any>;
+  output?: any;
+};
+
+type CoagentCallDetails = Record<string, any>;
+
 type ResponseDetails = {
   provider?: string;
   sessionId?: string;
@@ -52,6 +60,8 @@ type ResponseDetails = {
   wikipediaSummary?: string;
   wikipediaUrl?: string;
   wikipediaImages?: string[];
+  toolCalls?: ToolCallDetails[];
+  coagentCalls?: CoagentCallDetails[];
 };
 
 type ProcessedResponse = {
@@ -73,6 +83,7 @@ type APICapabilities = {
   hasHistory: boolean;
   framework: string;
   hasStreaming: boolean;
+  hasCoagent: boolean;
 };
 
 type CallAPIOptions = {
@@ -198,7 +209,8 @@ const useAPISettings = () => {
     hasMemory: false,
     hasHistory: false,
     framework: '',
-    hasStreaming: false
+    hasStreaming: false,
+    hasCoagent: false
   });
   const [settings, setSettings] = useState<APISettings>({
     queryMode: 'single',
@@ -292,7 +304,8 @@ const useAPISettings = () => {
         hasMemory: memoryEnabled,
         hasHistory: memoryEnabled,
         framework: statusData.framework || providersData?.framework || '',
-        hasStreaming: capabilitiesData ? Boolean(capabilitiesData?.streaming) : prev.hasStreaming
+        hasStreaming: capabilitiesData ? Boolean(capabilitiesData?.streaming) : prev.hasStreaming,
+        hasCoagent: capabilitiesData ? Boolean(capabilitiesData?.coagent) : prev.hasCoagent
       }));
 
       markApiHealthy();
@@ -397,6 +410,228 @@ const callAPI = async (message: string, settings: APISettings, options: CallAPIO
   return processApiResponse(data, settings.queryMode);
 };
 
+
+const formatToolValue = (value: unknown): string => {
+  if (value === undefined) return 'Not available';
+  if (typeof value === 'string') return value;
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const getToolCallArguments = (toolCall: ToolCallDetails): Record<string, any> | undefined => {
+  if (!toolCall.arguments || typeof toolCall.arguments !== 'object') return undefined;
+  return toolCall.arguments;
+};
+
+const getWikipediaToolOutput = (toolCall: ToolCallDetails): Record<string, any> | undefined => {
+  if (toolCall.name !== 'get_wikipedia_evidence_pack') return undefined;
+
+  if (toolCall.output && typeof toolCall.output === 'object') {
+    return toolCall.output as Record<string, any>;
+  }
+
+  const args = getToolCallArguments(toolCall) || {};
+  const hasWikipediaPayload = 'summary' in args || 'page_url' in args || 'media' in args || 'references' in args || 'error' in args;
+  return hasWikipediaPayload ? args : undefined;
+};
+
+const getWikipediaToolRequest = (toolCall: ToolCallDetails): Record<string, any> | undefined => {
+  const args = getToolCallArguments(toolCall) || {};
+  const wikipediaOutput = getWikipediaToolOutput(toolCall);
+
+  if (!wikipediaOutput) {
+    return Object.keys(args).length ? args : undefined;
+  }
+
+  const requestEntries = Object.entries(args).filter(([key]) => !['summary', 'page_url', 'references', 'media', 'error', 'topic'].includes(key));
+  if (!requestEntries.length) return undefined;
+  return Object.fromEntries(requestEntries);
+};
+
+const ToolRequestSummary = ({ request }: { request?: Record<string, any> }) => {
+  if (!request || Object.keys(request).length === 0) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-600">
+      {Object.entries(request).map(([key, value]) => (
+        <div key={key} className="rounded-full bg-gray-100 px-2.5 py-1">
+          <span className="font-medium text-gray-700">{key}:</span> {typeof value === 'string' ? value : formatToolValue(value)}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const toToolOutputObject = (toolCall: ToolCallDetails): Record<string, any> | undefined => {
+  if (toolCall.output && typeof toolCall.output === 'object' && !Array.isArray(toolCall.output)) {
+    return toolCall.output as Record<string, any>;
+  }
+
+  const args = getToolCallArguments(toolCall);
+  if (!args) return undefined;
+
+  const resemblesOutput = ['summary', 'page_url', 'media', 'references', 'images', 'url', 'source_url', 'error', 'content', 'text', 'description']
+    .some((key) => key in args);
+
+  return resemblesOutput ? args : undefined;
+};
+
+const collectImageUrls = (value: unknown): string[] => {
+  const urls: string[] = [];
+  const addUrl = (candidate: unknown) => {
+    if (typeof candidate !== 'string') return;
+    const trimmed = candidate.trim();
+    if (!trimmed.startsWith('http') || urls.includes(trimmed)) return;
+    urls.push(trimmed);
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => {
+      if (typeof item === 'string') {
+        addUrl(item);
+      } else if (item && typeof item === 'object') {
+        addUrl((item as Record<string, unknown>).url);
+        addUrl((item as Record<string, unknown>).src);
+      }
+    });
+  } else if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    collectImageUrls(record.images).forEach(addUrl);
+    collectImageUrls(record.commons_images).forEach(addUrl);
+    addUrl(record.url);
+    addUrl(record.src);
+  }
+
+  return urls.slice(0, 8);
+};
+
+const pickFirstString = (...values: unknown[]): string | undefined => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+};
+
+const prettifyToolName = (name: string): string => name
+  .replace(/^get_/, '')
+  .replace(/_/g, ' ')
+  .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const getToolCardData = (toolCall: ToolCallDetails, index: number) => {
+  const output = toolCall.name === 'get_wikipedia_evidence_pack'
+    ? getWikipediaToolOutput(toolCall)
+    : toToolOutputObject(toolCall);
+  const request = toolCall.name === 'get_wikipedia_evidence_pack'
+    ? getWikipediaToolRequest(toolCall)
+    : getToolCallArguments(toolCall);
+  const title = toolCall.name === 'get_wikipedia_evidence_pack'
+    ? 'Wikipedia evidence'
+    : pickFirstString(output?.title, output?.name, output?.topic, output?.source_title, `${prettifyToolName(toolCall.name)} result ${index + 1}`) as string;
+  const text = pickFirstString(
+    output?.summary,
+    output?.text,
+    output?.content,
+    output?.description,
+    output?.extract,
+    output?.snippet,
+    output?.answer,
+    output?.error,
+    typeof toolCall.output === 'string' ? toolCall.output : undefined,
+  ) || (toolCall.output !== undefined ? formatToolValue(toolCall.output) : 'Awaiting tool output.');
+  const sourceUrl = pickFirstString(output?.page_url, output?.source_url, output?.url, output?.link, output?.reference_url);
+  const images = collectImageUrls(output?.media || output?.images || output);
+
+  return { title, text, sourceUrl, images, request, output, rawOutput: toolCall.output };
+};
+
+const StandardizedToolCard = ({ toolCall, index, compact = false }: { toolCall: ToolCallDetails; index: number; compact?: boolean }) => {
+  const { title, text, sourceUrl, images, request, rawOutput } = getToolCardData(toolCall, index);
+
+  return (
+    <section className={`rounded-xl border border-sky-100 bg-sky-50 ${compact ? 'p-3 text-xs' : 'p-4 text-sm'} text-sky-900`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-semibold">{title}</div>
+          <div className="mt-1 text-[11px] uppercase tracking-wide text-sky-700">{prettifyToolName(toolCall.name)}</div>
+        </div>
+        <code className="rounded-full bg-white/70 px-2 py-1 text-[11px] text-sky-800">#{index + 1}</code>
+      </div>
+
+      <ToolRequestSummary request={request} />
+
+      {text && <div className={`mt-2 whitespace-pre-wrap ${compact ? 'line-clamp-5' : ''} text-sky-950`}>{text}</div>}
+
+      {sourceUrl && (
+        <a
+          href={sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-block text-sky-700 underline"
+        >
+          Open source page
+        </a>
+      )}
+
+      {images.length > 0 && (
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {images.map((imageUrl, imageIndex) => (
+            <a key={`${imageUrl}-${imageIndex}`} href={imageUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+              <img
+                src={imageUrl}
+                alt={`${title} media ${imageIndex + 1}`}
+                className="h-16 w-24 rounded border border-sky-200 object-cover"
+                loading="lazy"
+              />
+            </a>
+          ))}
+        </div>
+      )}
+
+      {!compact && rawOutput !== undefined && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-sky-700 hover:text-sky-900">View raw tool payload</summary>
+          <pre className="mt-2 max-h-80 overflow-auto rounded-lg bg-slate-950 p-3 text-[11px] text-slate-100">{formatToolValue(rawOutput)}</pre>
+        </details>
+      )}
+    </section>
+  );
+};
+
+const CoagentCallCard = ({ coagentCall, index }: { coagentCall: CoagentCallDetails; index: number }) => (
+  <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Co-agent step {index + 1}</div>
+    <pre className="mt-2 max-h-80 overflow-auto rounded-lg bg-slate-950 p-3 text-[11px] text-slate-100">{formatToolValue(coagentCall)}</pre>
+  </section>
+);
+
+const CoagentActivitySidebar = ({ coagentCalls }: { coagentCalls?: CoagentCallDetails[] }) => {
+  const items = coagentCalls?.length ? coagentCalls : [];
+
+  return (
+    <aside className="h-full min-h-0 rounded-xl border border-gray-200 bg-gray-50/80 backdrop-blur">
+      <div className="border-b border-gray-200 px-4 py-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Cogent</div>
+        <div className="mt-1 text-sm font-semibold text-gray-900">Co-agent</div>
+        <div className="text-xs text-gray-500">This co-agent lets you inspect an agent workflow and guide its course as a human in the loop.</div>
+      </div>
+
+      <div className="h-[calc(100%-76px)] overflow-y-auto p-4">
+        {items.length > 0 ? (
+          <div className="space-y-4">
+            {items.map((coagentCall, index) => (
+              <CoagentCallCard key={`coagent-${index}`} coagentCall={coagentCall} index={index} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </aside>
+  );
+};
+
 const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
   if (!details) return null;
 
@@ -407,7 +642,7 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
   const tokenSavingsText = details.estimatedTokenReductionPercent !== undefined
     ? `Tokens saved: ${details.estimatedTokenReductionPercent}%`
     : null;
-  const wikiImages = details.wikipediaImages?.length ? details.wikipediaImages : [];
+  const toolCalls = details.toolCalls?.length ? details.toolCalls : [];
 
   return (
     <div className="mt-2 border-t border-gray-200 pt-2 text-xs text-gray-600">
@@ -430,34 +665,11 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
         </div>
       </div>
 
-      {(details.wikipediaSummary || details.wikipediaUrl || wikiImages.length > 0) && (
-        <div className="mb-2 rounded-md border border-sky-100 bg-sky-50 p-2 text-xs text-sky-900">
-          <div className="font-semibold">Wikipedia evidence</div>
-          {details.wikipediaSummary && <div className="mt-1 line-clamp-4">{details.wikipediaSummary}</div>}
-          {details.wikipediaUrl && (
-            <a
-              href={details.wikipediaUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 inline-block text-sky-700 underline"
-            >
-              Open source page
-            </a>
-          )}
-          {wikiImages.length > 0 && (
-            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-              {wikiImages.slice(0, 8).map((imageUrl, index) => (
-                <a key={`${imageUrl}-${index}`} href={imageUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                  <img
-                    src={imageUrl}
-                    alt={`Wikipedia media ${index + 1}`}
-                    className="h-16 w-24 rounded border border-sky-200 object-cover"
-                    loading="lazy"
-                  />
-                </a>
-              ))}
-            </div>
-          )}
+      {toolCalls.length > 0 && (
+        <div className="mb-2 space-y-2">
+          {toolCalls.map((toolCall, index) => (
+            <StandardizedToolCard key={`${toolCall.name}-${index}`} toolCall={toolCall} index={index} compact />
+          ))}
         </div>
       )}
 
@@ -796,6 +1008,7 @@ export {
   useAPISettings,
   callAPI,
   ResponseDetailsPanel,
+  CoagentActivitySidebar,
   getHistory,
   resetMemory,
   SettingsSidebar,
@@ -812,6 +1025,8 @@ export type {
   ChatMessage,
   TokenUsage,
   ResponseDetails,
+  ToolCallDetails,
+  CoagentCallDetails,
   ProcessedResponse,
   APISettings,
   APICapabilities

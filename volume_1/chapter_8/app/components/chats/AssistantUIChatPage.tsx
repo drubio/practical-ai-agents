@@ -15,6 +15,8 @@ import {
   SettingsSidebar,
   ThinkingIndicator,
   ResponseDetailsPanel,
+  CoagentActivitySidebar,
+  CoagentCallDetails,
   useAPISettings,
   callAPI,
   getErrorMessage,
@@ -56,6 +58,7 @@ const AssistantUIChatPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isAssistantLoading, setIsAssistantLoading] = useState(false);
   const [assistantNotices, setAssistantNotices] = useState<string[]>([]);
+  const [activeCoagentCalls, setActiveCoagentCalls] = useState<CoagentCallDetails[]>([]);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
 
   const appendAssistantNotice = (content: string) => {
@@ -101,6 +104,7 @@ const AssistantUIChatPage = () => {
               }
             })
               .then((response) => {
+                setActiveCoagentCalls(response.details?.coagentCalls || []);
                 finalPayload = JSON.stringify(response);
                 done = true;
                 if (finalPayload.trim()) push(finalPayload);
@@ -139,6 +143,7 @@ const AssistantUIChatPage = () => {
           }
 
           const result = await callAPI(messageText, settings);
+          setActiveCoagentCalls(result.details?.coagentCalls || []);
           yield { content: [{ type: 'text', text: JSON.stringify(result) }] };
         } catch (error) {
           yield {
@@ -185,7 +190,8 @@ const AssistantUIChatPage = () => {
       />
 
       <div className="flex-1 overflow-hidden p-4">
-        <div className="h-full overflow-hidden rounded-lg border bg-white">
+        <div className={`grid h-full gap-4 ${apiCapabilities.hasCoagent ? 'lg:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}>
+          <div className="h-full overflow-hidden rounded-lg border bg-white">
           <AssistantRuntimeProvider runtime={runtime}>
             <ThreadPrimitive.Root className="flex h-full flex-col bg-gradient-to-b from-green-50 to-white">
               <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto p-4">
@@ -237,6 +243,13 @@ const AssistantUIChatPage = () => {
               </div>
             </ThreadPrimitive.Root>
           </AssistantRuntimeProvider>
+          </div>
+
+          {apiCapabilities.hasCoagent && (
+            <div className="min-h-[18rem] lg:min-h-0">
+              <CoagentActivitySidebar coagentCalls={activeCoagentCalls} />
+            </div>
+          )}
         </div>
       </div>
 

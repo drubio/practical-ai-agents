@@ -8,6 +8,8 @@ import {
   SettingsSidebar,
   ThinkingIndicator,
   ResponseDetailsPanel,
+  CoagentActivitySidebar,
+  CoagentCallDetails,
   useAPISettings,
   callAPI,
   getErrorMessage,
@@ -84,6 +86,7 @@ const LangGraphChatPage = () => {
     { id: 1, role: 'assistant', content: 'Hello! I\'m your LangGraph assistant connected to your application web based API.' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const [activeCoagentCalls, setActiveCoagentCalls] = useState<CoagentCallDetails[]>([]);
   const threadIdRef = useRef<string | null>(null);
 
   const langGraphSdkUrl = (process.env.NEXT_PUBLIC_LANGGRAPH_PLATFORM_API_URL || LANGGRAPH_API_URL).trim();
@@ -169,6 +172,7 @@ const LangGraphChatPage = () => {
           content: response.content,
           details: response.details
         }));
+        setActiveCoagentCalls(response.details?.coagentCalls || []);
       }
     } catch (error) {
       updateAssistantMessage(assistantId, (message) => ({
@@ -212,7 +216,8 @@ const LangGraphChatPage = () => {
       />
 
       <div className="flex-1 overflow-hidden p-4">
-        <div className="h-full bg-white rounded-lg border overflow-hidden flex flex-col">
+        <div className={`grid h-full gap-4 ${apiCapabilities.hasCoagent ? 'lg:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}>
+          <div className="h-full bg-white rounded-lg border overflow-hidden flex flex-col">
           <div className="flex-1 overflow-y-auto p-4">
             {messages?.map((message) => (
               <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : message.role === 'system' ? 'text-center' : 'text-left'}`}>
@@ -261,6 +266,13 @@ const LangGraphChatPage = () => {
               LangGraph SDK URL: {langGraphSdkUrl} • assistant: {LANGGRAPH_ASSISTANT_ID} • endpoint adapter: {LANGGRAPH_API_URL}
             </div>
           </div>
+          </div>
+
+          {apiCapabilities.hasCoagent && (
+            <div className="min-h-[18rem] lg:min-h-0">
+              <CoagentActivitySidebar coagentCalls={activeCoagentCalls} />
+            </div>
+          )}
         </div>
       </div>
 

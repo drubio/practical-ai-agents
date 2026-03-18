@@ -28,15 +28,15 @@ Available tools:
 
 Return strict JSON:
 {{
-  "tool_call": null OR {{"name": "tool_name", "arguments": {{"arg": "value"}}}},
+  "tool_calls": [{{"name": "tool_name", "arguments": {{"arg": "value"}}, "output": null}}],
   "final_answer": "string"
 }}
 
 Rules:
 - DEFAULT BEHAVIOR: For most user queries, first call "get_wikipedia_evidence_pack" with arguments {{"query": <user topic>}}.
   This is especially important for topics involving factual claims, names, dates, definitions, history, science, places, people, events, or "what is/why/how" questions.
-- Only set tool_call to null if the user request is purely creative writing, brainstorming fiction, or personal preference with no need for sources.
-- If you call a tool, keep final_answer short and say you will synthesize after seeing the tool output.
+- Use an empty tool_calls array only if the user request is purely creative writing, brainstorming fiction, or personal preference with no need for sources.
+- If you call a tool, include it in tool_calls with output set to null and keep final_answer short until you see the tool output.
 - Return JSON only.
 
 User topic: {topic}
@@ -52,7 +52,7 @@ Tool output: {tool_output}
 
 Return strict JSON:
 {{
-  "tool_call": null,
+  "tool_calls": [{{"name": "tool_name", "arguments": {{"arg": "value"}}, "output": "serialized tool output"}}],
   "final_answer": "final response for the user"
 }}
 """.strip()
@@ -88,7 +88,11 @@ class LangChainLLMManager(Chapter6LangChainManager):
         client = self._create_client(provider, temperature=temperature, max_tokens=max_tokens)
         result = client.invoke(self._build_messages(prompt))
         text = self._extract_text(provider, result)
-        return self._extract_json_object(text), result
+        payload = self._extract_json_object(text)
+        tool_calls = payload.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            payload["tool_calls"] = []
+        return payload, result
 
     def _build_retrieval_context(self, provider: str, topic: str, session_id: str) -> Tuple[str, Dict[str, object]]:
         messages: List = self._get_history(provider, session_id).messages if self.retrieval_memory_enabled else []
@@ -196,29 +200,26 @@ class LangChainLLMManager(Chapter6LangChainManager):
 
         try:
             first_step, first_result = self._invoke_json_step(provider, retrieval_prompt, temperature=temperature, max_tokens=max_tokens)
-            tool_call = first_step.get("tool_call")
+            tool_calls = first_step.get("tool_calls") or []
             final_answer = str(first_step.get("final_answer", "")).strip()
 
-            tool_output = None
-            if isinstance(tool_call, dict) and tool_call.get("name"):
-                tool_name = str(tool_call.get("name"))
-                tool_args = tool_call.get("arguments") or {}
-                if not isinstance(tool_args, dict):
-                    tool_args = {}
+            executed_tool_calls = [dict(tool_call) for tool_call in tool_calls]
+            if executed_tool_calls:
+                for tool_call in executed_tool_calls:
+                    tool_output = run_tool(tool_call["name"], tool_call.get("arguments") or {})
+                    tool_call["output"] = tool_output
 
-                tool_output = run_tool(tool_name, tool_args)
                 follow_up_prompt = FOLLOW_UP_TEMPLATE.format(
                     topic=topic,
-                    tool_call=json.dumps(tool_call, ensure_ascii=False),
-                    tool_output=tool_output,
+                    tool_call=json.dumps(executed_tool_calls, ensure_ascii=False),
+                    tool_output=json.dumps(executed_tool_calls, ensure_ascii=False),
                 )
                 second_step, _ = self._invoke_json_step(provider, follow_up_prompt, temperature=temperature, max_tokens=max_tokens)
                 final_answer = str(second_step.get("final_answer", final_answer)).strip() or final_answer
 
             raw_response = json.dumps(
                 {
-                    "tool_call": tool_call,
-                    "tool_output": tool_output,
+                    "tool_calls": executed_tool_calls,
                     "final_answer": final_answer,
                 },
                 ensure_ascii=False,
@@ -229,8 +230,7 @@ class LangChainLLMManager(Chapter6LangChainManager):
             token_usage = self._extract_token_usage(response_metadata, usage_metadata)
 
             payload = {
-                "tool_call": tool_call,
-                "tool_output": tool_output,
+                "tool_calls": executed_tool_calls,
                 "final_answer": final_answer,
                 "metadata": {
                     **self._build_metadata(

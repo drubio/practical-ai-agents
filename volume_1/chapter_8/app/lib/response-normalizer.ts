@@ -4,6 +4,14 @@ export type TokenUsage = {
   total_tokens?: number;
 };
 
+export type ToolCallDetails = {
+  name: string;
+  arguments?: Record<string, any>;
+  output?: any;
+};
+
+export type CoagentCallDetails = Record<string, any>;
+
 export type ResponseDetails = {
   provider?: string;
   sessionId?: string;
@@ -20,6 +28,8 @@ export type ResponseDetails = {
   wikipediaSummary?: string;
   wikipediaUrl?: string;
   wikipediaImages?: string[];
+  toolCalls?: ToolCallDetails[];
+  coagentCalls?: CoagentCallDetails[];
 };
 
 export type ProcessedResponse = {
@@ -63,6 +73,39 @@ const extractMediaUrls = (media: any): string[] | undefined => {
   for (const item of media?.commons_images || []) addUrl(item?.url);
 
   return urls.length ? urls : undefined;
+};
+
+
+const normalizeToolCalls = (...sources: any[]): ToolCallDetails[] | undefined => {
+  const listCandidate = sources.find((source) => Array.isArray(source));
+  if (!Array.isArray(listCandidate)) return undefined;
+
+  const normalized = listCandidate
+    .filter((item) => item && typeof item === 'object' && item.name)
+    .map((item) => ({
+      name: String(item.name),
+      arguments: item.arguments && typeof item.arguments === 'object' ? item.arguments : undefined,
+      output: typeof item.output === 'string' ? (parseJsonText(item.output) ?? item.output) : item.output
+    }));
+
+  return normalized.length ? normalized : undefined;
+};
+
+const normalizeCoagentCalls = (...sources: any[]): CoagentCallDetails[] | undefined => {
+  const listCandidate = sources.find((source) => Array.isArray(source));
+  if (!Array.isArray(listCandidate)) return undefined;
+
+  const normalized = listCandidate
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({ ...item }));
+
+  return normalized.length ? normalized : undefined;
+};
+
+const extractWikipediaToolOutput = (toolCalls?: ToolCallDetails[]): Record<string, any> | undefined => {
+  if (!toolCalls?.length) return undefined;
+  const wikipediaToolCall = toolCalls.find((toolCall) => toolCall.name === 'get_wikipedia_evidence_pack');
+  return normalizeToObject(wikipediaToolCall?.output);
 };
 
 const shouldKeepNote = (note?: string): boolean => {
@@ -178,14 +221,29 @@ export const buildDetails = (structured: any, data: any): ResponseDetails | unde
   ) || {};
 
   const note = structuredData?.metadata?.notes;
-  const toolOutput = normalizeToObject(
-    structuredData?.tool_output
-    || responseData?.tool_output
-    || contentData?.tool_output
-    || answerData?.tool_output
-    || data?.tool_output
-    || data?.response?.tool_output
-  ) || {};
+  const toolCalls = normalizeToolCalls(
+    structuredData?.tool_calls,
+    responseData?.tool_calls,
+    contentData?.tool_calls,
+    answerData?.tool_calls,
+    data?.tool_calls,
+    data?.response?.tool_calls
+  );
+  const toolOutput = extractWikipediaToolOutput(toolCalls) || {};
+  const coagentCalls = normalizeCoagentCalls(
+    structuredData?.coagent_calls,
+    structuredData?.coagentCalls,
+    responseData?.coagent_calls,
+    responseData?.coagentCalls,
+    contentData?.coagent_calls,
+    contentData?.coagentCalls,
+    answerData?.coagent_calls,
+    answerData?.coagentCalls,
+    data?.coagent_calls,
+    data?.coagentCalls,
+    data?.response?.coagent_calls,
+    data?.response?.coagentCalls
+  );
 
   const details: ResponseDetails = {
     provider: data?.provider,
@@ -215,7 +273,9 @@ export const buildDetails = (structured: any, data: any): ResponseDetails | unde
     estimatedTokenReductionPercent: retrievalData?.estimated_token_reduction_percent,
     wikipediaSummary: toolOutput?.summary,
     wikipediaUrl: toolOutput?.page_url,
-    wikipediaImages: extractMediaUrls(toolOutput?.media)
+    wikipediaImages: extractMediaUrls(toolOutput?.media),
+    toolCalls,
+    coagentCalls
   };
 
   return Object.values(details).some((value) => value !== undefined) ? details : undefined;
@@ -239,7 +299,9 @@ export const mergeDetails = (base?: ResponseDetails, fallback?: ResponseDetails)
     estimatedTokenReductionPercent: base?.estimatedTokenReductionPercent ?? fallback?.estimatedTokenReductionPercent,
     wikipediaSummary: base?.wikipediaSummary || fallback?.wikipediaSummary,
     wikipediaUrl: base?.wikipediaUrl || fallback?.wikipediaUrl,
-    wikipediaImages: (base?.wikipediaImages && base.wikipediaImages.length ? base.wikipediaImages : fallback?.wikipediaImages)
+    wikipediaImages: (base?.wikipediaImages && base.wikipediaImages.length ? base.wikipediaImages : fallback?.wikipediaImages),
+    toolCalls: (base?.toolCalls && base.toolCalls.length ? base.toolCalls : fallback?.toolCalls),
+    coagentCalls: (base?.coagentCalls && base.coagentCalls.length ? base.coagentCalls : fallback?.coagentCalls)
   };
 
   return Object.values(merged).some((value) => value !== undefined) ? merged : undefined;

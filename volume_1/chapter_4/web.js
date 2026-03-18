@@ -42,6 +42,10 @@ function supportsSessionMemory(manager) {
     return supportsMemory(manager) || supportsMemoryRetrieval(manager);
 }
 
+function supportsCoagent(manager) {
+    return Boolean(manager?.coagent);
+}
+
 function parseStructuredRawResponse(rawResponse) {
     if (typeof rawResponse === 'undefined' || rawResponse === null) {
         return null;
@@ -210,6 +214,7 @@ function createWebApi(managerClassOrFactory) {
             streaming: true,
             memory: supportsMemory(manager),
             memory_retrieval: supportsMemoryRetrieval(manager),
+            coagent: supportsCoagent(manager),
         });
     });
 

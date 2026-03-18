@@ -103,22 +103,25 @@ node llamaindex/llm_tools.js web
 All Chapter 7 applications follow the same two-step JSON tool loop:
 
 1. Model returns JSON with:
-   - `tool_call`: either `null` or `{ "name": "...", "arguments": { ... } }`
+   - `tool_calls`: an array of tool calls, each shaped like `{ "name": "...", "arguments": { ... }, "output": null }`
    - `final_answer`: short draft answer
-2. Application executes tool locally when `tool_call` is present.
-3. Application asks model for a final JSON response using tool output.
+2. Application executes tools locally when `tool_calls` entries are present.
+3. Application asks model for a final JSON response that keeps the same `tool_calls` array and fills in each `output`.
 
 ### Expected response shape
 
 ```json
 {
-  "tool_call": null,
-  "tool_output": "...",
+  "tool_calls": [{
+    "name": "tool_name",
+    "arguments": {"arg": "value"},
+    "output": "serialized tool output"
+  }],
   "final_answer": "..."
 }
 ```
 
-- If no tool is needed, `tool_call` is `null` and `tool_output` remains `null`.
+- If no tool is needed, `tool_calls` is an empty array.
 - On success, `raw_answer`/`rawAnswer` mirrors the final answer text.
 
 ## Included tool utilities

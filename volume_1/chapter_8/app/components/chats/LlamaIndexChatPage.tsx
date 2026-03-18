@@ -8,6 +8,8 @@ import {
   SettingsSidebar,
   ThinkingIndicator,
   ResponseDetailsPanel,
+  CoagentActivitySidebar,
+  CoagentCallDetails,
   useAPISettings,
   callAPI,
   getErrorMessage,
@@ -48,6 +50,7 @@ const LlamaIndexChatPage = () => {
   ]);
   const [status, setStatus] = useState<'submitted' | 'streaming' | 'ready' | 'error'>('ready');
   const [detailsById, setDetailsById] = useState<Record<string, ResponseDetails>>({});
+  const [activeCoagentCalls, setActiveCoagentCalls] = useState<CoagentCallDetails[]>([]);
 
   const appendSystemMessage = (content: string) => {
     setMessages((prev) => [...prev, createTextMessage('system', content)]);
@@ -73,6 +76,7 @@ const LlamaIndexChatPage = () => {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? createTextMessage('assistant', result.content, assistantId) : m)));
       if (result.details) {
         setDetailsById((prev) => ({ ...prev, [assistantId]: result.details! }));
+        setActiveCoagentCalls(result.details.coagentCalls || []);
       }
       setStatus('ready');
     } catch (error) {
@@ -126,7 +130,8 @@ const LlamaIndexChatPage = () => {
       />
 
       <div className="flex-1 overflow-hidden p-4">
-        <div className="h-full bg-white rounded-lg border overflow-hidden flex flex-col">
+        <div className={`grid h-full gap-4 ${apiCapabilities.hasCoagent ? 'lg:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}>
+          <div className="h-full bg-white rounded-lg border overflow-hidden flex flex-col">
           <ChatSection handler={handler} className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto p-4">
               {messages.map((message) => {
@@ -175,6 +180,13 @@ const LlamaIndexChatPage = () => {
                </div>	    	      
             </ChatInput>
           </ChatSection>
+          </div>
+
+          {apiCapabilities.hasCoagent && (
+            <div className="min-h-[18rem] lg:min-h-0">
+              <CoagentActivitySidebar coagentCalls={activeCoagentCalls} />
+            </div>
+          )}
         </div>
       </div>
 

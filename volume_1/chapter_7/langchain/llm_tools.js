@@ -14,15 +14,15 @@ Available tools:
 
 Return strict JSON:
 {
-  "tool_call": null OR {"name": "tool_name", "arguments": {"arg": "value"}},
+  "tool_calls": [{"name": "tool_name", "arguments": {"arg": "value"}, "output": null}],
   "final_answer": "string"
 }
 
 Rules:
 - DEFAULT BEHAVIOR: For most user queries, first call "get_wikipedia_evidence_pack" with arguments {{"query": <user topic>}}.
   This is especially important for topics involving factual claims, names, dates, definitions, history, science, places, people, events, or "what is/why/how" questions.
-- Only set tool_call to null if the user request is purely creative writing, brainstorming fiction, or personal preference with no need for sources.
-- If you call a tool, keep final_answer short and say you will synthesize after seeing the tool output.
+- Use an empty tool_calls array only if the user request is purely creative writing, brainstorming fiction, or personal preference with no need for sources.
+- If you call a tool, include it in tool_calls with output set to null and keep final_answer short until you see the tool output.
 - Return JSON only.
 
 User topic: {topic}`;
@@ -35,7 +35,7 @@ Tool output: {tool_output}
 
 Return strict JSON:
 {
-  "tool_call": null,
+  "tool_calls": [{"name": "tool_name", "arguments": {"arg": "value"}, "output": "serialized tool output"}],
   "final_answer": "final response for the user"
 }`;
 
@@ -55,7 +55,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             throw new Error('No JSON object found in model response');
         }
         return {
-            tool_call: null,
+            tool_calls: [],
             final_answer: fallbackAnswer,
         };
     }
@@ -65,12 +65,18 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             return this._buildFallbackToolPayload(rawText);
         }
 
-        const toolCall = rawPayload.tool_call;
+        const toolCalls = Array.isArray(rawPayload.tool_calls) ? rawPayload.tool_calls : [];
         const finalAnswer = rawPayload.final_answer;
 
         if (typeof finalAnswer === 'string' && finalAnswer.trim()) {
             return {
-                tool_call: toolCall && typeof toolCall === 'object' ? toolCall : null,
+                tool_calls: toolCalls
+                    .filter((toolCall) => toolCall && typeof toolCall === 'object' && toolCall.name)
+                    .map((toolCall) => ({
+                        name: String(toolCall.name),
+                        arguments: toolCall.arguments && typeof toolCall.arguments === 'object' ? toolCall.arguments : {},
+                        ...(Object.prototype.hasOwnProperty.call(toolCall, 'output') ? { output: toolCall.output } : {}),
+                    })),
                 final_answer: finalAnswer.trim(),
             };
         }
@@ -190,35 +196,34 @@ class LangChainLLMManager extends Chapter6LangChainManager {
 
         try {
             const { payload: firstStep, result: firstResult } = await this._invokeJsonStep(resolvedProvider, prompt, temperature, maxTokens);
-            const toolCall = firstStep.tool_call;
+            const toolCalls = Array.isArray(firstStep.tool_calls) ? firstStep.tool_calls : [];
             let finalAnswer = String(firstStep.final_answer || '').trim();
-            let toolOutput = null;
-
-            let effectiveToolCall = toolCall;
-            if (this._shouldForceWikipediaTool(topic, effectiveToolCall)) {
-                effectiveToolCall = {
+            let executedToolCalls = toolCalls.map((toolCall) => ({ ...toolCall }));
+            if (this._shouldForceWikipediaTool(topic, executedToolCalls[0])) {
+                executedToolCalls = [{
                     name: 'get_wikipedia_evidence_pack',
                     arguments: { query: this._normalizeWikipediaQuery(topic) || topic },
-                };
+                }];
             }
 
-            if (effectiveToolCall && typeof effectiveToolCall === 'object' && effectiveToolCall.name) {
-                const toolName = String(effectiveToolCall.name);
-                const toolArgs = effectiveToolCall.arguments && typeof effectiveToolCall.arguments === 'object' ? effectiveToolCall.arguments : {};
-                toolOutput = await runTool(toolName, toolArgs);
+            if (executedToolCalls.length > 0) {
+                for (const toolCall of executedToolCalls) {
+                    const toolName = String(toolCall.name);
+                    const toolArgs = toolCall.arguments && typeof toolCall.arguments === 'object' ? toolCall.arguments : {};
+                    toolCall.output = await runTool(toolName, toolArgs);
+                }
 
                 const followUpPrompt = FOLLOW_UP_TEMPLATE
                     .replace('{topic}', topic)
-                    .replace('{tool_call}', JSON.stringify(effectiveToolCall))
-                    .replace('{tool_output}', String(toolOutput));
+                    .replace('{tool_call}', JSON.stringify(executedToolCalls))
+                    .replace('{tool_output}', JSON.stringify(executedToolCalls));
 
                 const { payload: secondStep } = await this._invokeJsonStep(resolvedProvider, followUpPrompt, temperature, maxTokens);
                 finalAnswer = String(secondStep.final_answer || finalAnswer).trim() || finalAnswer;
             }
 
             const rawResponse = JSON.stringify({
-                tool_call: effectiveToolCall ?? null,
-                tool_output: toolOutput,
+                tool_calls: executedToolCalls,
                 final_answer: finalAnswer,
             });
 
@@ -227,8 +232,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             const tokenUsage = this._extractTokenUsage(responseMetadata, usageMetadata);
 
             const responsePayload = {
-                tool_call: effectiveToolCall ?? null,
-                tool_output: toolOutput,
+                tool_calls: executedToolCalls,
                 final_answer: finalAnswer,
                 metadata: {
                     ...this._buildMetadata({

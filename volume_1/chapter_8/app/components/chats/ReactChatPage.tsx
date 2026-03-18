@@ -7,6 +7,8 @@ import {
   SettingsSidebar,
   ThinkingIndicator,
   ResponseDetailsPanel,
+  CoagentActivitySidebar,
+  CoagentCallDetails,
   useAPISettings,
   callAPI,
   getErrorMessage,
@@ -80,6 +82,7 @@ const ReactChatPage = () => {
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
   const [input, setInput] = useState('');
   const [{ messages, isLoading }, dispatch] = useReducer(chatReducer, initialState);
+  const [activeCoagentCalls, setActiveCoagentCalls] = useState<CoagentCallDetails[]>([]);
 
   const formatProviderAggregateText = useCallback(
     (text: string) => (settings.queryMode === 'all' ? text.replace('Results from', 'Custom Chat Results from') : text),
@@ -117,6 +120,7 @@ const ReactChatPage = () => {
         content: formatProviderAggregateText(response.content),
         details: response.details
       });
+      setActiveCoagentCalls(response.details?.coagentCalls || []);
     } catch (error) {
       dispatch({
         type: 'assistant-update',
@@ -162,7 +166,8 @@ const ReactChatPage = () => {
       />
 
       <div className="flex-1 overflow-hidden p-4">
-        <div className="h-full bg-gradient-to-b from-orange-50 to-white rounded-lg border overflow-hidden flex flex-col">
+        <div className={`grid h-full gap-4 ${apiCapabilities.hasCoagent ? 'lg:grid-cols-[minmax(0,1fr)_24rem]' : ''}`}>
+          <div className="h-full bg-gradient-to-b from-orange-50 to-white rounded-lg border overflow-hidden flex flex-col">
           <div className="flex-1 overflow-y-auto p-4">
             {messages.map((message) => (
               <div key={message.id} className={`mb-4 ${message.role === 'user' ? 'text-right' : message.role === 'system' ? 'text-center' : 'text-left'}`}>
@@ -211,6 +216,13 @@ const ReactChatPage = () => {
               Custom React chat interface • React primitives: useReducer + useMemo + useCallback
             </div>
           </div>
+          </div>
+
+          {apiCapabilities.hasCoagent && (
+            <div className="min-h-[18rem] lg:min-h-0">
+              <CoagentActivitySidebar coagentCalls={activeCoagentCalls} />
+            </div>
+          )}
         </div>
       </div>
 

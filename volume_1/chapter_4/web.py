@@ -65,6 +65,11 @@ def _supports_session_memory(manager) -> bool:
     return _supports_memory(manager) or _supports_memory_retrieval(manager)
 
 
+def _supports_coagent(manager) -> bool:
+    """True when manager exposes coagent features."""
+    return bool(getattr(manager, "coagent", False))
+
+
 def _parse_structured_raw_response(raw_response):
     if raw_response is None:
         return None
@@ -251,6 +256,7 @@ def create_web_api(manager_class):
             "streaming": True,
             "memory": _supports_memory(manager),
             "memory_retrieval": _supports_memory_retrieval(manager),
+            "coagent": _supports_coagent(manager),
         }
 
     @app.post("/query")
