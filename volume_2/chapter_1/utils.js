@@ -314,6 +314,66 @@ function modelLabel(name, model, provider) {
   return `${name} (${providerLabel}, ${model})`;
 }
 
+function buildModelAvailability(modelIdentifiers, getIdentifierMappings) {
+  const available = getIdentifierMappings();
+  const names = Array.isArray(modelIdentifiers) && modelIdentifiers.length ? modelIdentifiers : Object.keys(available);
+  const catalog = names
+    .map((name) => {
+      const config = available[name];
+      if (!config) return null;
+      return {
+        name,
+        provider: config.provider,
+        model: config.model,
+        identifier: name,
+        label: modelLabel(config.name, config.model, config.provider)
+      };
+    })
+    .filter(Boolean);
+
+  const configured = catalog.filter((entry) => providerIsConfigured(entry.provider));
+  const routable = configured.length ? configured : catalog;
+  const unavailableProviders = [...new Set(
+    catalog.filter((entry) => !providerIsConfigured(entry.provider)).map((entry) => entry.provider)
+  )];
+
+  return { catalog, configured, routable, usingFallbackCatalog: configured.length === 0, unavailableProviders };
+}
+
+function formatProviderLabel(provider) {
+  return provider.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export async function getModelAvailability(modelIdentifiers) {
+  const { getIdentifierMappings } = await import("./models.js").catch(() => ({ getIdentifierMappings: null }));
+  if (!getIdentifierMappings) throw new Error("Model registry unavailable for startup selection.");
+  return buildModelAvailability(modelIdentifiers, getIdentifierMappings);
+}
+
+export async function getRoutableModelIdentifiers(modelIdentifiers, explicitModelIdentifier = null) {
+  if (explicitModelIdentifier) return [explicitModelIdentifier];
+  const availability = await getModelAvailability(modelIdentifiers);
+  return availability.routable.map((entry) => entry.identifier);
+}
+
+export async function describeModelAvailability(modelIdentifiers) {
+  const availability = await getModelAvailability(modelIdentifiers);
+  const configuredLabels = availability.routable.map((entry) => entry.label);
+  const lines = [];
+
+  if (availability.usingFallbackCatalog) {
+    lines.push("No provider API keys detected; automatic routing will consider every bundled model.");
+  } else {
+    lines.push(`Automatic model routing is limited to configured providers: ${configuredLabels.join(", ")}.`);
+  }
+
+  if (availability.unavailableProviders.length) {
+    lines.push(`Skipping unavailable providers: ${availability.unavailableProviders.map(formatProviderLabel).join(", ")}.`);
+  }
+
+  return lines.join(" ");
+}
+
 async function chooseFromList(options, defaultIndex, prompt) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
@@ -333,47 +393,25 @@ async function chooseFromList(options, defaultIndex, prompt) {
 
 export async function selectStartupModel(modelIdentifiers, mode, explicitModelIdentifier) {
   if (explicitModelIdentifier) return explicitModelIdentifier;
-
-  const { getIdentifierMappings } = await import("./models.js").catch(() => ({ getIdentifierMappings: null }));
-  if (!getIdentifierMappings) throw new Error("Model registry unavailable for startup selection.");
-
-  const available = getIdentifierMappings();
-  const names = Array.isArray(modelIdentifiers) && modelIdentifiers.length ? modelIdentifiers : Object.keys(available);
-  const catalog = names
-    .map((name) => {
-      const config = available[name];
-      if (!config) return null;
-      return {
-        name,
-        provider: config.provider,
-        model: config.model,
-        identifier: name,
-        label: modelLabel(config.name, config.model, config.provider)
-      };
-    })
-    .filter(Boolean);
-
-  if (!catalog.length) throw new Error("No model configurations available for startup selection.");
-
-  let configured = catalog.filter((entry) => providerIsConfigured(entry.provider));
-  if (!configured.length) configured = catalog;
+  const availability = await getModelAvailability(modelIdentifiers);
+  if (!availability.catalog.length) throw new Error("No model configurations available for startup selection.");
 
   const defaultIndex = 0;
 
   if (mode !== "cli" || !process.stdin.isTTY || !process.stdout.isTTY) {
-    return configured[defaultIndex].identifier;
+    return availability.routable[defaultIndex].identifier;
   }
 
   console.log("\nModel selection (configured via environment variables):");
-  configured.forEach((entry, idx) => {
+  availability.routable.forEach((entry, idx) => {
     const suffix = idx === defaultIndex ? " [default]" : "";
     console.log(`${idx + 1}. ${entry.label}${suffix}`);
   });
 
   const selected = await chooseFromList(
-    configured,
+    availability.routable,
     defaultIndex,
-    `Select model (1-${configured.length}, default ${defaultIndex + 1}): `
+    `Select model (1-${availability.routable.length}, default ${defaultIndex + 1}): `
   );
   return selected.identifier;
 }

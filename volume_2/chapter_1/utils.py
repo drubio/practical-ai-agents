@@ -588,6 +588,54 @@ def _build_model_catalog(model_identifiers: Iterable[str] | None) -> list[dict[s
     return catalog
 
 
+def get_model_availability(model_identifiers: Iterable[str] | None) -> dict[str, object]:
+    catalog = _build_model_catalog(model_identifiers)
+    configured = [entry for entry in catalog if _provider_is_configured(entry["provider"])]
+    routable = configured or catalog
+    unavailable_providers = sorted({
+        entry["provider"] for entry in catalog if not _provider_is_configured(entry["provider"])
+    })
+    return {
+        "catalog": catalog,
+        "configured": configured,
+        "routable": routable,
+        "using_fallback_catalog": not configured,
+        "unavailable_providers": unavailable_providers,
+    }
+
+
+def get_routable_model_identifiers(
+    model_identifiers: Iterable[str] | None, explicit_model_identifier: str | None = None
+) -> list[str]:
+    if explicit_model_identifier:
+        return [explicit_model_identifier]
+    availability = get_model_availability(model_identifiers)
+    return [entry["identifier"] for entry in availability["routable"]]
+
+
+def describe_model_availability(model_identifiers: Iterable[str] | None) -> str:
+    availability = get_model_availability(model_identifiers)
+    configured_labels = [entry["label"] for entry in availability["routable"]]
+    lines: list[str] = []
+    if availability["using_fallback_catalog"]:
+        lines.append("No provider API keys detected; automatic routing will consider every bundled model.")
+    else:
+        lines.append(
+            "Automatic model routing is limited to configured providers: "
+            + ", ".join(configured_labels)
+            + "."
+        )
+
+    unavailable_providers = list(availability["unavailable_providers"])
+    if unavailable_providers:
+        lines.append(
+            "Skipping unavailable providers: "
+            + ", ".join(provider.replace("_", " ").title() for provider in unavailable_providers)
+            + "."
+        )
+    return " ".join(lines)
+
+
 def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, explicit_model_identifier: str | None) -> str:
     """Resolve startup model with env-aware provider filtering.
 
@@ -598,35 +646,33 @@ def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, exp
     if explicit_model_identifier:
         return explicit_model_identifier
 
-    catalog = _build_model_catalog(model_identifiers)
-    if not catalog:
+    availability = get_model_availability(model_identifiers)
+    if not availability["catalog"]:
         raise ValueError("No model configurations available for startup selection.")
-
-    configured = [entry for entry in catalog if _provider_is_configured(entry["provider"])]
-    if not configured:
-        configured = catalog
 
     default_index = 0
 
     if mode != "cli" or not sys.stdin.isatty() or not sys.stdout.isatty():
-        return configured[default_index]["identifier"]
+        return availability["routable"][default_index]["identifier"]
 
     print("\nModel selection (configured via environment variables):")
-    for idx, entry in enumerate(configured, start=1):
+    for idx, entry in enumerate(availability["routable"], start=1):
         default_suffix = " [default]" if (idx - 1) == default_index else ""
         print(f"{idx}. {entry['label']}{default_suffix}")
 
     while True:
-        raw = input(f"Select model (1-{len(configured)}, default {default_index + 1}): ").strip()
+        raw = input(
+            f"Select model (1-{len(availability['routable'])}, default {default_index + 1}): "
+        ).strip()
         if not raw:
-            return configured[default_index]["identifier"]
+            return availability["routable"][default_index]["identifier"]
         try:
             choice = int(raw) - 1
         except ValueError:
             print("Invalid input. Please enter a number.")
             continue
-        if 0 <= choice < len(configured):
-            return configured[choice]["identifier"]
+        if 0 <= choice < len(availability["routable"]):
+            return availability["routable"][choice]["identifier"]
         print("Invalid selection. Please try again.")
 
 

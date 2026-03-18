@@ -8,7 +8,8 @@ import {
   extractOutputText,
   getChapterLogger,
   logToolCall,
-  selectStartupModel,
+  describeModelAvailability,
+  getRoutableModelIdentifiers,
   runMode
 } from "../../chapter_1/utils.js";
 import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, routeModelForPrompt } from "../../chapter_1/models.js";
@@ -55,14 +56,15 @@ function parseToolCall(text, activeToolMap) {
 export class LlamaIndexAgentRoutingManager {
   framework = "LlamaIndex Agent Routing";
   toolNames = ALL_TOOL_NAMES;
-  modelIdentifiers = ALL_MODEL_IDENTIFIERS;
+  modelIdentifiers = [];
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm').";
 
-  constructor(model, stream = false) {
-    this.modelIdentifier = model;
+  constructor(modelIdentifiers, initialModel, stream = false) {
+    this.modelIdentifiers = modelIdentifiers;
+    this.modelIdentifier = initialModel;
     this.provider = "unknown";
-    this.model = model;
+    this.model = initialModel;
     this.stream = stream;
     logger.info(`Initializing LlamaIndex routing agent | provider=${this.provider} | model=${this.model} | stream=${this.stream}`);
     this.llmCache = new Map();
@@ -80,7 +82,7 @@ export class LlamaIndexAgentRoutingManager {
       logger.info(`Received prompt | chars=${topic.length} | multiline=${topic.includes("\n")}`);
       logger.info("Delegating full prompt to routed LlamaIndex agent");
       const selectedToolNames = ALL_TOOL_NAMES;
-      const selectedModel = routeModelForPrompt(topic, selectedToolNames, ALL_MODEL_IDENTIFIERS);
+      const selectedModel = routeModelForPrompt(topic, selectedToolNames, this.modelIdentifiers);
       this.modelIdentifier = selectedModel.name;
 
       const resolved = this.getLlmByIdentifier(selectedModel.name);
@@ -160,8 +162,9 @@ export class LlamaIndexAgentRoutingManager {
 
 async function main() {
   const args = buildCommonArgs();
-  const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
-  const manager = new LlamaIndexAgentRoutingManager(startupModel, args.stream);
+  const modelIdentifiers = await getRoutableModelIdentifiers(ALL_MODEL_IDENTIFIERS, args.modelIdentifier);
+  const manager = new LlamaIndexAgentRoutingManager(modelIdentifiers, modelIdentifiers[0], args.stream);
+  manager.toolTriggerHelp = `${manager.toolTriggerHelp} ${await describeModelAvailability(ALL_MODEL_IDENTIFIERS)}`;
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }
 

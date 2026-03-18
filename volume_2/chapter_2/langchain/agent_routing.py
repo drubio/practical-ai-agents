@@ -17,7 +17,15 @@ from langchain.tools import tool
 
 import tools
 from models import ALL_MODEL_IDENTIFIERS, ModelConfig, get_identifier_mappings, route_model_for_prompt
-from utils import build_task_prompt, build_common_parser, get_chapter_logger, log_tool_call, run_mode, select_startup_model
+from utils import (
+    build_task_prompt,
+    build_common_parser,
+    describe_model_availability,
+    get_chapter_logger,
+    get_routable_model_identifiers,
+    log_tool_call,
+    run_mode,
+)
 
 logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
 FINAL_RESPONSE_INSTRUCTION = (
@@ -70,16 +78,17 @@ def select_tools(log_tool_call_fn, active_logger, tool_names):
 class LangChainAgentRoutingManager:
     framework = "LangChain Agent Routing"
     tool_names = ALL_TOOL_NAMES
-    model_identifiers = ALL_MODEL_IDENTIFIERS
+    model_identifiers: list[str] = []
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm')."
     )
 
-    def __init__(self, model: str, stream: bool = True):
-        config = get_identifier_mappings().get(model)
+    def __init__(self, model_identifiers: Sequence[str], initial_model: str, stream: bool = True):
+        self.model_identifiers = list(model_identifiers)
+        config = get_identifier_mappings().get(initial_model)
         self.provider = config.provider if config else "unknown"
-        self.model = config.model if config else model
+        self.model = config.model if config else initial_model
         self.stream = stream
         self._agent_cache: dict[tuple[str, tuple[str, ...]], Any] = {}
         logger.info(
@@ -105,7 +114,7 @@ class LangChainAgentRoutingManager:
         return self._agent_cache[key]
 
     def _route_model(self, topic: str, selected_tool_names: Sequence[str]) -> ModelConfig:
-        return route_model_for_prompt(topic, selected_tool_names, model_identifiers=ALL_MODEL_IDENTIFIERS)
+        return route_model_for_prompt(topic, selected_tool_names, model_identifiers=self.model_identifiers)
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
@@ -159,8 +168,9 @@ class LangChainAgentRoutingManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 2 LangChain agent routing")
     args = parser.parse_args()
-    startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
-    manager = LangChainAgentRoutingManager(model=startup_model, stream=args.stream)
+    model_identifiers = get_routable_model_identifiers(ALL_MODEL_IDENTIFIERS, args.model_identifier)
+    manager = LangChainAgentRoutingManager(model_identifiers=model_identifiers, initial_model=model_identifiers[0], stream=args.stream)
+    manager.tool_trigger_help = f"{manager.tool_trigger_help} {describe_model_availability(ALL_MODEL_IDENTIFIERS)}"
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 

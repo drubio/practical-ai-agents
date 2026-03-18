@@ -25,7 +25,8 @@ from utils import (
     log_tool_call,
     run_llamaindex_handler_sync,
     run_mode,
-    select_startup_model,
+    describe_model_availability,
+    get_routable_model_identifiers,
 )
 
 logger = get_chapter_logger("volume_2.chapter_2.llamaindex.agent_routing")
@@ -71,14 +72,15 @@ def select_tools(log_tool_call_fn, active_logger, tool_names):
 class LlamaIndexAgentRoutingManager:
     framework = "LlamaIndex Agent Routing"
     tool_names = ALL_TOOL_NAMES
-    model_identifiers = ALL_MODEL_IDENTIFIERS
+    model_identifiers: list[str] = []
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm')."
     )
 
-    def __init__(self, model: str, stream: bool = False):
-        resolved_model, llm = resolve_llamaindex_model(model)
+    def __init__(self, model_identifiers: list[str], initial_model: str, stream: bool = False):
+        self.model_identifiers = list(model_identifiers)
+        resolved_model, llm = resolve_llamaindex_model(initial_model)
         self.provider = resolved_model.provider
         self.model = resolved_model.model
         self.stream = stream
@@ -92,7 +94,7 @@ class LlamaIndexAgentRoutingManager:
         self._agent_cache: dict[tuple[str, tuple[str, ...]], FunctionAgent] = {}
 
     def _route_model(self, topic: str, selected_tool_names: list[str]) -> ModelConfig:
-        return route_model_for_prompt(topic, selected_tool_names, model_identifiers=ALL_MODEL_IDENTIFIERS)
+        return route_model_for_prompt(topic, selected_tool_names, model_identifiers=self.model_identifiers)
 
     def _get_llm(self, model_name: str):
         if model_name not in self._llm_cache:
@@ -173,8 +175,9 @@ class LlamaIndexAgentRoutingManager:
 def main() -> None:
     parser = build_common_parser("Volume 2 chapter 2 LlamaIndex agent routing")
     args = parser.parse_args()
-    startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
-    manager = LlamaIndexAgentRoutingManager(model=startup_model, stream=args.stream)
+    model_identifiers = get_routable_model_identifiers(ALL_MODEL_IDENTIFIERS, args.model_identifier)
+    manager = LlamaIndexAgentRoutingManager(model_identifiers=model_identifiers, initial_model=model_identifiers[0], stream=args.stream)
+    manager.tool_trigger_help = f"{manager.tool_trigger_help} {describe_model_availability(ALL_MODEL_IDENTIFIERS)}"
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 
