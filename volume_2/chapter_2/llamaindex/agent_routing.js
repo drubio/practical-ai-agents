@@ -2,6 +2,7 @@
 
 import * as tools from "../../chapter_1/tools.js";
 import {
+  buildTaskPrompt,
   buildCommonArgs,
   defaultChunkIterator,
   extractOutputText,
@@ -13,6 +14,13 @@ import {
 import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, routeModelForPrompt } from "../../chapter_1/models.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.llamaindex.agent_routing");
+const FINAL_RESPONSE_INSTRUCTION = [
+  "Treat each non-empty line in the user prompt as a required task and handle every requested step before answering.",
+  "You must call calculator for arithmetic expressions or fee calculations, resolve_datetime for scheduling/date phrases, and generate_uuid for unique IDs.",
+  'Return your final answer as JSON with this shape: {"text": "<human readable summary>", "raw": {"ticket_id": null, "meeting": null, "calculations": []}}.',
+  "Populate raw fields with structured values when available and use null or empty arrays when unavailable.",
+  "If any line requests arithmetic, raw.calculations must include the calculator result."
+].join(" ");
 
 export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "generate_uuid"];
 
@@ -69,7 +77,8 @@ export class LlamaIndexAgentRoutingManager {
 
   async askQuestion(topic) {
     try {
-      logger.info(`Processing prompt | chars=${topic.length}`);
+      logger.info(`Received prompt | chars=${topic.length} | multiline=${topic.includes("\n")}`);
+      logger.info("Delegating full prompt to routed LlamaIndex agent");
       const selectedToolNames = ALL_TOOL_NAMES;
       const selectedModel = routeModelForPrompt(topic, selectedToolNames, ALL_MODEL_IDENTIFIERS);
       this.modelIdentifier = selectedModel.name;
@@ -85,15 +94,18 @@ export class LlamaIndexAgentRoutingManager {
           role: "system",
           content: [
             "You are an AI assistant that can use tools.",
+            "Choose the best tool(s) among those provided.",
+            FINAL_RESPONSE_INSTRUCTION,
             "When needed, reply strictly in this format and nothing else:",
             "TOOL: <tool_name>",
             "INPUT: <valid JSON or plain text>",
             "If no tool is needed, return a concise final answer directly."
           ].join("\n")
         },
-        { role: "user", content: topic }
+        { role: "user", content: buildTaskPrompt(topic) }
       ];
 
+      logger.info("Awaiting LlamaIndex agent response");
       for (let attempt = 0; attempt < 6; attempt += 1) {
         const result = await resolved.llm.chat({ messages });
         const text = extractOutputText(result).trim();

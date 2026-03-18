@@ -5,6 +5,7 @@ import { createAgent, tool } from "../../chapter_1/node_modules/langchain/dist/i
 
 import * as tools from "../../chapter_1/tools.js";
 import {
+  buildTaskPrompt,
   buildCommonArgs,
   defaultChunkIterator,
   getChapterLogger,
@@ -15,6 +16,13 @@ import {
 import { ALL_MODEL_IDENTIFIERS, routeModelForPrompt } from "../../chapter_1/models.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.langchain.agent_routing");
+const FINAL_RESPONSE_INSTRUCTION =
+  "Treat each non-empty line in the user prompt as a required task and handle every requested step before answering. " +
+  "You must call calculator for arithmetic expressions or fee calculations, " +
+  "resolve_datetime for scheduling/date phrases, and generate_uuid for unique IDs. " +
+  'Return your final answer as JSON with this shape: {"text": "<human readable summary>", "raw": {"ticket_id": null, "meeting": null, "calculations": []}}. ' +
+  "Populate raw fields with structured values when available and use null or empty arrays when unavailable. " +
+  "If any line requests arithmetic, raw.calculations must include the calculator result.";
 
 export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "generate_uuid"];
 
@@ -72,7 +80,8 @@ export class LangChainAgentRoutingManager {
           tools: selectTools(logToolCall, logger, selectedToolNames),
           systemPrompt:
             "You are an AI assistant that can use tools. " +
-            "Choose the best tool(s) among those provided, then return a concise final answer."
+            "Choose the best tool(s) among those provided. " +
+            FINAL_RESPONSE_INSTRUCTION
         })
       );
     }
@@ -81,7 +90,8 @@ export class LangChainAgentRoutingManager {
 
   async askQuestion(topic) {
     try {
-      logger.info(`Processing prompt | chars=${topic.length}`);
+      logger.info(`Received prompt | chars=${topic.length} | multiline=${topic.includes("\n")}`);
+      logger.info("Delegating full prompt to routed LangChain agent");
       const selectedToolNames = ALL_TOOL_NAMES;
       const selectedModel = routeModelForPrompt(topic, selectedToolNames, ALL_MODEL_IDENTIFIERS);
       this.provider = selectedModel.provider;
@@ -89,7 +99,8 @@ export class LangChainAgentRoutingManager {
       this.modelIdentifier = selectedModel.name;
 
       const agent = this.getAgent(selectedModel.provider, selectedModel.model, selectedToolNames);
-      const input = { messages: [{ role: "user", content: topic }] };
+      const input = { messages: [{ role: "user", content: buildTaskPrompt(topic) }] };
+      logger.info(`Awaiting ${this.stream ? "streamed " : ""}LangChain agent response`);
       const result = this.stream
         ? await agent.stream(input, { streamMode: ["messages", "updates"] })
         : await agent.invoke(input);

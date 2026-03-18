@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Dict, Iterator
 import sys
@@ -18,6 +19,7 @@ import tools
 from models import ALL_MODEL_IDENTIFIERS, ModelConfig, resolve_llamaindex_model, route_model_for_prompt
 from stream import chunk_text
 from utils import (
+    build_task_prompt,
     build_common_parser,
     get_chapter_logger,
     log_tool_call,
@@ -27,6 +29,15 @@ from utils import (
 )
 
 logger = get_chapter_logger("volume_2.chapter_2.llamaindex.agent_routing")
+FINAL_RESPONSE_INSTRUCTION = (
+    "Treat each non-empty line in the user prompt as a required task and handle every requested step before answering. "
+    "You must call calculator for arithmetic expressions or fee calculations, "
+    "resolve_datetime for scheduling/date phrases, and generate_uuid for unique IDs. "
+    "Return your final answer as JSON with this shape: "
+    '{"text": "<human readable summary>", "raw": {"ticket_id": null, "meeting": null, "calculations": []}}. '
+    "Populate raw fields with structured values when available and use null or empty arrays when unavailable. "
+    "If any line requests arithmetic, raw.calculations must include the calculator result."
+)
 
 ALL_TOOL_NAMES = [
     "calculator",
@@ -98,14 +109,16 @@ class LlamaIndexAgentRoutingManager:
                 tools=select_tools(log_tool_call, logger, selected_tool_names),
                 system_prompt=(
                     "You are an AI assistant that can use tools. "
-                    "Choose the best tool(s) among those provided, then return a concise final answer."
+                    "Choose the best tool(s) among those provided. "
+                    f"{FINAL_RESPONSE_INSTRUCTION}"
                 ),
             )
         return self._agent_cache[key]
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
-            logger.info("Processing prompt | chars=%s", len(topic))
+            logger.info("Received prompt | chars=%s | multiline=%s", len(topic), "\n" in topic)
+            logger.info("Delegating full prompt to routed LlamaIndex agent")
             selected_tool_names = ALL_TOOL_NAMES
             selected_model = self._route_model(topic, selected_tool_names)
             self.provider = selected_model.provider
@@ -113,13 +126,15 @@ class LlamaIndexAgentRoutingManager:
             agent = self._get_agent(selected_model.name, selected_tool_names)
 
             if self.stream:
+                logger.info("Awaiting streamed LlamaIndex agent response")
                 result = run_llamaindex_handler_sync(
-                    lambda: agent.run(topic).stream_events(),
+                    lambda: agent.run(build_task_prompt(topic)).stream_events(),
                     stream=True,
                 )
             else:
+                logger.info("Awaiting LlamaIndex agent response")
                 result = run_llamaindex_handler_sync(
-                    lambda: agent.run(topic),
+                    lambda: agent.run(build_task_prompt(topic)),
                     stream=False,
                 )
 

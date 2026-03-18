@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 from typing import Any, Dict, Sequence
@@ -16,9 +17,18 @@ from langchain.tools import tool
 
 import tools
 from models import ALL_MODEL_IDENTIFIERS, ModelConfig, get_identifier_mappings, route_model_for_prompt
-from utils import build_common_parser, get_chapter_logger, log_tool_call, run_mode, select_startup_model
+from utils import build_task_prompt, build_common_parser, get_chapter_logger, log_tool_call, run_mode, select_startup_model
 
 logger = get_chapter_logger("volume_2.chapter_2.langchain.agent_routing")
+FINAL_RESPONSE_INSTRUCTION = (
+    "Treat each non-empty line in the user prompt as a required task and handle every requested step before answering. "
+    "You must call calculator for arithmetic expressions or fee calculations, "
+    "resolve_datetime for scheduling/date phrases, and generate_uuid for unique IDs. "
+    "Return your final answer as JSON with this shape: "
+    '{"text": "<human readable summary>", "raw": {"ticket_id": null, "meeting": null, "calculations": []}}. '
+    "Populate raw fields with structured values when available and use null or empty arrays when unavailable. "
+    "If any line requests arithmetic, raw.calculations must include the calculator result."
+)
 
 ALL_TOOL_NAMES = [
     "calculator",
@@ -88,7 +98,8 @@ class LangChainAgentRoutingManager:
                 tools=select_tools(log_tool_call, logger, selected_tool_names),
                 system_prompt=(
                     "You are an AI assistant that can use tools. "
-                    "Choose the best tool(s) among those provided, then return a concise final answer."
+                    "Choose the best tool(s) among those provided. "
+                    f"{FINAL_RESPONSE_INSTRUCTION}"
                 ),
             )
         return self._agent_cache[key]
@@ -98,7 +109,8 @@ class LangChainAgentRoutingManager:
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
-            logger.info("Processing prompt | chars=%s", len(topic))
+            logger.info("Received prompt | chars=%s | multiline=%s", len(topic), "\n" in topic)
+            logger.info("Delegating full prompt to routed LangChain agent")
             selected_tool_names = ALL_TOOL_NAMES
             selected_model = self._route_model(topic, selected_tool_names)
             self.provider = selected_model.provider
@@ -113,10 +125,12 @@ class LangChainAgentRoutingManager:
             )
 
             agent = self._get_agent(selected_model.provider, selected_model.model, selected_tool_names)
-            input_payload = {"messages": [{"role": "user", "content": topic}]}
+            input_payload = {"messages": [{"role": "user", "content": build_task_prompt(topic)}]}
             if self.stream:
+                logger.info("Awaiting streamed LangChain agent response")
                 result = agent.stream(input_payload, stream_mode=["messages", "updates"])
             else:
+                logger.info("Awaiting LangChain agent response")
                 result = agent.invoke(input_payload)
             return {
                 "success": True,

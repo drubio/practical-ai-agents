@@ -9,15 +9,41 @@ function normalizeWhitespace(text) {
   return String(text ?? "").replace(/\s+/g, " ").trim();
 }
 
-function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function sanitizeMathCandidate(candidate) {
+  let cleaned = normalizeWhitespace(candidate).replace(/[.,;:]+$/g, "");
+
+  while ((cleaned.match(/\)/g) || []).length > (cleaned.match(/\(/g) || []).length && cleaned.endsWith(")")) {
+    cleaned = cleaned.slice(0, -1).trimEnd();
+  }
+
+  while ((cleaned.match(/\(/g) || []).length > (cleaned.match(/\)/g) || []).length && cleaned.startsWith("(")) {
+    cleaned = cleaned.slice(1).trimStart();
+  }
+
+  return cleaned;
 }
 
-function triggerMatch(promptLower, trigger) {
-  if (trigger.includes(" ") || [":", "/", ".", "-"].some((ch) => trigger.includes(ch))) {
-    return promptLower.includes(trigger);
+function extractMathExpression(text) {
+  const cleaned = normalizeWhitespace(text);
+  if (!cleaned) return "";
+
+  const parenthesized = [...cleaned.matchAll(/\(([^()]+)\)/g)].map((match) => match[1]);
+  for (let i = parenthesized.length - 1; i >= 0; i -= 1) {
+    const candidate = sanitizeMathCandidate(parenthesized[i]);
+    if (/\d/.test(candidate) && /[+\-*/]/.test(candidate)) {
+      return candidate;
+    }
   }
-  return new RegExp(`\\b${escapeRegex(trigger)}\\b`).test(promptLower);
+
+  const inlineCandidates = cleaned.match(/[\d\s+\-*/().,]+/g) || [];
+  for (const inline of inlineCandidates) {
+    const candidate = sanitizeMathCandidate(inline);
+    if (/\d/.test(candidate) && /[+\-*/]/.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  return cleaned;
 }
 
 export function resolveDatetime(text) {
@@ -46,7 +72,7 @@ export function resolveDatetime(text) {
 }
 
 export function calculator(expression) {
-  const cleaned = normalizeWhitespace(expression);
+  const cleaned = extractMathExpression(expression);
   if (!cleaned) {
     return { error: "No expression provided." };
   }
@@ -102,92 +128,6 @@ const TOOL_DESCRIPTIONS = {
   resolve_datetime: "Resolve date/time phrases into ISO and human-readable values.",
   generate_uuid: "Generate a unique UUID identifier.",
 };
-
-const DEFAULT_TOOL_PRIORITY = ["calculator", "resolve_datetime", "generate_uuid"];
-
-const DEFAULT_KEYWORD_ROUTES = {
-  calculator: ["calculate", "calc", "compute", "math", "equation", "percentage"],
-  resolve_datetime: ["resolve datetime", "parse date", "parse datetime", "when is", "tomorrow", "next week", "next month", "today"],
-  generate_uuid: ["uuid", "unique id", "ticket id", "identifier"],
-};
-
-export function routeToolForPrompt(prompt, availableToolNames = DEFAULT_TOOL_PRIORITY) {
-  const text = String(prompt ?? "").trim();
-  if (!text) return null;
-
-  const available = new Set(availableToolNames);
-
-  const calculatorMatch = text.match(/^(?:calculate|calc|compute)\s+(.+)$/i);
-  if (calculatorMatch && available.has("calculator")) {
-    return { name: "calculator", input: calculatorMatch[1].trim() };
-  }
-
-  if (["+", "-", "*", "/", "="].some((op) => text.includes(op)) && available.has("calculator")) {
-    return { name: "calculator", input: text.replace(/=/g, " ").trim() };
-  }
-
-  const datetimeMatch = text.match(/^(?:resolve\s+datetime|parse\s+date(?:time)?|when\s+is)\s+(.+)$/i);
-  if (datetimeMatch && available.has("resolve_datetime")) {
-    return { name: "resolve_datetime", input: datetimeMatch[1].trim() };
-  }
-
-  const lower = text.toLowerCase();
-  if (["tomorrow", "next week", "next month", "today", " at "].some((token) => lower.includes(token)) && available.has("resolve_datetime")) {
-    return { name: "resolve_datetime", input: text };
-  }
-
-  const uuidMatch = text.match(
-    /^(?:generate|create|make)\s+(?:a\s+)?(?:unique\s+)?(?:uuid|id|identifier|ticket id|ticket identifier)\b.*$/i
-  );
-  if (uuidMatch && available.has("generate_uuid")) {
-    return { name: "generate_uuid", input: "" };
-  }
-
-  if (
-    [
-      "generate a unique id",
-      "generate an id",
-      "generate a uuid",
-      "create a unique id",
-      "create an id",
-      "create a uuid",
-      "new ticket id",
-      "unique ticket id",
-      "unique identifier"
-    ].some((phrase) => lower.includes(phrase)) &&
-    available.has("generate_uuid")
-  ) {
-    return { name: "generate_uuid", input: "" };
-  }
-
-
-  return null;
-}
-
-export function routeToolsForPrompt(prompt, availableToolNames = DEFAULT_TOOL_PRIORITY) {
-  const text = String(prompt ?? "");
-  const promptLower = text.toLowerCase();
-  const available = new Set(availableToolNames);
-  const selected = new Set();
-
-  for (const [toolName, triggers] of Object.entries(DEFAULT_KEYWORD_ROUTES)) {
-    if (!available.has(toolName)) continue;
-    if (triggers.some((trigger) => triggerMatch(promptLower, trigger))) {
-      selected.add(toolName);
-    }
-  }
-
-  const hasMathExpression = ["+", "*", "/", "="].some((op) => text.includes(op)) || text.includes(" - ");
-  if (hasMathExpression && available.has("calculator")) {
-    selected.add("calculator");
-  }
-
-  if (!selected.size) {
-    return DEFAULT_TOOL_PRIORITY.filter((name) => available.has(name));
-  }
-
-  return DEFAULT_TOOL_PRIORITY.filter((name) => available.has(name) && selected.has(name));
-}
 
 export function listTools() {
   return {

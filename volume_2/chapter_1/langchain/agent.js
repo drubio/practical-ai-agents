@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import * as tools from "../tools.js";
 import {
+  buildTaskPrompt,
   buildCommonArgs,
   defaultChunkIterator,
   getChapterLogger,
@@ -16,6 +17,14 @@ import {
 import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../models.js";
 
 const logger = getChapterLogger("volume_2.chapter_1.langchain.agent");
+const FINAL_RESPONSE_INSTRUCTION =
+  "Treat each non-empty line in the user prompt as a required task and handle every requested step before answering. " +
+  "You must call calculator for arithmetic expressions or fee calculations, " +
+  "resolve_datetime for scheduling/date phrases, and generate_uuid for unique IDs. " +
+  "Return your final answer as JSON with this shape: " +
+  '{"text": "<human readable summary>", "raw": {"ticket_id": null, "meeting": null, "calculations": []}}. ' +
+  "Populate raw fields with structured values when available and use null or empty arrays when unavailable. " +
+  "If any line requests arithmetic, raw.calculations must include the calculator result.";
 
 const calculatorTool = tool(
   ({ expression }) => logToolCall(logger, "calculator", tools.calculator)(expression),
@@ -75,31 +84,18 @@ export class LangChainAgentManager {
         "You are an AI assistant that can use tools. " +
         "Use the calculator for arithmetic, resolve_datetime for date/time phrases, " +
         "and generate_uuid when the user asks for a unique ID, UUID, ticket ID, or identifier. " +
-        "Think step-by-step, use tools when needed, and return a concise final answer."
+        `${FINAL_RESPONSE_INSTRUCTION} ` +
+        "Think step-by-step, use tools when needed."
     });
   }
 
   async askQuestion(topic) {
     try {
-      const localToolCall = tools.routeToolForPrompt(topic, this.toolNames);
-      if (localToolCall) {
-        logger.info(`Processing prompt locally | tool=${localToolCall.name} | chars=${topic.length}`);
-        const observation = tools.runTool(localToolCall.name, localToolCall.input);
-        return {
-          success: true,
-          stream: false,
-          provider: this.provider,
-          model: this.model,
-          prompt: topic,
-          localOnly: true,
-          selectedTool: localToolCall.name,
-          response: JSON.stringify(observation, null, 2)
-        };
-      }
+      logger.info(`Received prompt | chars=${topic.length} | multiline=${topic.includes("\n")}`);
+      logger.info("Delegating full prompt to LangChain agent");
+      const input = { messages: [{ role: "user", content: buildTaskPrompt(topic) }] };
 
-      logger.info(`Processing prompt with LLM | chars=${topic.length}`);
-      const input = { messages: [{ role: "user", content: topic }] };
-
+      logger.info(`Awaiting ${this.stream ? "streamed " : ""}LangChain agent response`);
       const result = this.stream
         ? await this.agent.stream(input, { streamMode: ["messages", "updates"] })
         : await this.agent.invoke(input);

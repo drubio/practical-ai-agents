@@ -15,6 +15,7 @@ if str(CHAPTER_ROOT) not in sys.path:
 from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.core.tools import FunctionTool
 from utils import (
+    build_task_prompt,
     build_common_parser,
     get_chapter_logger,
     log_tool_call,
@@ -28,6 +29,16 @@ from models import ALL_MODEL_IDENTIFIERS, resolve_llamaindex_model
 
 
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")
+
+FINAL_RESPONSE_INSTRUCTION = (
+    "Treat each non-empty line in the user prompt as a required task and handle every requested step before answering. "
+    "You must call calculator for arithmetic expressions or fee calculations, "
+    "resolve_datetime for scheduling/date phrases, and generate_uuid for unique IDs. "
+    "Return your final answer as JSON with this shape: "
+    '{"text": "<human readable summary>", "raw": {"ticket_id": null, "meeting": null, "calculations": []}}. '
+    "Populate raw fields with structured values when available and use null or empty arrays when unavailable. "
+    "If any line requests arithmetic, raw.calculations must include the calculator result."
+)
 
 
 TOOLS = [
@@ -79,38 +90,26 @@ class LlamaIndexAgentManager:
                 "You are an AI assistant that can use tools. "
                 "Use the calculator for arithmetic, resolve_datetime for date/time phrases, "
                 "and generate_uuid when the user asks for a unique ID, UUID, ticket ID, or identifier. "
-                "Think step-by-step, use tools when needed, and return a concise final answer."
+                f"{FINAL_RESPONSE_INSTRUCTION} "
+                "Think step-by-step, use tools when needed."
             ),
         )
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
-            local_tool_call = tools.route_tool_for_prompt(topic, self.tool_names)
-            if local_tool_call:
-                name, tool_input = local_tool_call
-                logger.info("Processing prompt locally | tool=%s | chars=%s", name, len(topic))
-                observation = tools.run_tool(name, tool_input)
-                return {
-                    "success": True,
-                    "stream": False,
-                    "provider": self.provider,
-                    "model": self.model,
-                    "prompt": topic,
-                    "local_only": True,
-                    "selected_tool": name,
-                    "response": json.dumps(observation, indent=2, ensure_ascii=False),
-                }
-
-            logger.info("Processing prompt with LLM | chars=%s", len(topic))
+            logger.info("Received prompt | chars=%s | multiline=%s", len(topic), "\n" in topic)
+            logger.info("Delegating full prompt to LlamaIndex agent")
 
             if self.stream:
+                logger.info("Awaiting streamed LlamaIndex agent response")
                 result = run_llamaindex_handler_sync(
-                    lambda: self.agent.run(topic).stream_events(),
+                    lambda: self.agent.run(build_task_prompt(topic)).stream_events(),
                     stream=True,
                 )
             else:
+                logger.info("Awaiting LlamaIndex agent response")
                 result = run_llamaindex_handler_sync(
-                    lambda: self.agent.run(topic),
+                    lambda: self.agent.run(build_task_prompt(topic)),
                     stream=False,
                 )
 

@@ -31,6 +31,25 @@ def normalize_response_text(payload: Any) -> str:
     return str(payload)
 
 
+def build_task_prompt(topic: str) -> str:
+    """Normalize a user prompt and explicitly enumerate multi-line tasks."""
+    text = (topic or "").strip()
+    if not text:
+        return ""
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) <= 1:
+        return text
+
+    checklist = "\n".join(f"{idx}. {line}" for idx, line in enumerate(lines, start=1))
+    return (
+        f"{text}\n\n"
+        "Task checklist (every item is required, including the final line):\n"
+        f"{checklist}\n\n"
+        "Do not skip any checklist item."
+    )
+
+
 def chunk_text(text: str, chunk_size: int = 28) -> Iterable[str]:
     clean = text or ""
     if not clean:
@@ -150,7 +169,7 @@ def get_chapter_logger(name: str) -> logging.Logger:
 
 
 def log_tool_call(logger: logging.Logger, tool_name: str, fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    def wrapper(arg: Any) -> Any:
+    def wrapper(arg: Any = None) -> Any:
         logger.info("Tool call | name=%s | input=%s", tool_name, arg)
         result = fn(arg)
         logger.info("Tool result | name=%s | output=%s", tool_name, result)

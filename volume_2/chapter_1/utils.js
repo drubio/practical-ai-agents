@@ -22,6 +22,26 @@ export function normalizeResponseText(payload) {
   return String(payload);
 }
 
+export function buildTaskPrompt(topic) {
+  const text = String(topic ?? "").trim();
+  if (!text) return "";
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length <= 1) return text;
+
+  const checklist = lines.map((line, index) => `${index + 1}. ${line}`).join("\n");
+  return (
+    `${text}\n\n` +
+    "Task checklist (every item is required, including the final line):\n" +
+    `${checklist}\n\n` +
+    "Do not skip any checklist item."
+  );
+}
+
 export function chunkText(text, chunkSize = 28) {
   const clean = text || "";
   if (!clean) return [""];
@@ -95,7 +115,7 @@ export function getChapterLogger(name) {
 }
 
 export function logToolCall(logger, toolName, fn) {
-  return (arg) => {
+  return (arg = undefined) => {
     logger.info(`Tool call | name=${toolName} | input=%o`, arg);
     const result = fn(arg);
     logger.info(`Tool result | name=${toolName} | output=%o`, result);
@@ -377,6 +397,30 @@ export function buildCommonArgs(argv = process.argv.slice(2)) {
   return { mode, stream, host, port, modelIdentifier };
 }
 
+
+async function readCliPrompt(lineIterator, maxWaitMs = 200) {
+  process.stdout.write("\n(exit or enter question) > ");
+
+  const first = await lineIterator.next();
+  if (first.done) return null;
+
+  const lines = [String(first.value ?? "").replace(/\r$/, "")];
+
+  while (true) {
+    const next = await Promise.race([
+      lineIterator.next(),
+      new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), maxWaitMs)),
+    ]);
+
+    if (next?.timeout || next.done) break;
+
+    lines.push(String(next.value ?? "").replace(/\r$/, ""));
+    maxWaitMs = 40;
+  }
+
+  return lines.join("\n").trim();
+}
+
 function printCliBanner(manager) {
   console.log(`\n===== ${manager.framework} CLI =====`);
   console.log("Type a question and press Enter.");
@@ -397,11 +441,11 @@ function printCliBanner(manager) {
 
 export async function runInteractiveCli(manager) {
   printCliBanner(manager);
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (prompt) => new Promise((resolve) => rl.question(prompt, resolve));
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  const lineIterator = rl[Symbol.asyncIterator]();
 
   while (true) {
-    const userInput = (await ask("\n(exit or enter question) > ")).trim();
+    const userInput = await readCliPrompt(lineIterator);
 
     if (!userInput) {
       console.log("No prompt provided. Please enter a question.");
