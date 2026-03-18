@@ -35,9 +35,9 @@ FINAL_RESPONSE_INSTRUCTION = (
     "You must call calculator for arithmetic expressions or fee calculations, "
     "resolve_datetime for scheduling/date phrases, and generate_uuid for unique IDs. "
     "Return your final answer as JSON with this shape: "
-    '{"text": "<human readable summary>", "raw": {"ticket_id": null, "meeting": null, "calculations": []}}. '
-    "Populate raw fields with structured values when available and use null or empty arrays when unavailable. "
-    "If any line requests arithmetic, raw.calculations must include the calculator result."
+    '{"tool_calls": [{"name": "<tool_name>", "arguments": {}, "output": "<serialized tool output>"}], "final_answer": "<human readable summary>"}. '
+    "Include one tool_calls entry for every tool invocation, in execution order, and store that tool's output or result directly on the same object. Use an empty array when no tools are needed. "
+    "Capture the actual tool name, arguments, and output/result exactly as used, and summarize the result for the user in final_answer."
 )
 
 
