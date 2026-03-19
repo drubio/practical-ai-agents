@@ -46,10 +46,10 @@ You're welcome to explore, modify and adapt the examples for your own projects.
 
 This repository root includes two dependency manifests:
 
-- `requirements.txt` contains the common Python dependencies used by shared helpers and by chapters that rely on these Python resources.
-- `package.json` contains the common JavaScript dependencies used by shared helpers and by chapters that rely on these JavaScript resources.
+- `requirements.txt` contains the common Python dependencies used by shared helpers and by chapters that rely on this code.
+- `package.json` contains the common TypeScript/JavaScript dependencies used by shared helpers and by chapters that rely on this code.
 
-NOTE: **Volume 1**: **Chapters 1 through 3** and **Chapter 8** have their own dependency files in their chapter folders. They should be run separetly to produce a self-contained installation for each chapter.
+NOTE: *Volume 1*: *Chapters 1 through 3* and *Chapter 8* have their own dependency files in their chapter folders. Each of these chapters should run their own self-contained install.
 
 ---
 
