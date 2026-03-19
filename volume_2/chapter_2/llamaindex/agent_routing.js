@@ -12,7 +12,7 @@ import {
   getRoutableModelIdentifiers,
   runMode
 } from "../../chapter_1/utils.js";
-import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, routeModelForPrompt } from "../../chapter_1/models.js";
+import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, routeModelForPrompt } from "../../chapter_1/utils.js";
 
 const logger = getChapterLogger("volume_2.chapter_2.llamaindex.agent_routing");
 const FINAL_RESPONSE_INSTRUCTION = [

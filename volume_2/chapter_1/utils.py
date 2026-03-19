@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import ast
 import json
+import importlib.util
 import logging
 import os
 import re
@@ -18,6 +19,24 @@ import sys
 import threading
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, Iterable, Iterator, Protocol
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SHARED_MODELS_PATH = REPO_ROOT / "shared" / "llm_models.py"
+
+_shared_models_spec = importlib.util.spec_from_file_location("shared_llm_models", SHARED_MODELS_PATH)
+if _shared_models_spec is None or _shared_models_spec.loader is None:
+    raise ImportError(f"Unable to load shared model registry from {SHARED_MODELS_PATH}")
+_shared_llm_models = importlib.util.module_from_spec(_shared_models_spec)
+sys.modules['shared_llm_models'] = _shared_llm_models
+_shared_models_spec.loader.exec_module(_shared_llm_models)
+
+ALL_MODEL_IDENTIFIERS = _shared_llm_models.ALL_MODEL_IDENTIFIERS
+ModelConfig = _shared_llm_models.ModelConfig
+PROVIDER_DISPLAY_NAMES = _shared_llm_models.PROVIDER_DISPLAY_NAMES
+get_api_key_env_vars = _shared_llm_models.get_api_key_env_vars
+get_identifier_mappings = _shared_llm_models.get_identifier_mappings
+resolve_llamaindex_model = _shared_llm_models.resolve_llamaindex_model
+route_model_for_prompt = _shared_llm_models.route_model_for_prompt
 
 
 def normalize_response_text(payload: Any) -> str:
@@ -677,14 +696,13 @@ def default_chunk_iterator(manager: AgentManagerProtocol, topic: str) -> Iterato
 
 
 def load_chapter_env() -> Path | None:
-    """Load chapter-local `.env` so provider SDKs can find API keys.
+    """Load environment variables for provider SDKs.
 
-    Search order:
-    1) current working directory
-    2) chapter root (`volume_2/chapter_1`)
+    Canonical location: `shared/.env` at the repository root.
+    Fallbacks remain for local overrides and backwards compatibility.
     """
     chapter_root = Path(__file__).resolve().parent
-    candidates = [Path.cwd() / ".env"]
+    candidates = [REPO_ROOT / "shared" / ".env", Path.cwd() / ".env"]
     for base in [chapter_root, *chapter_root.parents]:
         candidates.append(base / ".env")
 
@@ -742,30 +760,14 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     return parser
 
 
-PROVIDER_ENV_KEYS: dict[str, tuple[str, ...]] = {
-    "openai": ("OPENAI_API_KEY",),
-    "anthropic": ("ANTHROPIC_API_KEY",),
-    "google": ("GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"),
-    "google_genai": ("GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"),
-    "xai": ("XAI_API_KEY",),
-}
-
-
 def _provider_is_configured(provider: str) -> bool:
-    env_keys = PROVIDER_ENV_KEYS.get(provider, ())
+    env_keys = get_api_key_env_vars(provider)
     return any((os.getenv(key) or "").strip() for key in env_keys)
 
 
 def format_provider_display_name(provider: str) -> str:
     normalized = provider.replace("-", "_").lower()
-    mapping = {
-        "openai": "OpenAI",
-        "anthropic": "Anthropic",
-        "google": "Google",
-        "google_genai": "Google GenAI",
-        "xai": "xAI",
-    }
-    return mapping.get(normalized, provider.replace("_", " ").replace("-", " ").title())
+    return PROVIDER_DISPLAY_NAMES.get(normalized, provider.replace("_", " ").replace("-", " ").title())
 
 
 def _model_label(model_name: str, model_uri: str, provider: str) -> str:
@@ -774,11 +776,6 @@ def _model_label(model_name: str, model_uri: str, provider: str) -> str:
 
 
 def _build_model_catalog(model_identifiers: Iterable[str] | None) -> list[dict[str, str]]:
-    try:
-        from models import get_identifier_mappings  # local import to avoid circular dependency at module load
-    except Exception:  # noqa: BLE001
-        return []
-
     available = get_identifier_mappings()
     selected_names = list(model_identifiers or available.keys())
     catalog = []

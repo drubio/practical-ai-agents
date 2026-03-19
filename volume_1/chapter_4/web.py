@@ -12,9 +12,15 @@ import uvicorn
 import io
 from contextlib import redirect_stdout
 import json
+import os
+import sys
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.append(REPO_ROOT)
 
 from stream import iter_text_chunks, normalize_response_text
-from utils import parse_structured_json_response, get_all_providers
+from utils import parse_structured_json_response, get_all_providers, get_default_model, get_display_name
 
 
 class QueryRequest(BaseModel):
@@ -133,7 +139,6 @@ def _recover_structured_parse_error(result: dict) -> dict:
 
 def _provider_selection_map(manager):
     """Build the same provider ordering used by the CLI selection prompt."""
-    from utils import get_display_name
 
     available = manager.get_available_providers()
     sorted_providers = sorted(available, key=lambda provider: (provider != "openai", get_display_name(provider)))
@@ -234,7 +239,6 @@ def create_web_api(manager_class):
 
     @app.get("/providers")
     async def get_providers():
-        from utils import get_display_name, get_default_model
         providers = manager.get_available_providers()
         return {
             "framework": manager.framework,

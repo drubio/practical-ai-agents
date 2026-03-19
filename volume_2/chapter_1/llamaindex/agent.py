@@ -25,7 +25,11 @@ from utils import (
 )
 
 import tools  # noqa: E402
-from models import ALL_MODEL_IDENTIFIERS, resolve_llamaindex_model
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from utils import ALL_MODEL_IDENTIFIERS, resolve_llamaindex_model
 
 
 logger = get_chapter_logger("volume_2.chapter_1.llamaindex.agent")

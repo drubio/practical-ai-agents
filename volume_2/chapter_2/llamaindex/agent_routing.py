@@ -16,7 +16,11 @@ from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.core.tools import FunctionTool
 
 import tools
-from models import ALL_MODEL_IDENTIFIERS, ModelConfig, resolve_llamaindex_model, route_model_for_prompt
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from utils import ALL_MODEL_IDENTIFIERS, ModelConfig, resolve_llamaindex_model, route_model_for_prompt
 from stream import chunk_text
 from utils import (
     build_task_prompt,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import * as tools from "../tools.js";
-import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM } from "../models.js";
+import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM } from "../utils.js";
 
 import {
   buildTaskPrompt,

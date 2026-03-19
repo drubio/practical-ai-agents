@@ -10,32 +10,30 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 import { normalizeResponseText } from './stream.js';
+import { getAllProviders as getAllProvidersShared, getApiKey as getApiKeyShared, getDefaultModelName, getDisplayName as getDisplayNameShared } from '../../shared/llm_models.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-config({ path: join(__dirname, '.env') });
-
-export const PROVIDERS = {
-    anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY', defaultModel: 'claude-sonnet-4-5', displayName: 'Anthropic Claude' },
-    openai: { apiKeyEnv: 'OPENAI_API_KEY', defaultModel: 'gpt-5.2', displayName: 'OpenAI GPT' },
-    google: { apiKeyEnv: 'GOOGLE_API_KEY', defaultModel: 'gemini-3-flash-preview', displayName: 'Google Gemini' },
-    xai: { apiKeyEnv: 'XAI_API_KEY', defaultModel: 'grok-4', displayName: 'xAI Grok' },
-};
+config({ path: join(__dirname, '..', '..', 'shared', '.env') });
 
 export function getApiKey(provider) {
-    return (provider in PROVIDERS) ? process.env[PROVIDERS[provider].apiKeyEnv] : null;
-}
-
-export function getDefaultModel(provider) {
-    return PROVIDERS[provider]?.defaultModel || '';
+    return getApiKeyShared(provider);
 }
 
 export function getDisplayName(provider) {
-    return PROVIDERS[provider]?.displayName || provider.charAt(0).toUpperCase() + provider.slice(1);
+    return getDisplayNameShared(provider);
 }
 
 export function getAllProviders() {
-    return Object.keys(PROVIDERS);
+    return getAllProvidersShared();
+}
+
+export function getDefaultModel(provider) {
+    return getDefaultModelName(provider);
+}
+
+export function getAllProviderNames() {
+    return getAllProviders();
 }
 
 let sharedRl = null;
@@ -45,8 +43,6 @@ function getSharedAsk() {
     }
     return (prompt) => new Promise((resolve) => sharedRl.question(prompt, resolve));
 }
-
-
 
 export function parseStructuredJsonResponse(raw) {
     let content = '';

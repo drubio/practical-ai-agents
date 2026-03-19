@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from utils import get_api_key, get_default_model, BaseLLMManager, interactive_cli
+from utils import BaseLLMManager, get_api_key, get_default_model, interactive_cli
 
 
 class LangChainLLMManager(BaseLLMManager):

@@ -1,3 +1,6 @@
+import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings, routeModelForPrompt } from "../../shared/llm_models.mjs";
+import { createLlamaindexLLM } from "./llamaindex_model_factory.js";
+
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
@@ -142,6 +145,7 @@ export function toSseLine(data) {
 export function loadChapterEnv() {
   const chapterRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname));
   const candidates = [
+    path.resolve(chapterRoot, "..", "..", "shared", ".env"),
     path.resolve(process.cwd(), ".env"),
     path.resolve(chapterRoot, ".env"),
     path.resolve(chapterRoot, "..", ".env"),
@@ -516,8 +520,6 @@ function formatProviderLabel(provider) {
 }
 
 export async function getModelAvailability(modelIdentifiers) {
-  const { getIdentifierMappings } = await import("./models.js").catch(() => ({ getIdentifierMappings: null }));
-  if (!getIdentifierMappings) throw new Error("Model registry unavailable for startup selection.");
   return buildModelAvailability(modelIdentifiers, getIdentifierMappings);
 }
 
@@ -705,3 +707,5 @@ export async function* defaultChunkIterator(manager, topic) {
 
   yield* chunkText(responseText);
 }
+
+export { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, getIdentifierMappings, routeModelForPrompt };

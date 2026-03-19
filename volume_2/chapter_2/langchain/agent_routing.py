@@ -16,7 +16,11 @@ from langchain.agents import create_agent
 from langchain.tools import tool
 
 import tools
-from models import ALL_MODEL_IDENTIFIERS, ModelConfig, get_identifier_mappings, route_model_for_prompt
+REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from utils import ALL_MODEL_IDENTIFIERS, ModelConfig, get_identifier_mappings, route_model_for_prompt
 from utils import (
     build_task_prompt,
     build_common_parser,

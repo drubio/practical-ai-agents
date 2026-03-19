@@ -14,7 +14,7 @@ import {
   selectStartupModel,
   runMode
 } from "../utils.js";
-import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../models.js";
+import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../utils.js";
 
 const logger = getChapterLogger("volume_2.chapter_1.langchain.agent");
 const FINAL_RESPONSE_INSTRUCTION =

@@ -2,70 +2,46 @@
 Common utilities and configurations shared across all frameworks
 """
 
-import os
 import ast
 import json
+import importlib.util
+import os
 import re
+import sys
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 
+from pathlib import Path
+
 from stream import normalize_response_text
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SHARED_MODELS_PATH = REPO_ROOT / "shared" / "llm_models.py"
+
+_spec = importlib.util.spec_from_file_location("shared_llm_models", SHARED_MODELS_PATH)
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"Unable to load shared model registry from {SHARED_MODELS_PATH}")
+_shared_llm_models = importlib.util.module_from_spec(_spec)
+sys.modules['shared_llm_models'] = _shared_llm_models
+_spec.loader.exec_module(_shared_llm_models)
+
+get_all_providers = _shared_llm_models.get_all_providers
+get_api_key = _shared_llm_models.get_api_key
+get_default_model_name = _shared_llm_models.get_default_model_name
+get_display_name = _shared_llm_models.get_display_name
+
 # Load environment variables
-load_dotenv()
+load_dotenv(REPO_ROOT / "shared" / ".env")
 
 
-# Provider configurations
-PROVIDERS = {
-    "anthropic": {
-        "api_key_env": "ANTHROPIC_API_KEY",
-        "default_model": "claude-sonnet-4-5",
-        "display_name": "Anthropic Claude"
-    },
-    "openai": {
-        "api_key_env": "OPENAI_API_KEY",
-        "default_model": "gpt-5.2",
-        "display_name": "OpenAI GPT"
-    },
-    "google": {
-        "api_key_env": "GOOGLE_API_KEY",
-        "default_model": "gemini-3-flash-preview",
-        "display_name": "Google Gemini"
-    },
-    "xai": {
-        "api_key_env": "XAI_API_KEY",
-        "default_model": "grok-4",
-        "display_name": "xAI Grok"
-    }
-}
 
-def get_api_key(provider: str) -> Optional[str]:
-    """Get API key for a provider"""
-    if provider in PROVIDERS:
-        return os.getenv(PROVIDERS[provider]["api_key_env"])
-    return None
 
 def get_default_model(provider: str) -> str:
-    """Get default model for a provider"""
-    return PROVIDERS.get(provider, {}).get("default_model", "")
-
-def get_display_name(provider: str) -> str:
-    """Get display name for a provider"""
-    return PROVIDERS.get(provider, {}).get("display_name", provider.capitalize())
-
-def get_all_providers() -> List[str]:
-    """Get list of all configured providers"""
-    return list(PROVIDERS.keys())
-
-def get_available_providers() -> List[str]:
-    """Get list of providers with available API keys"""
-    available = []
-    for provider_name in PROVIDERS.keys():
-        if get_api_key(provider_name):
-            available.append(provider_name)
-    return available
+    return get_default_model_name(provider)
 
 
+def get_all_provider_names() -> List[str]:
+    return get_all_providers()
 def parse_structured_json_response(raw: Any) -> Dict[str, Any]:
     """Parse structured model output into a JSON object with tolerant fallbacks."""
     if raw is None:
