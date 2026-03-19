@@ -71,6 +71,7 @@ class LlamaIndexAgentManager:
 
     def __init__(self, model: str, stream: bool = False):
         resolved_model, llm = resolve_llamaindex_model(model)
+        self.active_model_identifier = model
         self.provider = resolved_model.provider
         self.model = resolved_model.model
         self.stream = stream

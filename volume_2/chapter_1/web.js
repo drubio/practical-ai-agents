@@ -1,7 +1,61 @@
 import express from "express";
 import cors from "cors";
 
-import { defaultChunkIterator, normalizeResponseText, toSseLine } from "./utils.js";
+import { chunkText, getProviderOptions, iterStreamTextChunks, normalizeAgentApiPayload, toSseLine } from "./utils.js";
+
+function supportsHistory(manager) {
+  return typeof manager?.getHistory === "function";
+}
+
+function supportsResetMemory(manager) {
+  return typeof manager?.resetMemory === "function";
+}
+
+async function buildQueryResponse(result, request, manager, streamOverride = undefined) {
+  const streamMode = streamOverride ?? Boolean(manager.stream);
+  const normalized = await normalizeAgentApiPayload(result.response, streamMode);
+  const effectiveSessionId = request.sessionId || request.session_id || "default";
+
+  const responsePayload = {
+    success: true,
+    framework: manager.framework || "agent",
+    provider: result.provider,
+    model: result.model,
+    response: normalized.response,
+    raw_answer: normalized.raw_answer,
+    prompt: result.prompt || request.template?.replace("{topic}", request.topic) || request.topic,
+    parameters: {
+      temperature: request.temperature,
+      max_tokens: request.max_tokens,
+      template: request.template || "{topic}"
+    },
+    session_id: result.session_id || effectiveSessionId
+  };
+
+  if (Array.isArray(normalized.tool_calls)) {
+    responsePayload.tool_calls = normalized.tool_calls;
+  }
+
+  return responsePayload;
+}
+
+async function resolveRequestManager(manager, requestedModel) {
+  if (!requestedModel || requestedModel === manager.activeModelIdentifier || requestedModel === manager.model) {
+    return { manager, activeModelIdentifier: manager.activeModelIdentifier || requestedModel };
+  }
+
+  const availableIdentifiers = new Set(Array.isArray(manager.modelIdentifiers) ? manager.modelIdentifiers : []);
+  if (availableIdentifiers.size && !availableIdentifiers.has(requestedModel)) {
+    const error = new Error(`Unsupported provider/model selection '${requestedModel}'`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    manager: new manager.constructor(requestedModel, Boolean(manager.stream)),
+    activeModelIdentifier: requestedModel
+  };
+}
 
 export function createWebApi(manager, enableStreaming = false) {
   const app = express();
@@ -11,9 +65,31 @@ export function createWebApi(manager, enableStreaming = false) {
   app.get("/", (_, res) => {
     res.json({
       framework: manager.framework || "agent",
-      model: manager.model || null,
-      streaming_enabled: enableStreaming,
+      available_providers: [manager.provider || "unknown"],
+      total_available: 1,
+      initialization_status: {
+        [manager.provider || "unknown"]: "Ready"
+      },
       status: "healthy"
+    });
+  });
+
+  app.get("/capabilities", (_, res) => {
+    res.json({
+      framework: manager.framework || "agent",
+      streaming: true,
+      memory: supportsHistory(manager) && supportsResetMemory(manager),
+      memory_retrieval: false,
+      coagent: false
+    });
+  });
+
+  app.get("/providers", async (_, res) => {
+    const providers = await getProviderOptions(manager.modelIdentifiers);
+    res.json({
+      framework: manager.framework || "agent",
+      providers,
+      count: providers.length
     });
   });
 
@@ -23,14 +99,20 @@ export function createWebApi(manager, enableStreaming = false) {
       return res.status(400).json({ error: "Topic is required" });
     }
 
-    const result = await manager.askQuestion(topic);
-    if (!result.success) {
-      return res.status(500).json({ error: result.error || "Query failed" });
+    try {
+      const { manager: requestManager, activeModelIdentifier } = await resolveRequestManager(manager, req.body?.provider);
+      const result = await requestManager.askQuestion(topic);
+      if (!result?.success) {
+        return res.status(400).json({ detail: result?.error || "Query failed" });
+      }
+      result.active_model_identifier = activeModelIdentifier;
+      return res.json(await buildQueryResponse(result, req.body ?? {}, requestManager));
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({ detail: error.message || "Query failed" });
     }
-    return res.json(result);
   });
 
-  app.post("/query/stream", async (req, res) => {
+  const streamHandler = async (req, res) => {
     if (!enableStreaming) {
       return res.status(404).json({ detail: "Streaming is disabled. Start with --stream." });
     }
@@ -45,18 +127,74 @@ export function createWebApi(manager, enableStreaming = false) {
     res.setHeader("Connection", "keep-alive");
 
     try {
-      for await (const chunk of defaultChunkIterator(manager, topic)) {
-        const text = normalizeResponseText(chunk);
-        if (text) {
-          res.write(toSseLine({ type: "token", token: text }));
+      const { manager: requestManager, activeModelIdentifier } = await resolveRequestManager(manager, req.body?.provider);
+      const result = await requestManager.askQuestion(topic);
+      if (!result?.success) {
+        res.write(toSseLine({ type: "error", error: result?.error || "Query failed" }));
+        return res.end();
+      }
+
+      let streamedText = "";
+      if (requestManager.stream) {
+        for await (const chunk of iterStreamTextChunks(result.response)) {
+          if (chunk) {
+            streamedText += chunk;
+            res.write(toSseLine({ type: "chunk", content: chunk }));
+          }
+        }
+      } else {
+        const normalized = await normalizeAgentApiPayload(result.response, false);
+        const fullText = normalized.raw_answer || "";
+        for (const chunk of chunkText(fullText)) {
+          if (chunk) {
+            streamedText += chunk;
+            res.write(toSseLine({ type: "chunk", content: chunk }));
+          }
         }
       }
-      res.write(toSseLine({ type: "done" }));
+
+      const normalized = await normalizeAgentApiPayload(streamedText || result.response, false);
+      const donePayload = {
+        type: "done",
+        provider: result.provider,
+        model: result.model,
+        active_model_identifier: activeModelIdentifier,
+        response: normalized.response && typeof normalized.response === "object" ? normalized.response : null,
+        raw_answer: normalized.raw_answer,
+        session_id: result.session_id || req.body?.sessionId || req.body?.session_id || "default"
+      };
+      if (Array.isArray(normalized.tool_calls)) {
+        donePayload.tool_calls = normalized.tool_calls;
+      }
+      res.write(toSseLine(donePayload));
     } catch (error) {
-      res.write(toSseLine({ type: "error", error: error.message }));
+      res.write(toSseLine({ type: "error", error: error.message || "Streaming failed" }));
     }
 
     res.end();
+  };
+
+  app.post("/query-stream", streamHandler);
+  app.post("/query/stream", streamHandler);
+
+  app.post("/query-all", (_, res) => {
+    res.status(400).json({ detail: "This agent server supports only single-provider query mode" });
+  });
+
+  app.get("/history", (req, res) => {
+    if (!supportsHistory(manager)) {
+      return res.status(400).json({ detail: "Session memory not supported by this manager" });
+    }
+    return res.json(manager.getHistory(req.query.provider || "openai", req.query.session_id || "default"));
+  });
+
+  app.post("/reset-memory", (req, res) => {
+    if (!supportsResetMemory(manager)) {
+      return res.status(400).json({ detail: "Session memory not supported by this manager" });
+    }
+    const provider = req.body?.provider ?? req.query?.provider;
+    const sessionId = req.body?.sessionId ?? req.body?.session_id ?? req.query?.session_id;
+    return res.json(manager.resetMemory(provider, sessionId));
   });
 
   return app;
@@ -64,6 +202,8 @@ export function createWebApi(manager, enableStreaming = false) {
 
 export function runWebServer(manager, host = "0.0.0.0", port = 8000, enableStreaming = false) {
   const app = createWebApi(manager, enableStreaming);
-  console.log(`\nStarting API on http://${host}:${port} (streaming=${enableStreaming ? "on" : "off"})`);
+  console.log(`Starting web server for ${manager.framework || "Unknown"}`);
+  console.log(`Docs: http://${host}:${port}/`);
+  console.log(`Health: http://${host}:${port}/`);
   app.listen(port, host);
 }

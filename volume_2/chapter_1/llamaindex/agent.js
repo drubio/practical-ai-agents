@@ -75,6 +75,7 @@ export class LlamaIndexAgentManager {
 
   constructor(model, stream = false) {
     const { provider, model: resolvedModel, llm } = createLlamaindexLLM(model);
+    this.activeModelIdentifier = model;
     this.provider = provider;
     this.model = resolvedModel;
     this.stream = stream;

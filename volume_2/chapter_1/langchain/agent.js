@@ -66,6 +66,7 @@ export class LangChainAgentManager {
 
   constructor(model, stream = true) {
     const config = getIdentifierMappings()[model];
+    this.activeModelIdentifier = model;
     this.provider = config?.provider ?? "unknown";
     this.model = config?.model ?? model;
     const selectedModel = this.provider && this.provider !== "unknown"

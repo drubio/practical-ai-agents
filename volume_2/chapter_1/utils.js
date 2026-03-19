@@ -22,6 +22,79 @@ export function normalizeResponseText(payload) {
   return String(payload);
 }
 
+export function parseStructuredJsonResponse(raw) {
+  let content = "";
+
+  if (raw == null) {
+    content = "";
+  } else if (typeof raw === "string") {
+    content = raw.trim();
+  } else if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw;
+  } else {
+    content = normalizeResponseText(raw).trim();
+  }
+
+  if (!content) {
+    throw new Error("Structured content is empty");
+  }
+
+  const contentMatch = content.match(/content=(["'])((?:\\.|(?!\1).)*)\1\s+additional_kwargs=/s);
+  if (contentMatch) {
+    try {
+      content = JSON.parse(contentMatch[1] === '"' ? `"${contentMatch[2]}"` : JSON.stringify(contentMatch[2])).trim();
+    } catch {
+      // Keep original content if wrapper decoding fails.
+    }
+  }
+
+  if (content.startsWith("```json")) content = content.slice(7);
+  if (content.startsWith("```")) content = content.slice(3);
+  if (content.endsWith("```")) content = content.slice(0, -3);
+  content = content.trim();
+
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch {
+    // fall through to tolerant parsing
+  }
+
+  const start = content.indexOf("{");
+  if (start === -1) {
+    throw new Error("No JSON object found in structured content");
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < content.length; i += 1) {
+    const ch = content[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === "\\") escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        const parsed = JSON.parse(content.slice(start, i + 1));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+      }
+    }
+  }
+
+  throw new Error("Parsed structured content is not a JSON object");
+}
+
 export function buildTaskPrompt(topic) {
   const text = String(topic ?? "").trim();
   if (!text) return "";
@@ -213,6 +286,13 @@ function appendStreamText(parts, text) {
   parts.push(text);
 }
 
+function nextStreamChunk(parts, text) {
+  const before = parts.join("");
+  appendStreamText(parts, text);
+  const after = parts.join("");
+  return after.startsWith(before) ? after.slice(before.length) : (after !== before ? text : "");
+}
+
 function collectLangchainStreamText(result) {
   const parts = [];
 
@@ -260,6 +340,52 @@ export async function collectAsyncEventStreamText(eventStream) {
   return parts.join("").trim();
 }
 
+export async function* iterStreamTextChunks(rawResponse) {
+  if (rawResponse == null) return;
+
+  if (typeof rawResponse === "string") {
+    yield* chunkText(rawResponse);
+    return;
+  }
+
+  if (typeof rawResponse?.[Symbol.asyncIterator] === "function") {
+    const parts = [];
+    for await (const event of rawResponse) {
+      if (Array.isArray(event) && event.length === 2 && typeof event[0] === "string") {
+        const [streamMode, payload] = event;
+        if (streamMode !== "messages") continue;
+        const messageChunk = Array.isArray(payload) ? payload[0] : payload;
+        const messageText = extractTextFromMessageLike(messageChunk);
+        const delta = nextStreamChunk(parts, messageText);
+        if (delta) yield delta;
+        continue;
+      }
+
+      if (typeof event?.delta === "string" && event.delta) {
+        const delta = nextStreamChunk(parts, event.delta);
+        if (delta) yield delta;
+        continue;
+      }
+
+      const text = extractTextFromMessageLike(event);
+      const delta = nextStreamChunk(parts, text);
+      if (delta) yield delta;
+    }
+    return;
+  }
+
+  const parts = [];
+  for (const chunk of rawResponse) {
+    if (!Array.isArray(chunk) || chunk.length !== 2) continue;
+    const [streamMode, payload] = chunk;
+    if (streamMode !== "messages") continue;
+    const messageChunk = Array.isArray(payload) ? payload[0] : payload;
+    const text = extractTextFromMessageLike(messageChunk);
+    const delta = nextStreamChunk(parts, text);
+    if (delta) yield delta;
+  }
+}
+
 export async function extractStreamText(result) {
   if (result == null) return "";
   if (typeof result === "string") return result.trim();
@@ -293,6 +419,43 @@ export async function extractOutputText(result) {
 export async function renderResponseText(rawResponse, stream) {
   if (stream) return extractStreamText(rawResponse);
   return extractOutputText(rawResponse);
+}
+
+export async function normalizeAgentApiPayload(rawResponse, stream) {
+  const responseText = String(await renderResponseText(rawResponse, stream)).trim();
+  const payload = {
+    response: responseText,
+    raw_answer: responseText
+  };
+
+  if (!responseText) return payload;
+
+  try {
+    const structured = parseStructuredJsonResponse(responseText);
+    payload.response = structured;
+    if (typeof structured.final_answer === "string" && structured.final_answer.trim()) {
+      payload.raw_answer = structured.final_answer.trim();
+    }
+    if (Array.isArray(structured.tool_calls)) {
+      payload.tool_calls = structured.tool_calls;
+    }
+  } catch {
+    // Plain text response is still valid.
+  }
+
+  return payload;
+}
+
+export async function getProviderOptions(modelIdentifiers) {
+  const availability = await getModelAvailability(modelIdentifiers);
+  const configuredNames = new Set(availability.configured.map((entry) => entry.identifier));
+  return availability.routable.map((entry) => ({
+    name: entry.identifier,
+    display_name: `${formatProviderLabel(entry.provider)} - ${entry.model}`,
+    provider: entry.provider,
+    model: entry.model,
+    status: configuredNames.has(entry.identifier) ? "Ready" : "Unavailable"
+  }));
 }
 
 const PROVIDER_ENV_KEYS = {
@@ -341,7 +504,15 @@ function buildModelAvailability(modelIdentifiers, getIdentifierMappings) {
 }
 
 function formatProviderLabel(provider) {
-  return provider.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const normalized = provider.replaceAll("-", "_").toLowerCase();
+  const mapping = {
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    google: "Google",
+    google_genai: "Google GenAI",
+    xai: "xAI"
+  };
+  return mapping[normalized] || provider.replaceAll("_", " ").replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export async function getModelAvailability(modelIdentifiers) {

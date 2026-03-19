@@ -74,6 +74,7 @@ class LangChainAgentManager:
 
     def __init__(self, model: str, stream: bool = True):
         config = get_identifier_mappings().get(model)
+        self.active_model_identifier = model
         self.provider = config.provider if config else "unknown"
         self.model = config.model if config else model
         self.stream = stream

@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ast
 import json
 import logging
 import os
+import re
 import select
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, Protocol
+from typing import Any, AsyncIterator, Callable, Dict, Iterable, Iterator, Protocol
 
 
 def normalize_response_text(payload: Any) -> str:
@@ -29,6 +31,97 @@ def normalize_response_text(payload: Any) -> str:
             if isinstance(value, str):
                 return value
     return str(payload)
+
+
+def parse_structured_json_response(raw: Any) -> Dict[str, Any]:
+    """Parse structured model output into a JSON object with tolerant fallbacks."""
+    if raw is None:
+        content = ""
+    elif isinstance(raw, str):
+        content = raw.strip()
+    elif isinstance(raw, dict):
+        return raw
+    else:
+        content = normalize_response_text(raw).strip()
+
+    if not content:
+        raise ValueError("Structured content is empty")
+
+    content_match = re.search(
+        r'content=(["\'])((?:\\.|(?!\1).)*)\1\s+additional_kwargs=',
+        content,
+        flags=re.DOTALL,
+    )
+    if content_match:
+        raw_quoted_content = f"{content_match.group(1)}{content_match.group(2)}{content_match.group(1)}"
+        try:
+            decoded = ast.literal_eval(raw_quoted_content)
+            if isinstance(decoded, str):
+                content = decoded.strip()
+        except Exception:
+            pass
+
+    if content.startswith("```json"):
+        content = content[7:]
+    if content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+    content = content.strip()
+
+    try:
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    if content.startswith("[") and content.endswith("]"):
+        try:
+            blocks = ast.literal_eval(content)
+            if isinstance(blocks, list):
+                for block in blocks:
+                    if isinstance(block, dict):
+                        maybe_text = block.get("text") or block.get("content")
+                        if isinstance(maybe_text, str) and maybe_text.strip():
+                            return parse_structured_json_response(maybe_text)
+        except Exception:
+            pass
+
+    start = content.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in structured content")
+
+    depth = 0
+    in_string = False
+    escape = False
+
+    for idx in range(start, len(content)):
+        ch = content[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                parsed = json.loads(content[start : idx + 1])
+                if isinstance(parsed, dict):
+                    return parsed
+                break
+
+    raise ValueError("Parsed structured content is not a JSON object")
 
 
 def build_task_prompt(topic: str) -> str:
@@ -296,6 +389,16 @@ def _append_stream_text(parts: list[str], text: str) -> None:
     parts.append(text)
 
 
+def _next_stream_chunk(parts: list[str], text: str) -> str:
+    """Return only the incremental suffix for cumulative stream events."""
+    before = "".join(parts)
+    _append_stream_text(parts, text)
+    after = "".join(parts)
+    if after.startswith(before):
+        return after[len(before) :]
+    return text if after != before else ""
+
+
 async def _collect_llamaindex_stream_text(handler: Any) -> str:
     """
     Collect streamed text from a LlamaIndex workflow handler.
@@ -328,6 +431,54 @@ async def _collect_stream_text_from_events(event_stream: Any) -> str:
 async def _collect_async_event_stream_text(event_stream: Any) -> str:
     """Collect text from an async iterator that yields event-like objects."""
     return await _collect_stream_text_from_events(event_stream)
+
+
+async def iter_stream_text_chunks(raw_response: Any) -> AsyncIterator[str]:
+    """Yield incremental text chunks from framework-specific stream responses."""
+    if raw_response is None:
+        return
+
+    if isinstance(raw_response, str):
+        for chunk in chunk_text(raw_response):
+            if chunk:
+                yield chunk
+        return
+
+    if hasattr(raw_response, "__aiter__"):
+        parts: list[str] = []
+        async for event in raw_response:
+            delta = getattr(event, "delta", None)
+            if isinstance(delta, str) and delta:
+                chunk = _next_stream_chunk(parts, delta)
+                if chunk:
+                    yield chunk
+                continue
+
+            text = _extract_text_from_message_like(event)
+            if text:
+                chunk = _next_stream_chunk(parts, text)
+                if chunk:
+                    yield chunk
+        return
+
+    parts: list[str] = []
+    for chunk in raw_response:
+        if not _looks_like_langchain_stream_chunk(chunk):
+            continue
+
+        stream_mode, payload = chunk
+        if stream_mode != "messages":
+            continue
+
+        message_chunk = payload[0] if isinstance(payload, tuple) and payload else payload
+        if message_chunk is None:
+            continue
+
+        text = _extract_text_from_message_like(message_chunk)
+        if text:
+            delta = _next_stream_chunk(parts, text)
+            if delta:
+                yield delta
 
 
 def _collect_langchain_stream_text(result: Any) -> str:
@@ -418,6 +569,53 @@ def render_response_text(raw_response: Any, stream: bool) -> str:
     if stream:
         return extract_stream_text(raw_response)
     return extract_output_text(raw_response)
+
+
+def normalize_agent_api_payload(raw_response: Any, stream: bool) -> dict[str, Any]:
+    """Convert agent responses into the chapter_8-compatible API payload shape."""
+    response_text = render_response_text(raw_response, stream=stream).strip()
+    payload: dict[str, Any] = {
+        "response": response_text,
+        "raw_answer": response_text,
+    }
+
+    if not response_text:
+        return payload
+
+    try:
+        structured = parse_structured_json_response(response_text)
+    except Exception:
+        return payload
+
+    final_answer = structured.get("final_answer")
+    if isinstance(final_answer, str) and final_answer.strip():
+        payload["raw_answer"] = final_answer.strip()
+
+    payload["response"] = structured
+
+    tool_calls = structured.get("tool_calls")
+    if isinstance(tool_calls, list):
+        payload["tool_calls"] = tool_calls
+
+    return payload
+
+
+def get_provider_options(model_identifiers: Iterable[str] | None) -> list[dict[str, str]]:
+    """Return configured model options formatted for the chapter_8 provider selector."""
+    availability = get_model_availability(model_identifiers)
+    providers: list[dict[str, str]] = []
+    for entry in availability["routable"]:
+        provider = format_provider_display_name(str(entry["provider"]))
+        providers.append(
+            {
+                "name": str(entry["identifier"]),
+                "display_name": f"{provider} - {entry['model']}",
+                "provider": str(entry["provider"]),
+                "model": str(entry["model"]),
+                "status": "Ready" if entry in availability["configured"] else "Unavailable",
+            }
+        )
+    return providers
 
 
 def run_awaitable_sync(value: Any) -> Any:
@@ -558,8 +756,20 @@ def _provider_is_configured(provider: str) -> bool:
     return any((os.getenv(key) or "").strip() for key in env_keys)
 
 
+def format_provider_display_name(provider: str) -> str:
+    normalized = provider.replace("-", "_").lower()
+    mapping = {
+        "openai": "OpenAI",
+        "anthropic": "Anthropic",
+        "google": "Google",
+        "google_genai": "Google GenAI",
+        "xai": "xAI",
+    }
+    return mapping.get(normalized, provider.replace("_", " ").replace("-", " ").title())
+
+
 def _model_label(model_name: str, model_uri: str, provider: str) -> str:
-    provider_label = provider.replace("_", " ").title()
+    provider_label = format_provider_display_name(provider)
     return f"{model_name} ({provider_label}, {model_uri})"
 
 
