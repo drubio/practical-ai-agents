@@ -42,9 +42,17 @@ This repository includes companion code and examples for all three volumes. Code
 
 You're welcome to explore, modify and adapt the examples for your own projects.
 
+### Root shared dependency files
+
+This repository root includes two dependency manifests:
+
+- `requirements.txt` contains the common Python dependencies used by shared helpers and by chapters that rely on these Python resources.
+- `package.json` contains the common JavaScript dependencies used by shared helpers and by chapters that rely on these JavaScript resources.
+
+NOTE: **Volume 1**: **Chapters 1 through 3** and **Chapter 8** have their own dependency files in their chapter folders. They should be run separetly to produce a self-contained installation for each chapter.
+
 ---
 
 ## Support the Work
 
 If you find this useful, please consider [purchasing Volume 1](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20) and sharing it with others. Your support makes continued writing and open-source work possible.
-

@@ -33,6 +33,8 @@ For each provider (`anthropic`, `openai`, `google`, `xai`):
    pip install -r requirements.txt
    ```
 
+NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
+
 ### Step 3. Create an `.env` file with the correct API key:
 
    ```env
@@ -63,6 +65,8 @@ For each provider (`anthropic`, `openai`, `google`, `xai`):
    ```bash
    npm install
    ```
+
+NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
 
 ### Step 3. Create an `.env` file with the correct API key (same format as above).
 

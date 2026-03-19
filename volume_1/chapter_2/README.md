@@ -47,6 +47,9 @@ XAI_API_KEY="xai-UXxxxxxxx"
 pip install -r requirements.txt
 ```
 
+NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
+
+
 **Run the script:**
 
 ```bash
@@ -74,6 +77,8 @@ print(api_key)
 npm install
 ```
 
+NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
+
 **Run the script:**
 
 ```bash
@@ -94,4 +99,3 @@ console.log(apiKey);
 ## Summary
 
 Both the Python and JavaScript examples use standard libraries to safely load environment variables from a local `.env` file—a best practice for working with API keys.
-

@@ -89,6 +89,8 @@ cd volume_1/chapter_8
 npm install
 ```
 
+NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
+
 ## 3) Start Next.js
 
 ```bash

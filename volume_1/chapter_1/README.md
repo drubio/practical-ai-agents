@@ -10,11 +10,13 @@ By default all models run on a nursery rhyme corpus or can also use a shakespear
 
 ## Setup
 
-Install the required dependencies:
+Install the required dependencies in this folder:
 
 ```bash
 pip install -r requirements.txt
 ```
+
+NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
 
 ## Usage
 
