@@ -1,8 +1,8 @@
 {
-  "name": "shared-book-dependencies",
+  "name": "software-with-ai",
   "private": true,
   "type": "module",
-  "description": "Centralized JavaScript/TypeScript dependencies shared across all book chapters.",
+  "description": "Centralized JavaScript dependencies shared across the root, shared utilities, and chapter scripts.",
   "dependencies": {
     "@langchain/anthropic": "^1.3.23",
     "@langchain/community": "^1.1.20",

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "install:shared": "npm --prefix ../../shared install"
+    "install:root": "npm --prefix ../.. install"
   },
-  "description": "Uses shared dependencies installed from ../../shared/package.json"
+  "description": "Uses shared dependencies installed from the repository root package.json"
 }
