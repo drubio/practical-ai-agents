@@ -6,9 +6,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { SimpleChatEngine } from '../../chapter_4/node_modules/@llamaindex/core/chat-engine/dist/index.js';
-import { Memory } from '../../chapter_4/node_modules/@llamaindex/core/memory/dist/index.js';
-import { SimpleChatStore } from '../../chapter_4/node_modules/@llamaindex/core/storage/chat-store/dist/index.js';
+import { SimpleChatEngine } from '@llamaindex/core/chat-engine';
+import { Memory } from '@llamaindex/core/memory';
+import { SimpleChatStore } from '@llamaindex/core/storage/chat-store';
 import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_app.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 

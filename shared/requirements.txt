@@ -1,0 +1,28 @@
+# Common dependencies
+python-dotenv>=1.0.0
+python-dateutil==2.9.0.post0
+
+# LangChain framework
+langchain==1.2.7
+langchain-community==0.4.1
+langchain-anthropic==1.3.4
+langchain-openai==1.1.11
+langchain-google-genai==4.2.1
+langchain-xai==1.2.2
+
+# LlamaIndex framework
+llama-index==0.14.18
+llama-index-llms-anthropic==0.11.0
+llama-index-llms-openai==0.7.1
+llama-index-llms-openai-like==0.7.1
+llama-index-llms-google-genai==0.8.7
+
+# Ranking function for relevance of documents to a given search query
+rank-bm25==0.2.2
+
+# Web 
+fastapi==0.115.6
+uvicorn==0.34.0
+
+# MCP
+langchain-mcp-adapters==0.2.1

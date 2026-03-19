@@ -6,9 +6,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { FileSystemChatMessageHistory } from '../../chapter_4/node_modules/@langchain/community/stores/message/file_system.js';
-import { ChatPromptTemplate, MessagesPlaceholder } from '../../chapter_4/node_modules/@langchain/core/prompts.js';
-import { RunnableWithMessageHistory } from '../../chapter_4/node_modules/@langchain/core/runnables.js';
+import { FileSystemChatMessageHistory } from '@langchain/community/stores/message/file_system';
+import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
+import { RunnableWithMessageHistory } from '@langchain/core/runnables';
 import { LangChainLLMManager as Chapter4LangChainManager } from '../../chapter_4/langchain/llm_app.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 

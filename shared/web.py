@@ -101,6 +101,29 @@ def to_sse_line(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def resolve_session_id(*candidates: Any, default: str = "default") -> str:
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate
+    return default
+
+
+def result_is_success(result: Any) -> bool:
+    return isinstance(result, dict) and bool(result.get("success"))
+
+
+async def stream_text_sse(
+    text: str,
+    *,
+    chunk_size: int = 28,
+    delay_seconds: float = 0.0,
+    event_type: str = "chunk",
+) -> AsyncIterator[str]:
+    async for part in iter_text_chunks(text, chunk_size=chunk_size, delay_seconds=delay_seconds):
+        if part:
+            yield to_sse_line({"type": event_type, "content": part})
+
+
 def capture_console_output(func: Callable[[], Any]) -> tuple[Any, str]:
     with io.StringIO() as buffer, redirect_stdout(buffer):
         result = func()

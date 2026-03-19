@@ -133,3 +133,21 @@ export function createExpressApp() {
   app.use(express.json());
   return app;
 }
+
+export function resolveSessionId(...candidates) {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+  }
+  return "default";
+}
+
+export function resultIsSuccess(result) {
+  return Boolean(result && typeof result === "object" && result.success);
+}
+
+export async function* streamTextSse(text, chunkSize = 28, delayMs = 0, eventType = "chunk") {
+  for await (const part of iterTextChunks(text, chunkSize, delayMs)) {
+    if (part) yield toSseLine({ type: eventType, content: part });
+  }
+}
+

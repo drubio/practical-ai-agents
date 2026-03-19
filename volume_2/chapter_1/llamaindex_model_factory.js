@@ -1,6 +1,6 @@
-import { Anthropic } from "@llamaindex/anthropic";
-import { Gemini } from "@llamaindex/google";
-import { OpenAI } from "@llamaindex/openai";
+import { Anthropic } from '@llamaindex/anthropic';
+import { Gemini } from '@llamaindex/google';
+import { OpenAI } from '@llamaindex/openai';
 
 import { getIdentifierMappings, normalizeProvider } from "../../shared/llm_models.mjs";
 

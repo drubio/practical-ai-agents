@@ -4,7 +4,7 @@
  */
 
 import { getAllProviders, getDisplayName, getDefaultModel, parseStructuredJsonResponse } from './utils.js';
-import { buildManager, captureConsoleOutputAsync, chunkText, createExpressApp, normalizeResponseText, supportsCoagent, supportsMemory, supportsMemoryRetrieval, supportsSessionMemory, toSseLine } from '../../shared/web.mjs';
+import { buildManager, captureConsoleOutputAsync, chunkText, createExpressApp, normalizeResponseText, resolveSessionId, resultIsSuccess, streamTextSse, supportsCoagent, supportsMemory, supportsMemoryRetrieval, supportsSessionMemory, toSseLine } from '../../shared/web.mjs';
 
 function parseStructuredRawResponse(rawResponse) {
   if (typeof rawResponse === 'undefined' || rawResponse === null) return null;
@@ -96,11 +96,11 @@ export function createWebApi(managerClassOrFactory) {
     try {
       const { topic, provider = null, template = '{topic}', max_tokens = 1000, temperature = 0.7, session_id = 'default', sessionId = null } = req.body;
       if (!topic) return res.status(400).json({ error: 'Topic is required' });
-      const effectiveSessionId = sessionId ?? session_id ?? 'default';
+      const effectiveSessionId = resolveSessionId(sessionId, session_id);
       const { result, logs } = await captureConsoleOutputAsync(async () => supportsSessionMemory(manager)
         ? recoverStructuredParseError(await manager.askQuestion(topic, normalizeProviderInput(manager, provider), template, max_tokens, temperature, effectiveSessionId))
         : recoverStructuredParseError(await manager.askQuestion(topic, normalizeProviderInput(manager, provider), template, max_tokens, temperature)));
-      if (!result.success) return res.status(400).json({ error: result.error || 'Query failed', provider: result.provider, debug: logs || null });
+      if (!resultIsSuccess(result)) return res.status(400).json({ error: result.error || 'Query failed', provider: result.provider, debug: logs || null });
       return res.json({ success: true, framework: manager.framework, provider: result.provider, model: result.model, response: (typeof result.response === 'object' && result.response !== null) ? result.response : normalizeResponseText(result.response), parameters: { temperature: result.temperature, max_tokens: result.maxTokens, template }, prompt: result.prompt, session_id: result.sessionId || effectiveSessionId, ...(logs ? { debug: logs } : {}) });
     } catch (error) {
       return res.status(500).json({ error: error.message, framework: manager.framework });
@@ -111,20 +111,19 @@ export function createWebApi(managerClassOrFactory) {
     try {
       const { topic, provider = null, template = '{topic}', max_tokens = 1000, temperature = 0.7, session_id = 'default', sessionId = null } = req.body;
       if (!topic) return res.status(400).json({ error: 'Topic is required' });
-      const effectiveSessionId = sessionId ?? session_id ?? 'default';
+      const effectiveSessionId = resolveSessionId(sessionId, session_id);
       const { result } = await captureConsoleOutputAsync(async () => supportsSessionMemory(manager)
         ? recoverStructuredParseError(await manager.askQuestion(topic, normalizeProviderInput(manager, provider), template, max_tokens, temperature, effectiveSessionId))
         : recoverStructuredParseError(await manager.askQuestion(topic, normalizeProviderInput(manager, provider), template, max_tokens, temperature)));
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
-      if (!result.success) {
+      if (!resultIsSuccess(result)) {
         res.write(toSseLine({ type: 'error', error: result.error || 'Query failed' }));
         return res.end();
       }
-      for (const chunk of chunkText(normalizeResponseText(result.response))) {
-        res.write(toSseLine({ type: 'chunk', content: chunk }));
-        await new Promise((resolve) => setTimeout(resolve, 35));
+      for await (const event of streamTextSse(normalizeResponseText(result.response), 28, 35)) {
+        res.write(event);
       }
       res.write(toSseLine({ type: 'done', provider: result.provider, model: result.model, response: (typeof result.response === 'object' && result.response !== null) ? result.response : null, token_usage: result.tokenUsage ?? result.token_usage ?? null, session_id: result.sessionId ?? effectiveSessionId }));
       return res.end();
@@ -140,7 +139,7 @@ export function createWebApi(managerClassOrFactory) {
       const { topic, template = '{topic}', max_tokens = 1000, temperature = 0.7 } = req.body;
       if (!topic) return res.status(400).json({ error: 'Topic is required' });
       const { result, logs } = await captureConsoleOutputAsync(async () => manager.queryAllProviders(topic, template, max_tokens, temperature));
-      if (!result.success) return res.status(400).json({ error: result.error || 'Query failed', framework: manager.framework, debug: logs || null });
+      if (!resultIsSuccess(result)) return res.status(400).json({ error: result.error || 'Query failed', framework: manager.framework, debug: logs || null });
       const cleanResponses = {};
       let successful = 0;
       let failed = 0;

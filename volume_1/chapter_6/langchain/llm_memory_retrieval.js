@@ -4,9 +4,9 @@
 
 import { LangChainLLMManager as Chapter5StructuredLangChainManager, STRUCTURED_TEMPLATE } from '../../chapter_5/langchain/llm_structured_output.js';
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
-import { Document } from '../../chapter_4/node_modules/@langchain/core/documents.js';
-import { BM25Retriever } from '../../chapter_4/node_modules/@langchain/community/retrievers/bm25.js';
-import { getEncoding } from '../../chapter_4/node_modules/js-tiktoken/dist/index.js';
+import { Document } from '@langchain/core/documents';
+import { BM25Retriever } from '@langchain/community/retrievers/bm25';
+import { getEncoding } from 'js-tiktoken';
 
 class LangChainLLMManager extends Chapter5StructuredLangChainManager {
     constructor(memoryEnabled = true, retrievalK = 4) {

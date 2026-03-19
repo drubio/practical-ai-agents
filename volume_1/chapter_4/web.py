@@ -23,7 +23,10 @@ from shared.web import (
     build_manager,
     iter_text_chunks,
     normalize_response_text,
+    resolve_session_id,
+    result_is_success,
     run_uvicorn_app,
+    stream_text_sse,
     supports_coagent,
     supports_memory,
     supports_memory_retrieval,
@@ -163,13 +166,13 @@ def create_web_api(manager_class):
         try:
             with redirect_stdout(io.StringIO()):
                 args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
-                effective_session_id = request.sessionId or request.session_id or "default"
+                effective_session_id = resolve_session_id(request.sessionId, request.session_id)
                 if supports_session_memory(manager):
                     args["session_id"] = effective_session_id
                 result = _recover_structured_parse_error(_ask_question_with_recovery(manager, args, effective_session_id))
             if not isinstance(result, dict):
                 raise HTTPException(status_code=500, detail="Manager returned a non-dict response")
-            if not result.get('success'):
+            if not result_is_success(result):
                 raise HTTPException(status_code=400, detail=result.get('error', 'Query failed'))
             raw_response = result.get('response')
             content = raw_response if isinstance(raw_response, (dict, list)) else normalize_response_text(raw_response)
@@ -185,19 +188,19 @@ def create_web_api(manager_class):
             try:
                 with redirect_stdout(io.StringIO()):
                     args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
-                    effective_session_id = request.sessionId or request.session_id or "default"
+                    effective_session_id = resolve_session_id(request.sessionId, request.session_id)
                     if supports_session_memory(manager):
                         args["session_id"] = effective_session_id
                     result = _recover_structured_parse_error(_ask_question_with_recovery(manager, args, effective_session_id))
                 if not isinstance(result, dict):
                     yield to_sse_line({"type": "error", "error": "Manager returned a non-dict response"})
                     return
-                if not result.get('success'):
+                if not result_is_success(result):
                     yield to_sse_line({"type": "error", "error": result.get('error', 'Query failed')})
                     return
                 raw_response = result.get('response')
-                async for chunk in iter_text_chunks(normalize_response_text(raw_response), delay_seconds=0.03):
-                    yield to_sse_line({"type": "chunk", "content": chunk})
+                async for event in stream_text_sse(normalize_response_text(raw_response), delay_seconds=0.03):
+                    yield event
                 yield to_sse_line({"type": "done", "provider": _result_value(result, 'provider'), "model": _result_value(result, 'model'), "response": raw_response if isinstance(raw_response, dict) else None, "token_usage": _result_value(result, 'token_usage', 'tokenUsage'), "session_id": _result_value(result, 'session_id', 'sessionId', default=effective_session_id)})
             except Exception as exc:
                 yield to_sse_line({"type": "error", "error": str(exc)})
@@ -210,7 +213,7 @@ def create_web_api(manager_class):
                 result = manager.query_all_providers(topic=request.topic, template=request.template, max_tokens=request.max_tokens, temperature=request.temperature)
             if not isinstance(result, dict):
                 raise HTTPException(status_code=500, detail='Manager returned a non-dict response')
-            if not result.get('success'):
+            if not result_is_success(result):
                 raise HTTPException(status_code=400, detail=result.get('error', 'Query failed'))
             responses = result.get('responses')
             if not isinstance(responses, dict):

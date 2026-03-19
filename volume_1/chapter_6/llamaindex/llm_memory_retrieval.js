@@ -4,8 +4,8 @@
 
 import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/llm_structured_output.js';
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
-import { getEncoding } from '../../chapter_4/node_modules/js-tiktoken/dist/index.js';
-import { BM25 } from '../../chapter_4/node_modules/fast-bm25/dist/index.js';
+import { getEncoding } from 'js-tiktoken';
+import { BM25 } from 'fast-bm25';
 
 class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
     constructor(memoryEnabled = true, retrievalK = 4) {
