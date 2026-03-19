@@ -1,5 +1,4 @@
-import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings, routeModelForPrompt } from "../../shared/llm_models.mjs";
-import { createLlamaindexLLM } from "./llamaindex_model_factory.js";
+import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, getIdentifierMappings, routeModelForPrompt } from "../../shared/llm_models.mjs";
 
 import "dotenv/config";
 import fs from "node:fs";
