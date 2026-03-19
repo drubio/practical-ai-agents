@@ -6,141 +6,10 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 
+import { buildTaskPrompt, getChapterLogger, logToolCall, parseStructuredJsonResponse } from "../../shared/utils.mjs";
+import { chunkText, iterTextChunks as iterTextChunksShared, normalizeResponseText, toSseLine } from "../../shared/web.mjs";
 
-
-export function normalizeResponseText(payload) {
-  if (payload == null) return "";
-
-  if (typeof payload === "string") {
-    return payload;
-  }
-
-  if (typeof payload === "object") {
-    for (const key of ["response", "answer", "content", "text", "message"]) {
-      const value = payload[key];
-      if (typeof value === "string") return value;
-    }
-  }
-
-  return String(payload);
-}
-
-export function parseStructuredJsonResponse(raw) {
-  let content = "";
-
-  if (raw == null) {
-    content = "";
-  } else if (typeof raw === "string") {
-    content = raw.trim();
-  } else if (typeof raw === "object" && !Array.isArray(raw)) {
-    return raw;
-  } else {
-    content = normalizeResponseText(raw).trim();
-  }
-
-  if (!content) {
-    throw new Error("Structured content is empty");
-  }
-
-  const contentMatch = content.match(/content=(["'])((?:\\.|(?!\1).)*)\1\s+additional_kwargs=/s);
-  if (contentMatch) {
-    try {
-      content = JSON.parse(contentMatch[1] === '"' ? `"${contentMatch[2]}"` : JSON.stringify(contentMatch[2])).trim();
-    } catch {
-      // Keep original content if wrapper decoding fails.
-    }
-  }
-
-  if (content.startsWith("```json")) content = content.slice(7);
-  if (content.startsWith("```")) content = content.slice(3);
-  if (content.endsWith("```")) content = content.slice(0, -3);
-  content = content.trim();
-
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-  } catch {
-    // fall through to tolerant parsing
-  }
-
-  const start = content.indexOf("{");
-  if (start === -1) {
-    throw new Error("No JSON object found in structured content");
-  }
-
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-
-  for (let i = start; i < content.length; i += 1) {
-    const ch = content[i];
-    if (inString) {
-      if (escape) escape = false;
-      else if (ch === "\\") escape = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === "{") depth += 1;
-    else if (ch === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        const parsed = JSON.parse(content.slice(start, i + 1));
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-      }
-    }
-  }
-
-  throw new Error("Parsed structured content is not a JSON object");
-}
-
-export function buildTaskPrompt(topic) {
-  const text = String(topic ?? "").trim();
-  if (!text) return "";
-
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (lines.length <= 1) return text;
-
-  const checklist = lines.map((line, index) => `${index + 1}. ${line}`).join("\n");
-  return (
-    `${text}\n\n` +
-    "Task checklist (every item is required, including the final line):\n" +
-    `${checklist}\n\n` +
-    "Do not skip any checklist item."
-  );
-}
-
-export function chunkText(text, chunkSize = 28) {
-  const clean = text || "";
-  if (!clean) return [""];
-
-  const chunks = [];
-  for (let index = 0; index < clean.length; index += chunkSize) {
-    chunks.push(clean.slice(index, index + chunkSize));
-  }
-  return chunks;
-}
-
-export async function* iterTextChunks(text, chunkSize = 28, delayMs = 0) {
-  for (const part of chunkText(text, chunkSize)) {
-    if (delayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-    yield part;
-  }
-}
-
-export function toSseLine(data) {
-  return `data: ${JSON.stringify(data)}\n\n`;
-}
+export { buildTaskPrompt, getChapterLogger, logToolCall, normalizeResponseText, parseStructuredJsonResponse, toSseLine };
 
 export function loadChapterEnv() {
   const chapterRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname));
@@ -154,50 +23,27 @@ export function loadChapterEnv() {
 
   for (const candidate of [...new Set(candidates)]) {
     if (!fs.existsSync(candidate)) continue;
-
     for (const rawLine of fs.readFileSync(candidate, "utf-8").split(/\r?\n/)) {
       const line = rawLine.trim();
       if (!line || line.startsWith("#") || !line.includes("=")) continue;
-
       const [rawKey, ...rest] = line.split("=");
       const key = rawKey.trim();
       const value = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
       if (key && !(key in process.env)) process.env[key] = value;
     }
-
     return candidate;
   }
-
   return null;
 }
 
 loadChapterEnv();
 
-export function getChapterLogger(name) {
-  const levels = { debug: 10, info: 20, warn: 30, error: 40 };
-  const min = levels[(process.env.LOG_LEVEL || "info").toLowerCase()] ?? levels.info;
-
-  const log = (level, message, ...args) => {
-    if ((levels[level] ?? 100) < min) return;
-    const ts = new Date().toISOString();
-    console.log(`${ts} | ${level.toUpperCase()} | ${name} | ${message}`, ...args);
-  };
-
-  return {
-    debug: (m, ...a) => log("debug", m, ...a),
-    info: (m, ...a) => log("info", m, ...a),
-    warn: (m, ...a) => log("warn", m, ...a),
-    error: (m, ...a) => log("error", m, ...a)
-  };
+export function chunkTextLocal(text, chunkSize = 28) {
+  return chunkText(text, chunkSize);
 }
 
-export function logToolCall(logger, toolName, fn) {
-  return (arg = undefined) => {
-    logger.info(`Tool call | name=${toolName} | input=%o`, arg);
-    const result = fn(arg);
-    logger.info(`Tool result | name=${toolName} | output=%o`, result);
-    return result;
-  };
+export async function* iterTextChunks(text, chunkSize = 28, delayMs = 0) {
+  yield* iterTextChunksShared(text, chunkSize, delayMs);
 }
 
 function extractTextFromContent(content) {

@@ -1,79 +1,39 @@
-"""
-web.py - Clean web interface for LLM testers
+"""web.py - Clean web interface for LLM testers
 Now supports optional memory endpoints and session-based tracking.
 """
 
-from fastapi import Body, FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import Optional, Union
-import uvicorn
-import io
-from contextlib import redirect_stdout
-import json
+from __future__ import annotations
+
 import os
 import sys
+from contextlib import redirect_stdout
+import io
+from typing import Optional, Union
+
+from fastapi import Body, HTTPException
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 
-from stream import iter_text_chunks, normalize_response_text
+from shared.web import (
+    SharedQueryAllRequest as QueryAllRequest,
+    SharedQueryRequest as QueryRequest,
+    SharedResetMemoryRequest as ResetMemoryRequest,
+    build_manager,
+    iter_text_chunks,
+    normalize_response_text,
+    run_uvicorn_app,
+    supports_coagent,
+    supports_memory,
+    supports_memory_retrieval,
+    supports_session_memory,
+    to_sse_line,
+)
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from utils import parse_structured_json_response, get_all_providers, get_default_model, get_display_name
-
-
-class QueryRequest(BaseModel):
-    topic: str
-    provider: Optional[Union[str, int]] = None
-    template: str = "{topic}"
-    max_tokens: int = 1000
-    temperature: float = 0.7
-    session_id: Optional[str] = "default"
-    sessionId: Optional[str] = None
-
-
-class QueryAllRequest(BaseModel):
-    topic: str
-    template: str = "{topic}"
-    max_tokens: int = 1000
-    temperature: float = 0.7
-    session_id: Optional[str] = "default"
-    sessionId: Optional[str] = None
-
-
-class ResetMemoryRequest(BaseModel):
-    provider: Optional[Union[str, int]] = None
-    session_id: Optional[str] = None
-    sessionId: Optional[str] = None
-
-
-def _supports_memory(manager) -> bool:
-    """True when manager replays full chat history into prompts."""
-    return bool(
-        getattr(manager, "memory_enabled", False)
-        and hasattr(manager, "get_history")
-        and hasattr(manager, "reset_memory")
-    )
-
-
-def _supports_memory_retrieval(manager) -> bool:
-    """True when manager supports retrieval-based memory context."""
-    return bool(
-        getattr(manager, "retrieval_memory_enabled", False)
-        and hasattr(manager, "get_history")
-        and hasattr(manager, "reset_memory")
-    )
-
-
-def _supports_session_memory(manager) -> bool:
-    """True when any session-based memory mode (full replay or retrieval) is available."""
-    return _supports_memory(manager) or _supports_memory_retrieval(manager)
-
-
-def _supports_coagent(manager) -> bool:
-    """True when manager exposes coagent features."""
-    return bool(getattr(manager, "coagent", False))
 
 
 def _parse_structured_raw_response(raw_response):
@@ -93,8 +53,8 @@ def _extract_answer_text(response_obj, raw_response):
             return answer
     return normalize_response_text(raw_response)
 
+
 def _recover_structured_parse_error(result: dict) -> dict:
-    """Recover structured outputs without dropping fields like keywords."""
     if not isinstance(result, dict):
         return result
 
@@ -108,11 +68,7 @@ def _recover_structured_parse_error(result: dict) -> dict:
             if isinstance(response, dict):
                 metadata_notes = (response.get("metadata") or {}).get("notes")
             if isinstance(metadata_notes, str) and metadata_notes.startswith("Failed to parse structured JSON response"):
-                return {
-                    **result,
-                    "response": parsed_response,
-                    "raw_answer": _extract_answer_text(parsed_response, raw_response),
-                }
+                return {**result, "response": parsed_response, "raw_answer": _extract_answer_text(parsed_response, raw_response)}
         return result
 
     error_message = str(result.get("error") or "")
@@ -122,31 +78,19 @@ def _recover_structured_parse_error(result: dict) -> dict:
     recovered_response = parsed_response or {
         "answer": normalize_response_text(raw_response),
         "distilled": normalize_response_text(raw_response),
-        "metadata": {
-            "confidence": "low",
-            "notes": error_message,
-        },
+        "metadata": {"confidence": "low", "notes": error_message},
     }
 
-    return {
-        **result,
-        "success": True,
-        "error": None,
-        "response": recovered_response,
-        "raw_answer": _extract_answer_text(recovered_response, raw_response),
-    }
+    return {**result, "success": True, "error": None, "response": recovered_response, "raw_answer": _extract_answer_text(recovered_response, raw_response)}
 
 
 def _provider_selection_map(manager):
-    """Build the same provider ordering used by the CLI selection prompt."""
-
     available = manager.get_available_providers()
     sorted_providers = sorted(available, key=lambda provider: (provider != "openai", get_display_name(provider)))
     return {str(index): provider for index, provider in enumerate(sorted_providers, start=1)}
 
 
 def _normalize_provider_input(manager, provider: Optional[Union[str, int]]):
-    """Accept provider numbers (CLI style) and provider keywords (web style)."""
     if provider is None:
         return None
 
@@ -160,17 +104,13 @@ def _normalize_provider_input(manager, provider: Optional[Union[str, int]]):
     candidate = str(provider).strip()
     if not candidate:
         return None
-
     if candidate in provider_map:
         return provider_map[candidate]
 
     lowered = candidate.lower()
     if lowered in available or lowered in configured:
         return lowered
-
     return candidate
-
-
 
 
 def _result_value(result: dict, *keys, default=None):
@@ -180,257 +120,125 @@ def _result_value(result: dict, *keys, default=None):
     return default
 
 
-
-
 def _is_corrupt_history_error(exc: Exception) -> bool:
     message = str(exc)
-    signals = (
-        "string indices must be integers",
-        "Expecting value",
-        "JSON",
-    )
-    return any(signal in message for signal in signals)
+    return any(signal in message for signal in ("string indices must be integers", "Expecting value", "JSON"))
 
 
 def _ask_question_with_recovery(manager, args: dict, session_id: Optional[str]):
-    """Run manager.ask_question with a one-time session-memory recovery retry."""
     try:
         return manager.ask_question(**args)
     except Exception as exc:
-        if not _supports_session_memory(manager) or not _is_corrupt_history_error(exc):
+        if not supports_session_memory(manager) or not _is_corrupt_history_error(exc):
             raise
-
         provider = args.get("provider")
         try:
             manager.reset_memory(provider, session_id)
         except Exception:
             raise exc
-
         return manager.ask_question(**args)
 
 
 def create_web_api(manager_class):
-    app = FastAPI(
-        title="LLM Service API",
-        version="1.0.0",
-        description="Universal API for LLM framework testing"
-    )
+    app = FastAPI(title="LLM Service API", version="1.0.0", description="Universal API for LLM framework testing")
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    manager = build_manager(manager_class)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    manager = manager_class()
-
-    @app.get("/")
+    @app.get('/')
     async def get_status():
         available = manager.get_available_providers()
-        return {
-            "framework": manager.framework,
-            "available_providers": available,
-            "total_available": len(available),
-            "initialization_status": manager.initialization_messages,
-            "status": "healthy" if available else "no_providers"
-        }
+        return {"framework": manager.framework, "available_providers": available, "total_available": len(available), "initialization_status": manager.initialization_messages, "status": "healthy" if available else "no_providers"}
 
-    @app.get("/providers")
+    @app.get('/providers')
     async def get_providers():
         providers = manager.get_available_providers()
-        return {
-            "framework": manager.framework,
-            "providers": [
-                {
-                    "name": p,
-                    "display_name": get_display_name(p),
-                    "model": get_default_model(p),
-                    "status": manager.initialization_messages.get(p, "Unknown")
-                } for p in providers
-            ],
-            "count": len(providers)
-        }
+        return {"framework": manager.framework, "providers": [{"name": p, "display_name": get_display_name(p), "model": get_default_model(p), "status": manager.initialization_messages.get(p, "Unknown")} for p in providers], "count": len(providers)}
 
-    @app.get("/capabilities")
+    @app.get('/capabilities')
     async def get_capabilities():
-        return {
-            "framework": manager.framework,
-            "streaming": True,
-            "memory": _supports_memory(manager),
-            "memory_retrieval": _supports_memory_retrieval(manager),
-            "coagent": _supports_coagent(manager),
-        }
+        return {"framework": manager.framework, "streaming": True, "memory": supports_memory(manager), "memory_retrieval": supports_memory_retrieval(manager), "coagent": supports_coagent(manager)}
 
-    @app.post("/query")
+    @app.post('/query')
     async def query_single(request: QueryRequest):
         try:
             with redirect_stdout(io.StringIO()):
-                args = {
-                    "topic": request.topic,
-                    "provider": _normalize_provider_input(manager, request.provider),
-                    "template": request.template,
-                    "max_tokens": request.max_tokens,
-                    "temperature": request.temperature
-                }
+                args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
                 effective_session_id = request.sessionId or request.session_id or "default"
-                if _supports_session_memory(manager):
+                if supports_session_memory(manager):
                     args["session_id"] = effective_session_id
-
                 result = _recover_structured_parse_error(_ask_question_with_recovery(manager, args, effective_session_id))
-
             if not isinstance(result, dict):
                 raise HTTPException(status_code=500, detail="Manager returned a non-dict response")
-
-            if not result.get("success"):
-                raise HTTPException(status_code=400, detail=result.get("error", "Query failed"))
-
-            raw_response = result.get("response")
+            if not result.get('success'):
+                raise HTTPException(status_code=400, detail=result.get('error', 'Query failed'))
+            raw_response = result.get('response')
             content = raw_response if isinstance(raw_response, (dict, list)) else normalize_response_text(raw_response)
-
-            return {
-                "success": True,
-                "framework": manager.framework,
-                "provider": _result_value(result, "provider", default="unknown"),
-                "model": _result_value(result, "model", default=""),
-                "response": content,
-                "parameters": {
-                    "temperature": _result_value(result, "temperature"),
-                    "max_tokens": _result_value(result, "max_tokens", "maxTokens"),
-                    "template": request.template
-                },
-                "prompt": _result_value(result, "prompt", default=request.template.format(topic=request.topic)),
-                "session_id": _result_value(result, "session_id", "sessionId", default=effective_session_id)
-            }
-
+            return {"success": True, "framework": manager.framework, "provider": _result_value(result, 'provider', default='unknown'), "model": _result_value(result, 'model', default=''), "response": content, "parameters": {"temperature": _result_value(result, 'temperature'), "max_tokens": _result_value(result, 'max_tokens', 'maxTokens'), "template": request.template}, "prompt": _result_value(result, 'prompt', default=request.template.format(topic=request.topic)), "session_id": _result_value(result, 'session_id', 'sessionId', default=effective_session_id)}
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    @app.post("/query-stream")
+    @app.post('/query-stream')
     async def query_stream(request: QueryRequest):
         async def stream_events():
             try:
                 with redirect_stdout(io.StringIO()):
-                    args = {
-                        "topic": request.topic,
-                        "provider": _normalize_provider_input(manager, request.provider),
-                        "template": request.template,
-                        "max_tokens": request.max_tokens,
-                        "temperature": request.temperature,
-                    }
+                    args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
                     effective_session_id = request.sessionId or request.session_id or "default"
-                    if _supports_session_memory(manager):
+                    if supports_session_memory(manager):
                         args["session_id"] = effective_session_id
-
                     result = _recover_structured_parse_error(_ask_question_with_recovery(manager, args, effective_session_id))
-
                 if not isinstance(result, dict):
-                    error_payload = {"type": "error", "error": "Manager returned a non-dict response"}
-                    yield f"data: {json.dumps(error_payload)}\n\n"
+                    yield to_sse_line({"type": "error", "error": "Manager returned a non-dict response"})
                     return
-
-                if not result.get("success"):
-                    error_payload = {"type": "error", "error": result.get("error", "Query failed")}
-                    yield f"data: {json.dumps(error_payload)}\n\n"
+                if not result.get('success'):
+                    yield to_sse_line({"type": "error", "error": result.get('error', 'Query failed')})
                     return
+                raw_response = result.get('response')
+                async for chunk in iter_text_chunks(normalize_response_text(raw_response), delay_seconds=0.03):
+                    yield to_sse_line({"type": "chunk", "content": chunk})
+                yield to_sse_line({"type": "done", "provider": _result_value(result, 'provider'), "model": _result_value(result, 'model'), "response": raw_response if isinstance(raw_response, dict) else None, "token_usage": _result_value(result, 'token_usage', 'tokenUsage'), "session_id": _result_value(result, 'session_id', 'sessionId', default=effective_session_id)})
+            except Exception as exc:
+                yield to_sse_line({"type": "error", "error": str(exc)})
+        return StreamingResponse(stream_events(), media_type='text/event-stream')
 
-                raw_response = result.get("response")
-                response_text = normalize_response_text(raw_response)
-                async for chunk in iter_text_chunks(response_text, delay_seconds=0.03):
-                    payload = {"type": "chunk", "content": chunk}
-                    yield f"data: {json.dumps(payload)}\n\n"
-
-                done_payload = {
-                    "type": "done",
-                    "provider": _result_value(result, "provider"),
-                    "model": _result_value(result, "model"),
-                    "response": raw_response if isinstance(raw_response, dict) else None,
-                    "token_usage": _result_value(result, "token_usage", "tokenUsage"),
-                    "session_id": _result_value(result, "session_id", "sessionId", default=effective_session_id),
-                }
-                yield f"data: {json.dumps(done_payload)}\n\n"
-            except Exception as e:
-                payload = {"type": "error", "error": str(e)}
-                yield f"data: {json.dumps(payload)}\n\n"
-
-        return StreamingResponse(stream_events(), media_type="text/event-stream")
-
-    @app.post("/query-all")
+    @app.post('/query-all')
     async def query_all(request: QueryAllRequest):
         try:
             with redirect_stdout(io.StringIO()):
-                result = manager.query_all_providers(
-                    topic=request.topic,
-                    template=request.template,
-                    max_tokens=request.max_tokens,
-                    temperature=request.temperature
-                )
-
+                result = manager.query_all_providers(topic=request.topic, template=request.template, max_tokens=request.max_tokens, temperature=request.temperature)
             if not isinstance(result, dict):
-                raise HTTPException(status_code=500, detail="Manager returned a non-dict response")
-
-            if not result.get("success"):
-                raise HTTPException(status_code=400, detail=result.get("error", "Query failed"))
-
-            responses = result.get("responses")
+                raise HTTPException(status_code=500, detail='Manager returned a non-dict response')
+            if not result.get('success'):
+                raise HTTPException(status_code=400, detail=result.get('error', 'Query failed'))
+            responses = result.get('responses')
             if not isinstance(responses, dict):
-                raise HTTPException(status_code=500, detail="Manager returned invalid responses payload")
-
+                raise HTTPException(status_code=500, detail='Manager returned invalid responses payload')
             clean_responses = {}
             for provider, res in responses.items():
                 if not isinstance(res, dict):
-                    clean_responses[provider] = {
-                        "success": False,
-                        "model": "",
-                        "response": normalize_response_text(res),
-                        "parameters": {
-                            "temperature": None,
-                            "max_tokens": None,
-                        },
-                    }
+                    clean_responses[provider] = {"success": False, "model": '', "response": normalize_response_text(res), "parameters": {"temperature": None, "max_tokens": None}}
                     continue
-
-                raw_content = _result_value(res, "response")
+                raw_content = _result_value(res, 'response')
                 content = raw_content if isinstance(raw_content, (dict, list)) else normalize_response_text(raw_content)
-                clean_responses[provider] = {
-                    "success": bool(_result_value(res, "success", default=False)),
-                    "model": _result_value(res, "model", default=""),
-                    "response": content,
-                    "parameters": {
-                        "temperature": _result_value(res, "temperature"),
-                        "max_tokens": _result_value(res, "max_tokens", "maxTokens"),
-                    }
-                }
-
-            return {
-                "success": True,
-                "framework": manager.framework,
-                "prompt": _result_value(result, "prompt", default=request.template.format(topic=request.topic)),
-                "responses": clean_responses
-            }
-
+                clean_responses[provider] = {"success": bool(_result_value(res, 'success', default=False)), "model": _result_value(res, 'model', default=''), "response": content, "parameters": {"temperature": _result_value(res, 'temperature'), "max_tokens": _result_value(res, 'max_tokens', 'maxTokens')}}
+            return {"success": True, "framework": manager.framework, "prompt": _result_value(result, 'prompt', default=request.template.format(topic=request.topic)), "responses": clean_responses}
         except HTTPException:
             raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    @app.get("/history")
-    async def get_history(provider: str = "openai", session_id: str = "default"):
-        if not _supports_session_memory(manager):
-            raise HTTPException(status_code=400, detail="Session memory not supported by this manager")
+    @app.get('/history')
+    async def get_history(provider: str = 'openai', session_id: str = 'default'):
+        if not supports_session_memory(manager):
+            raise HTTPException(status_code=400, detail='Session memory not supported by this manager')
         return manager.get_history(provider, session_id)
 
-    @app.post("/reset-memory")
-    async def reset_memory(
-        request: Optional[ResetMemoryRequest] = Body(None),
-        provider: Optional[str] = None,
-        session_id: Optional[str] = None,
-    ):
-        if not _supports_session_memory(manager):
-            raise HTTPException(status_code=400, detail="Session memory not supported by this manager")
+    @app.post('/reset-memory')
+    async def reset_memory(request: Optional[ResetMemoryRequest] = Body(None), provider: Optional[str] = None, session_id: Optional[str] = None):
+        if not supports_session_memory(manager):
+            raise HTTPException(status_code=400, detail='Session memory not supported by this manager')
         body_provider = request.provider if request else None
         body_session_id = (request.sessionId or request.session_id) if request else None
         effective_provider = body_provider if body_provider is not None else provider
@@ -440,23 +248,19 @@ def create_web_api(manager_class):
     return app
 
 
-def run_web_server(manager_class, host: str = "0.0.0.0", port: int = 8000):
+def run_web_server(manager_class, host: str = '0.0.0.0', port: int = 8000):
     app = create_web_api(manager_class)
     try:
-        framework_name = manager_class().framework
+        framework_name = build_manager(manager_class).framework
     except Exception:
-        framework_name = "Unknown"
-
-    print(f"Starting web server for {framework_name}")
-    print(f"Docs: http://{host}:{port}/docs")
-    print(f"Health: http://{host}:{port}/")
-    uvicorn.run(app, host=host, port=port)
+        framework_name = 'Unknown'
+    run_uvicorn_app(app, framework_name, host=host, port=port)
 
 
 def main():
-    print("Universal LLM Web API")
-    print("Run using `run_web_server(manager_class)`")
+    print('Universal LLM Web API')
+    print('Run using `run_web_server(manager_class)`')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

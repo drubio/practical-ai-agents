@@ -1,0 +1,279 @@
+"""Shared utility helpers reused across chapter implementations."""
+
+from __future__ import annotations
+
+import ast
+import json
+import logging
+import os
+import re
+from pathlib import Path
+from typing import Any, Callable, Dict, List
+
+from dotenv import load_dotenv
+
+from shared.llm_models import get_all_providers, get_api_key, get_default_model_name, get_display_name
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(REPO_ROOT / "shared" / ".env")
+
+
+def normalize_response_text(payload: Any) -> str:
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        content_match = re.search(
+            r"content=(['\"])((?:\\.|(?!\1).)*)\1\s+additional_kwargs=",
+            payload,
+            flags=re.DOTALL,
+        )
+        if content_match:
+            raw_quoted_content = f"{content_match.group(1)}{content_match.group(2)}{content_match.group(1)}"
+            try:
+                decoded = ast.literal_eval(raw_quoted_content)
+                if isinstance(decoded, str):
+                    return decoded
+            except Exception:
+                return content_match.group(2)
+
+        try:
+            maybe_json = json.loads(payload)
+            if isinstance(maybe_json, dict):
+                for key in ("answer", "distilled", "content", "text", "message", "summary", "response"):
+                    value = maybe_json.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value
+        except Exception:
+            pass
+        return payload
+
+    if isinstance(payload, dict):
+        for key in ("content", "text", "message", "answer", "final_answer", "distilled", "summary", "response"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+
+    if hasattr(payload, "content") and isinstance(payload.content, str):
+        return payload.content
+    return str(payload)
+
+
+def get_default_model(provider: str) -> str:
+    return get_default_model_name(provider)
+
+
+def get_all_provider_names() -> List[str]:
+    return get_all_providers()
+
+
+def parse_structured_json_response(raw: Any) -> Dict[str, Any]:
+    if raw is None:
+        content = ""
+    elif isinstance(raw, str):
+        content = raw.strip()
+    elif isinstance(raw, dict):
+        content = json.dumps(raw, ensure_ascii=False)
+    elif hasattr(raw, "content") and isinstance(raw.content, str):
+        content = raw.content.strip()
+    else:
+        content = normalize_response_text(raw).strip()
+
+    if not content:
+        raise ValueError("Structured content is empty")
+
+    content_match = re.search(
+        r'content=("|\')((?:\\.|(?!\1).)*)\1\s+additional_kwargs=',
+        content,
+        flags=re.DOTALL,
+    )
+    if content_match:
+        raw_quoted_content = f"{content_match.group(1)}{content_match.group(2)}{content_match.group(1)}"
+        try:
+            decoded = ast.literal_eval(raw_quoted_content)
+            if isinstance(decoded, str):
+                content = decoded.strip()
+        except Exception:
+            pass
+
+    if content.startswith("```json"):
+        content = content[7:]
+    if content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+    content = content.strip()
+
+    try:
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    if content.startswith("[") and content.endswith("]"):
+        try:
+            blocks = ast.literal_eval(content)
+            if isinstance(blocks, list):
+                for block in blocks:
+                    if isinstance(block, dict):
+                        maybe_text = block.get("text") or block.get("content")
+                        if isinstance(maybe_text, str) and maybe_text.strip():
+                            return parse_structured_json_response(maybe_text)
+        except Exception:
+            pass
+
+    start = content.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in structured content")
+
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(content)):
+        ch = content[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                parsed = json.loads(content[start : idx + 1])
+                if isinstance(parsed, dict):
+                    return parsed
+                break
+
+    raise ValueError("Parsed structured content is not a JSON object")
+
+
+def build_task_prompt(topic: str) -> str:
+    text = (topic or "").strip()
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) <= 1:
+        return text
+    checklist = "\n".join(f"{idx}. {line}" for idx, line in enumerate(lines, start=1))
+    return f"{text}\n\nTask checklist (every item is required, including the final line):\n{checklist}\n\nDo not skip any checklist item."
+
+
+def get_chapter_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    if logger.handlers:
+        return logger
+    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logger.setLevel(level)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
+    logger.addHandler(handler)
+    logger.propagate = False
+    return logger
+
+
+def log_tool_call(logger: logging.Logger, tool_name: str, fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    def wrapper(arg: Any = None) -> Any:
+        logger.info("Tool call | name=%s | input=%s", tool_name, arg)
+        result = fn(arg)
+        logger.info("Tool result | name=%s | output=%s", tool_name, result)
+        return result
+
+    wrapper.__name__ = getattr(fn, "__name__", f"{tool_name}_wrapper")
+    return wrapper
+
+
+def get_user_parameters():
+    temp_input = input("Temperature (0.0-2.0, default 0.7): ").strip()
+    try:
+        temperature = float(temp_input) if temp_input else 0.7
+        temperature = max(0.0, min(2.0, temperature))
+    except ValueError:
+        temperature = 0.7
+        print(f"Invalid temperature, using default: {temperature}")
+
+    tokens_input = input("Max tokens (default 1000): ").strip()
+    try:
+        max_tokens = int(tokens_input) if tokens_input else 1000
+        max_tokens = max(1, min(4000, max_tokens))
+    except ValueError:
+        max_tokens = 1000
+        print(f"Invalid max tokens, using default: {max_tokens}")
+
+    return temperature, max_tokens
+
+
+def save_response_to_file(response: Dict[str, Any], filename: str) -> None:
+    with open(filename, "w") as file:
+        json.dump(response, file, indent=2, default=str)
+    print(f"Response saved to {filename}")
+
+
+def display_provider_response(provider: str, response: Dict[str, Any], framework: str = "") -> None:
+    framework_suffix = f" ({framework})" if framework else ""
+    print(f"\n=== {get_display_name(provider)}{framework_suffix} answered: ===")
+    config_parts = []
+    if response.get("temperature") is not None:
+        config_parts.append(f"temp: {response['temperature']}")
+    if response.get("max_tokens") is not None:
+        config_parts.append(f"max_tokens: {response['max_tokens']}")
+    if response.get("model"):
+        config_parts.append(f"model: {response['model']}")
+    if config_parts:
+        print(f"[{', '.join(config_parts)}]")
+    if response.get("success"):
+        raw = response.get("response", "")
+        if isinstance(raw, (dict, list)):
+            print(json.dumps(raw, indent=2, ensure_ascii=False))
+        elif hasattr(raw, "content"):
+            print(str(raw.content))
+        else:
+            print(normalize_response_text(raw))
+    else:
+        print(f"Error: {response.get('error', 'Unknown error')}")
+    print("=" * 60)
+
+
+def print_initialization_status(framework: str, messages: Dict[str, str]) -> None:
+    print(f"\n=== {framework} Framework - Provider Status ===")
+    for provider, message in messages.items():
+        print(f"{get_display_name(provider)}: {message}")
+    print("=" * 50 + "\n")
+
+
+def get_user_choice(options: List[str], prompt: str) -> int:
+    print(f"\n{prompt}")
+    for index, option in enumerate(options, start=1):
+        print(f"{index}. {option}")
+    while True:
+        try:
+            raw_choice = input(f"Select an option (1-{len(options)}, default 1): ").strip()
+            choice = (int(raw_choice) if raw_choice else 1) - 1
+            if 0 <= choice < len(options):
+                return choice
+            print("Invalid selection. Please try again.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+
+
+def get_non_empty_input(prompt: str) -> str:
+    while True:
+        value = input(prompt).strip()
+        if value:
+            return value
+        print("Input cannot be empty. Please try again.")
+
+
+def format_filename(question: str, framework: str) -> str:
+    safe_question = question[:20].replace(" ", "_").replace("?", "").replace("!", "")
+    return f"llm_responses_{framework}_{safe_question}.json"

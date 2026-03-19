@@ -21,158 +21,21 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, Iterable, Iterator, Protocol
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SHARED_MODELS_PATH = REPO_ROOT / "shared" / "llm_models.py"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
 
-_shared_models_spec = importlib.util.spec_from_file_location("shared_llm_models", SHARED_MODELS_PATH)
-if _shared_models_spec is None or _shared_models_spec.loader is None:
-    raise ImportError(f"Unable to load shared model registry from {SHARED_MODELS_PATH}")
-_shared_llm_models = importlib.util.module_from_spec(_shared_models_spec)
-sys.modules['shared_llm_models'] = _shared_llm_models
-_shared_models_spec.loader.exec_module(_shared_llm_models)
+from shared.llm_models import (
+    ALL_MODEL_IDENTIFIERS,
+    ModelConfig,
+    PROVIDER_DISPLAY_NAMES,
+    get_api_key_env_vars,
+    get_identifier_mappings,
+    resolve_llamaindex_model,
+    route_model_for_prompt,
+)
+from shared.utils import build_task_prompt, get_chapter_logger, log_tool_call, parse_structured_json_response
+from shared.web import chunk_text, normalize_response_text, to_sse_line
 
-ALL_MODEL_IDENTIFIERS = _shared_llm_models.ALL_MODEL_IDENTIFIERS
-ModelConfig = _shared_llm_models.ModelConfig
-PROVIDER_DISPLAY_NAMES = _shared_llm_models.PROVIDER_DISPLAY_NAMES
-get_api_key_env_vars = _shared_llm_models.get_api_key_env_vars
-get_identifier_mappings = _shared_llm_models.get_identifier_mappings
-resolve_llamaindex_model = _shared_llm_models.resolve_llamaindex_model
-route_model_for_prompt = _shared_llm_models.route_model_for_prompt
-
-
-def normalize_response_text(payload: Any) -> str:
-    if payload is None:
-        return ""
-    if isinstance(payload, str):
-        return payload
-    if isinstance(payload, dict):
-        for key in ("response", "answer", "content", "text", "message"):
-            value = payload.get(key)
-            if isinstance(value, str):
-                return value
-    return str(payload)
-
-
-def parse_structured_json_response(raw: Any) -> Dict[str, Any]:
-    """Parse structured model output into a JSON object with tolerant fallbacks."""
-    if raw is None:
-        content = ""
-    elif isinstance(raw, str):
-        content = raw.strip()
-    elif isinstance(raw, dict):
-        return raw
-    else:
-        content = normalize_response_text(raw).strip()
-
-    if not content:
-        raise ValueError("Structured content is empty")
-
-    content_match = re.search(
-        r'content=(["\'])((?:\\.|(?!\1).)*)\1\s+additional_kwargs=',
-        content,
-        flags=re.DOTALL,
-    )
-    if content_match:
-        raw_quoted_content = f"{content_match.group(1)}{content_match.group(2)}{content_match.group(1)}"
-        try:
-            decoded = ast.literal_eval(raw_quoted_content)
-            if isinstance(decoded, str):
-                content = decoded.strip()
-        except Exception:
-            pass
-
-    if content.startswith("```json"):
-        content = content[7:]
-    if content.startswith("```"):
-        content = content[3:]
-    if content.endswith("```"):
-        content = content[:-3]
-    content = content.strip()
-
-    try:
-        parsed = json.loads(content)
-        if isinstance(parsed, dict):
-            return parsed
-    except Exception:
-        pass
-
-    if content.startswith("[") and content.endswith("]"):
-        try:
-            blocks = ast.literal_eval(content)
-            if isinstance(blocks, list):
-                for block in blocks:
-                    if isinstance(block, dict):
-                        maybe_text = block.get("text") or block.get("content")
-                        if isinstance(maybe_text, str) and maybe_text.strip():
-                            return parse_structured_json_response(maybe_text)
-        except Exception:
-            pass
-
-    start = content.find("{")
-    if start == -1:
-        raise ValueError("No JSON object found in structured content")
-
-    depth = 0
-    in_string = False
-    escape = False
-
-    for idx in range(start, len(content)):
-        ch = content[idx]
-        if in_string:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-            continue
-
-        if ch == '"':
-            in_string = True
-            continue
-
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                parsed = json.loads(content[start : idx + 1])
-                if isinstance(parsed, dict):
-                    return parsed
-                break
-
-    raise ValueError("Parsed structured content is not a JSON object")
-
-
-def build_task_prompt(topic: str) -> str:
-    """Normalize a user prompt and explicitly enumerate multi-line tasks."""
-    text = (topic or "").strip()
-    if not text:
-        return ""
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) <= 1:
-        return text
-
-    checklist = "\n".join(f"{idx}. {line}" for idx, line in enumerate(lines, start=1))
-    return (
-        f"{text}\n\n"
-        "Task checklist (every item is required, including the final line):\n"
-        f"{checklist}\n\n"
-        "Do not skip any checklist item."
-    )
-
-
-def chunk_text(text: str, chunk_size: int = 28) -> Iterable[str]:
-    clean = text or ""
-    if not clean:
-        yield ""
-        return
-    for i in range(0, len(clean), chunk_size):
-        yield clean[i : i + chunk_size]
-
-
-def to_sse_line(data: dict) -> str:
-    return f"data: {json.dumps(data)}\\n\\n"
 
 class AgentManagerProtocol(Protocol):
     framework: str
