@@ -26,6 +26,13 @@ const FINAL_RESPONSE_INSTRUCTION =
   "Capture the actual tool name, arguments, and output/result exactly as used, and summarize the result for the user in final_answer.";
 
 export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "generate_uuid"];
+export const AUTO_PROVIDER_OPTION = {
+  name: "auto",
+  display_name: "Model auto-selected by agent based on prompt",
+  provider: "agent",
+  model: "auto",
+  status: "Ready"
+};
 
 export function buildTools(logToolCallFn, activeLogger) {
   return {
@@ -55,6 +62,7 @@ export function selectTools(logToolCallFn, activeLogger, toolNames) {
 export class LangChainAgentRoutingManager {
   framework = "LangChain Agent Routing";
   toolNames = ALL_TOOL_NAMES;
+  autoProviderOptionName = AUTO_PROVIDER_OPTION.name;
   modelIdentifiers = [];
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm').";
@@ -65,10 +73,15 @@ export class LangChainAgentRoutingManager {
     this.provider = "unknown";
     this.model = initialModel;
     this.stream = stream;
+    this.activeModelIdentifier = this.autoProviderOptionName;
     this.agentCache = new Map();
     logger.info(
       `Initializing LangChain routing agent | provider=${this.provider} | initial_model=${this.model} | stream=${this.stream}`
     );
+  }
+
+  async getProviderOptions() {
+    return [{ ...AUTO_PROVIDER_OPTION }];
   }
 
   getAgent(provider, model, selectedToolNames) {
@@ -99,6 +112,7 @@ export class LangChainAgentRoutingManager {
       this.provider = selectedModel.provider;
       this.model = selectedModel.model;
       this.modelIdentifier = selectedModel.name;
+      this.activeModelIdentifier = this.autoProviderOptionName;
 
       const agent = this.getAgent(selectedModel.provider, selectedModel.model, selectedToolNames);
       const input = { messages: [{ role: "user", content: buildTaskPrompt(topic) }] };

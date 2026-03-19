@@ -24,6 +24,13 @@ const FINAL_RESPONSE_INSTRUCTION = [
 ].join(" ");
 
 export const ALL_TOOL_NAMES = ["calculator", "resolve_datetime", "generate_uuid"];
+export const AUTO_PROVIDER_OPTION = {
+  name: "auto",
+  display_name: "Model auto-selected by agent based on prompt",
+  provider: "agent",
+  model: "auto",
+  status: "Ready"
+};
 
 export function buildToolMap(logToolCallFn, activeLogger) {
   return {
@@ -56,6 +63,7 @@ function parseToolCall(text, activeToolMap) {
 export class LlamaIndexAgentRoutingManager {
   framework = "LlamaIndex Agent Routing";
   toolNames = ALL_TOOL_NAMES;
+  autoProviderOptionName = AUTO_PROVIDER_OPTION.name;
   modelIdentifiers = [];
   toolTriggerHelp =
     "Tools are selected automatically from your prompt; you do not need to type a tool name. If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm').";
@@ -66,8 +74,13 @@ export class LlamaIndexAgentRoutingManager {
     this.provider = "unknown";
     this.model = initialModel;
     this.stream = stream;
+    this.activeModelIdentifier = this.autoProviderOptionName;
     logger.info(`Initializing LlamaIndex routing agent | provider=${this.provider} | model=${this.model} | stream=${this.stream}`);
     this.llmCache = new Map();
+  }
+
+  async getProviderOptions() {
+    return [{ ...AUTO_PROVIDER_OPTION }];
   }
 
   getLlmByIdentifier(modelIdentifier) {
@@ -84,6 +97,7 @@ export class LlamaIndexAgentRoutingManager {
       const selectedToolNames = ALL_TOOL_NAMES;
       const selectedModel = routeModelForPrompt(topic, selectedToolNames, this.modelIdentifiers);
       this.modelIdentifier = selectedModel.name;
+      this.activeModelIdentifier = this.autoProviderOptionName;
 
       const resolved = this.getLlmByIdentifier(selectedModel.name);
       this.provider = resolved.provider;

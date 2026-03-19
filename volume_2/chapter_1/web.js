@@ -39,8 +39,16 @@ async function buildQueryResponse(result, request, manager, streamOverride = und
   return responsePayload;
 }
 
+async function managerProviderOptions(manager) {
+  if (typeof manager?.getProviderOptions === "function") {
+    return await manager.getProviderOptions();
+  }
+  return getProviderOptions(manager.modelIdentifiers);
+}
+
 async function resolveRequestManager(manager, requestedModel) {
-  if (!requestedModel || requestedModel === manager.activeModelIdentifier || requestedModel === manager.model) {
+  const autoSelectionValues = new Set([undefined, null, "", manager.autoProviderOptionName, manager.activeModelIdentifier, manager.model]);
+  if (autoSelectionValues.has(requestedModel)) {
     return { manager, activeModelIdentifier: manager.activeModelIdentifier || requestedModel };
   }
 
@@ -85,7 +93,7 @@ export function createWebApi(manager, enableStreaming = false) {
   });
 
   app.get("/providers", async (_, res) => {
-    const providers = await getProviderOptions(manager.modelIdentifiers);
+    const providers = await managerProviderOptions(manager);
     res.json({
       framework: manager.framework || "agent",
       providers,

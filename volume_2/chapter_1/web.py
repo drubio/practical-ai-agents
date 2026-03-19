@@ -61,8 +61,22 @@ def _supports_reset_memory(manager) -> bool:
     return hasattr(manager, "reset_memory") and callable(getattr(manager, "reset_memory"))
 
 
+def _manager_provider_options(manager):
+    custom_options = getattr(manager, "get_provider_options", None)
+    if callable(custom_options):
+        return custom_options()
+    return get_provider_options(getattr(manager, "model_identifiers", None))
+
+
 def _resolve_request_manager(manager, requested_model: Optional[str]):
-    if not requested_model or requested_model in {getattr(manager, "active_model_identifier", None), getattr(manager, "model", None)}:
+    auto_selection_values = {
+        None,
+        "",
+        getattr(manager, "auto_provider_option_name", None),
+        getattr(manager, "active_model_identifier", None),
+        getattr(manager, "model", None),
+    }
+    if requested_model in auto_selection_values:
         return manager, getattr(manager, "active_model_identifier", requested_model)
 
     available_identifiers = set(getattr(manager, "model_identifiers", []) or [])
@@ -134,7 +148,7 @@ def create_web_api(manager, enable_streaming: bool = False) -> FastAPI:
 
     @app.get("/providers")
     async def providers():
-        options = get_provider_options(getattr(manager, "model_identifiers", None))
+        options = _manager_provider_options(manager)
         return {
             "framework": getattr(manager, "framework", "agent"),
             "providers": options,

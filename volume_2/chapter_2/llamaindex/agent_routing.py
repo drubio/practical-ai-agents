@@ -45,6 +45,13 @@ ALL_TOOL_NAMES = [
     "resolve_datetime",
     "generate_uuid",
 ]
+AUTO_PROVIDER_OPTION = {
+    "name": "auto",
+    "display_name": "Model auto-selected by agent based on prompt",
+    "provider": "agent",
+    "model": "auto",
+    "status": "Ready",
+}
 
 
 def build_tools(log_tool_call_fn, active_logger):
@@ -73,6 +80,8 @@ class LlamaIndexAgentRoutingManager:
     framework = "LlamaIndex Agent Routing"
     tool_names = ALL_TOOL_NAMES
     model_identifiers: list[str] = []
+    auto_provider_option_name = AUTO_PROVIDER_OPTION["name"]
+
     tool_trigger_help = (
         "Tools are selected automatically from your prompt; you do not need to type a tool name. "
         "If you want a specific behavior, ask explicitly (for example: 'calculate 20 * 5' or 'parse tomorrow at 2pm')."
@@ -84,6 +93,7 @@ class LlamaIndexAgentRoutingManager:
         self.provider = resolved_model.provider
         self.model = resolved_model.model
         self.stream = stream
+        self.active_model_identifier = self.auto_provider_option_name
         logger.info(
             "Initializing LlamaIndex routing agent | provider=%s | model=%s | stream=%s",
             self.provider,
@@ -92,6 +102,9 @@ class LlamaIndexAgentRoutingManager:
         )
         self._llm_cache: dict[str, Any] = {resolved_model.name: llm}
         self._agent_cache: dict[tuple[str, tuple[str, ...]], FunctionAgent] = {}
+
+    def get_provider_options(self) -> list[dict[str, str]]:
+        return [dict(AUTO_PROVIDER_OPTION)]
 
     def _route_model(self, topic: str, selected_tool_names: list[str]) -> ModelConfig:
         return route_model_for_prompt(topic, selected_tool_names, model_identifiers=self.model_identifiers)
@@ -125,6 +138,7 @@ class LlamaIndexAgentRoutingManager:
             selected_model = self._route_model(topic, selected_tool_names)
             self.provider = selected_model.provider
             self.model = selected_model.model
+            self.active_model_identifier = self.auto_provider_option_name
             agent = self._get_agent(selected_model.name, selected_tool_names)
 
             if self.stream:
