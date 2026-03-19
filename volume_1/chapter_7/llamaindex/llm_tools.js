@@ -4,7 +4,7 @@
 
 import { LlamaIndexLLMManager as Chapter6LlamaIndexManager } from '../../chapter_6/llamaindex/llm_memory_retrieval.js';
 import { interactiveCli, getDefaultModel } from '../../chapter_4/utils.js';
-import { normalizeResponseText } from '../../chapter_4/stream.js';
+import { normalizeResponseText } from '../../../shared/utils.mjs';
 import { buildToolsPrompt, runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
