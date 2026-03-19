@@ -1,0 +1,9 @@
+{
+  "name": "chapter-2-llm-agent-routing-js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:shared": "npm --prefix ../../shared install"
+  },
+  "description": "Uses shared dependencies installed from ../../shared/package.json"
+}

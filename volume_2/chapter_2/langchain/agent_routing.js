@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import * as z from "../../chapter_1/node_modules/zod/index.js";
-import { createAgent, tool } from "../../chapter_1/node_modules/langchain/dist/index.js";
+import { createAgent } from 'langchain';
+import { tool } from '@langchain/core/tools';
+import { z } from 'zod';
 
 import * as tools from "../../chapter_1/tools.js";
 import {
