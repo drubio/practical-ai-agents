@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { Client as LangGraphClient } from '@langchain/langgraph-sdk';
+import { Client } from '@langchain/langgraph-sdk';
 import {
   ChatMessage,
   FrameworkHeader,
@@ -90,7 +90,7 @@ const LangGraphChatPage = () => {
   const threadIdRef = useRef<string | null>(null);
 
   const langGraphSdkUrl = (process.env.NEXT_PUBLIC_LANGGRAPH_PLATFORM_API_URL || LANGGRAPH_API_URL).trim();
-  const langGraphClient = useMemo(() => new LangGraphClient({ apiUrl: langGraphSdkUrl }), [langGraphSdkUrl]);
+  const langGraphClient = useMemo(() => new Client({ apiUrl: langGraphSdkUrl }), [langGraphSdkUrl]);
 
   const updateAssistantMessage = (assistantId: number, update: (message: ChatMessage) => ChatMessage) => {
     setMessages((prev) => prev.map((message) => (message.id === assistantId ? update(message) : message)));
@@ -210,6 +210,7 @@ const LangGraphChatPage = () => {
         title="LangGraph UI (SDK-first + application adapter fallback)"
         color="blue"
         settings={settings}
+        providers={providers}
         onSettingsClick={() => setShowSettings(!showSettings)}
         apiStatus={apiStatus}
         apiCapabilities={apiCapabilities}

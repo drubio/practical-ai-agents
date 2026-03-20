@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ChatInput, ChatSection, type Message as LlamaMessage } from '@llamaindex/chat-ui';
+import { ChatInput, ChatSection, type Message } from '@llamaindex/chat-ui';
 import {
   ResponseDetails,
   FrameworkHeader,
@@ -22,20 +22,20 @@ import {
   LANGGRAPH_API_URL
 } from './shared';
 
-const toMessageText = (message: LlamaMessage): string => {
+const toMessageText = (message: Message): string => {
   const textPart = message.parts?.find((part: any) => part?.type === 'text') as any;
   const rawText = textPart?.text || '';
   return parseMessageEnvelope(rawText)?.content || rawText;
 };
 
-const toMessageDetails = (message: LlamaMessage): ResponseDetails | undefined => {
+const toMessageDetails = (message: Message): ResponseDetails | undefined => {
   const textPart = message.parts?.find((part: any) => part?.type === 'text') as any;
   const rawText = textPart?.text || '';
   const envelope = parseMessageEnvelope(rawText);
   return envelope?.details || extractDetailsFromContent(rawText);
 };
 
-const createTextMessage = (role: LlamaMessage['role'], text: string, id = String(createMessageId())): LlamaMessage => ({
+const createTextMessage = (role: Message['role'], text: string, id = String(createMessageId())): Message => ({
   id,
   role,
   parts: [{ type: 'text', text }]
@@ -45,7 +45,7 @@ const LlamaIndexChatPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const { providers, settings, setSettings, apiStatus, checkApiStatus, apiCapabilities } = useAPISettings();
 
-  const [messages, setMessages] = useState<LlamaMessage[]>([
+  const [messages, setMessages] = useState<Message[]>([
     createTextMessage('assistant', 'Hello! I\'m your LlamaIndex assistant connected to your API.', 'welcome')
   ]);
   const [status, setStatus] = useState<'submitted' | 'streaming' | 'ready' | 'error'>('ready');
@@ -56,7 +56,7 @@ const LlamaIndexChatPage = () => {
     setMessages((prev) => [...prev, createTextMessage('system', content)]);
   };
 
-  const sendMessage = async (message: LlamaMessage) => {
+  const sendMessage = async (message: Message) => {
     const userText = toMessageText(message).trim();
     if (!userText || status === 'submitted' || status === 'streaming') return;
 
@@ -124,6 +124,7 @@ const LlamaIndexChatPage = () => {
         title="LlamaIndex Chat UI (@llamaindex/chat-ui, in-component adapter)"
         color="purple"
         settings={settings}
+        providers={providers}
         onSettingsClick={() => setShowSettings(!showSettings)}
         apiStatus={apiStatus}
         apiCapabilities={apiCapabilities}

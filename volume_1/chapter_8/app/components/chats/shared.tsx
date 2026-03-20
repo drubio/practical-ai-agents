@@ -21,6 +21,9 @@ type APIStatus = 'online' | 'offline' | 'checking';
 type Provider = {
   name: string;
   display_name: string;
+  default_model?: string;
+  default_model_identifier?: string;
+  default_model_tier?: string;
 };
 
 type ChatMessage = {
@@ -46,6 +49,7 @@ type CoagentCallDetails = Record<string, any>;
 
 type ResponseDetails = {
   provider?: string;
+  model?: string;
   sessionId?: string;
   summary?: string;
   distilled?: string;
@@ -199,6 +203,18 @@ const formatHistoryMessage = (
   });
 
   return `History for ${provider} (session: ${sessionId})\n\n${lines.join('\n\n')}`;
+};
+
+const formatProviderChoiceLabel = (provider: Provider): string => {
+  if (!provider.default_model) return provider.display_name;
+  return `${provider.display_name} — ${provider.default_model}`;
+};
+
+const formatProviderMetadata = (provider?: Provider): string | null => {
+  if (!provider?.default_model) return null;
+  const identifier = provider.default_model_identifier ? ` (${provider.default_model_identifier})` : '';
+  const tier = provider.default_model_tier ? ` • ${provider.default_model_tier}` : '';
+  return `${provider.default_model}${identifier}${tier}`;
 };
 
 // Custom hook for API settings and providers
@@ -673,7 +689,7 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
         </div>
       )}
 
-      {(details.summary || details.distilled || details.notes || details.confidence || details.provider || details.sessionId || details.tokensWithMemoryRetrieval !== undefined || details.tokensWithoutMemoryRetrieval !== undefined || details.estimatedTokensSaved !== undefined || details.estimatedTokenReductionPercent !== undefined) && (
+      {(details.summary || details.distilled || details.notes || details.confidence || details.provider || details.model || details.sessionId || details.tokensWithMemoryRetrieval !== undefined || details.tokensWithoutMemoryRetrieval !== undefined || details.estimatedTokensSaved !== undefined || details.estimatedTokenReductionPercent !== undefined) && (
         <details className="mt-2">
           <summary className="cursor-pointer text-gray-500 hover:text-gray-700">More response details</summary>
           <div className="mt-1 space-y-1 text-gray-700">
@@ -682,6 +698,7 @@ const ResponseDetailsPanel = ({ details }: { details?: ResponseDetails }) => {
             {details.confidence && <div><span className="font-semibold">Confidence:</span> {details.confidence}</div>}
             {details.notes && <div><span className="font-semibold">Notes:</span> {details.notes}</div>}
             {details.provider && <div><span className="font-semibold">Provider:</span> {details.provider}</div>}
+            {details.model && <div><span className="font-semibold">Model:</span> {details.model}</div>}
             {details.sessionId && <div><span className="font-semibold">Session:</span> {details.sessionId}</div>}
             {details.tokenUsage?.prompt_tokens !== undefined && (
               <div><span className="font-semibold">Prompt tokens:</span> {details.tokenUsage.prompt_tokens}</div>
@@ -791,6 +808,8 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
     onClose();
     void onHistoryAction(action, settings.selectedProvider, settings.sessionId);
   };
+  const selectedProviderDetails = providers.find((provider) => provider.name === settings.selectedProvider);
+  const selectedProviderModel = formatProviderMetadata(selectedProviderDetails);
 
   return (
     <div
@@ -849,9 +868,10 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
             disabled={apiStatus !== 'online'}
           >
             {providers.map((p) => (
-              <option key={p.name} value={p.name}>{p.display_name}</option>
+              <option key={p.name} value={p.name}>{formatProviderChoiceLabel(p)}</option>
             ))}
           </select>
+          {selectedProviderModel && <p className="mt-1 text-xs text-gray-500">Default model: {selectedProviderModel}</p>}
         </div>
       )}
 
@@ -952,43 +972,47 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
 };
 
 // Shared Header Component
-const FrameworkHeader = ({ title, color, settings, onSettingsClick, apiStatus, apiCapabilities }: {
+const FrameworkHeader = ({ title, color, settings, providers, onSettingsClick, apiStatus, apiCapabilities }: {
   title: string;
   color: string;
   settings: APISettings;
+  providers: Provider[];
   onSettingsClick: () => void;
   apiStatus: APIStatus;
   apiCapabilities: APICapabilities;
-}) => (
-  <div className={`bg-${color}-600 text-white p-3 flex justify-between items-center`}>
-    <div className="flex items-center space-x-3">
-      <div>
-        <h1 className="text-lg font-semibold">{title}</h1>
-        <div className="text-xs opacity-75">
-          Mode: {settings.queryMode} | Provider: {settings.selectedProvider} | 
-          {apiCapabilities.hasMemory && `Session: ${settings.sessionId} | `}
-          Mode: {settings.responseMode} | Temp: {settings.temperature} | Max Tokens: {settings.maxTokens}
+}) => {
+  const selectedProviderDetails = providers.find((provider) => provider.name === settings.selectedProvider);
+  return (
+    <div className={`bg-${color}-600 text-white p-3 flex justify-between items-center`}>
+      <div className="flex items-center space-x-3">
+        <div>
+          <h1 className="text-lg font-semibold">{title}</h1>
+          <div className="text-xs opacity-75">
+            Mode: {settings.queryMode} | Provider: {settings.selectedProvider} | Model: {selectedProviderDetails?.default_model || 'n/a'} |{' '}
+            {apiCapabilities.hasMemory && `Session: ${settings.sessionId} | `}
+            Mode: {settings.responseMode} | Temp: {settings.temperature} | Max Tokens: {settings.maxTokens}
+          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          <div className={`w-2 h-2 rounded-full ${
+            apiStatus === 'online' ? 'bg-green-400' : 
+            apiStatus === 'offline' ? 'bg-red-400' : 
+            'bg-yellow-400 animate-pulse'
+          }`}></div>
+          <span className="text-xs opacity-75">
+            {apiStatus === 'online' ? 'Online' : apiStatus === 'offline' ? 'Offline' : 'Checking'}
+          </span>
         </div>
       </div>
-      <div className="flex items-center space-x-2">
-        <div className={`w-2 h-2 rounded-full ${
-          apiStatus === 'online' ? 'bg-green-400' : 
-          apiStatus === 'offline' ? 'bg-red-400' : 
-          'bg-yellow-400 animate-pulse'
-        }`}></div>
-        <span className="text-xs opacity-75">
-          {apiStatus === 'online' ? 'Online' : apiStatus === 'offline' ? 'Offline' : 'Checking'}
-        </span>
-      </div>
+      <button 
+        onClick={onSettingsClick}
+        className={`p-2 hover:bg-${color}-700 rounded`}
+      >
+        <Settings className="w-4 h-4" />
+      </button>
     </div>
-    <button 
-      onClick={onSettingsClick}
-      className={`p-2 hover:bg-${color}-700 rounded`}
-    >
-      <Settings className="w-4 h-4" />
-    </button>
-  </div>
-);
+  );
+};
 
 // ============================================================================
 // FRAMEWORK COMPONENTS

@@ -14,10 +14,12 @@ from typing import Dict, List
 from shared.utils import (
     display_provider_response,
     format_filename,
+    format_provider_summary,
     get_all_provider_names,
     get_all_providers,
     get_api_key,
     get_default_model,
+    get_default_model_details,
     get_display_name,
     get_non_empty_input,
     get_user_choice,
@@ -84,7 +86,9 @@ def interactive_cli(manager: BaseLLMManager):
     temperature, max_tokens = get_user_parameters()
     print(f"\nUsing temperature: {temperature}, max tokens: {max_tokens}")
     available_providers = sorted(available_providers, key=lambda provider: (provider != "openai", get_display_name(provider)))
-    print(f"\nAvailable providers: {', '.join([get_display_name(p) for p in available_providers])}")
+    print("\nAvailable providers:")
+    for provider in available_providers:
+        print(f"- {format_provider_summary(provider)}")
     query_all = input("Query ALL providers or select one? (all/one, default one): ").strip().lower() or "one"
 
     full_memory_supported = getattr(manager, "memory_enabled", False) is True and hasattr(manager, "ask_question") and hasattr(manager, "get_history") and hasattr(manager, "reset_memory")
@@ -108,7 +112,15 @@ def interactive_cli(manager: BaseLLMManager):
     else:
         choice_idx = get_user_choice([get_display_name(p) for p in available_providers], "Select a provider:")
         provider = available_providers[choice_idx]
-        print(f"\nUsing provider: {get_display_name(provider)}")
+        selected_provider_details = get_default_model_details(provider)
+        print(
+            "\nUsing provider: "
+            f"{selected_provider_details['display_name']} "
+            f"(provider: {selected_provider_details['canonical_provider']}, "
+            f"default model: {selected_provider_details['default_model']} / "
+            f"{selected_provider_details['default_model_identifier']} / "
+            f"{selected_provider_details['default_model_tier']})"
+        )
         session_id = "default"
         if memory_supported:
             session_id_input = input("Enter memory session ID (default: 'default'): ").strip()

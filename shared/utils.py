@@ -12,7 +12,13 @@ from typing import Any, Callable, Dict, List
 
 from dotenv import load_dotenv
 
-from shared.llm_models import get_all_providers, get_api_key, get_default_model_name, get_display_name
+from shared.llm_models import (
+    get_all_providers,
+    get_api_key,
+    get_default_model_config,
+    get_default_model_name,
+    get_display_name,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(REPO_ROOT / "shared" / ".env")
@@ -60,6 +66,28 @@ def normalize_response_text(payload: Any) -> str:
 
 def get_default_model(provider: str) -> str:
     return get_default_model_name(provider)
+
+
+def get_default_model_details(provider: str) -> Dict[str, str]:
+    config = get_default_model_config(provider)
+    return {
+        "provider": provider,
+        "canonical_provider": config.provider,
+        "display_name": get_display_name(provider),
+        "default_model": config.model,
+        "default_model_identifier": config.name,
+        "default_model_tier": config.tier,
+    }
+
+
+def format_provider_summary(provider: str) -> str:
+    details = get_default_model_details(provider)
+    return (
+        f"{details['display_name']} "
+        f"[provider: {details['canonical_provider']}, "
+        f"default model: {details['default_model']} "
+        f"({details['default_model_identifier']}, {details['default_model_tier']})]"
+    )
 
 
 def get_all_provider_names() -> List[str]:

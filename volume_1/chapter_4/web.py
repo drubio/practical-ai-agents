@@ -17,9 +17,9 @@ if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 
 from shared.web import (
-    SharedQueryAllRequest as QueryAllRequest,
-    SharedQueryRequest as QueryRequest,
-    SharedResetMemoryRequest as ResetMemoryRequest,
+    SharedQueryAllRequest,
+    SharedQueryRequest,
+    SharedResetMemoryRequest,
     build_manager,
     iter_text_chunks,
     normalize_response_text,
@@ -36,7 +36,12 @@ from shared.web import (
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from utils import parse_structured_json_response, get_all_providers, get_default_model, get_display_name
+from utils import (
+    get_all_providers,
+    get_default_model_details,
+    get_display_name,
+    parse_structured_json_response,
+)
 
 
 def _parse_structured_raw_response(raw_response):
@@ -91,6 +96,19 @@ def _provider_selection_map(manager):
     available = manager.get_available_providers()
     sorted_providers = sorted(available, key=lambda provider: (provider != "openai", get_display_name(provider)))
     return {str(index): provider for index, provider in enumerate(sorted_providers, start=1)}
+
+
+def _provider_payload(provider: str, manager) -> dict:
+    details = get_default_model_details(provider)
+    return {
+        "name": provider,
+        "display_name": details["display_name"],
+        "provider": details["canonical_provider"],
+        "default_model": details["default_model"],
+        "default_model_identifier": details["default_model_identifier"],
+        "default_model_tier": details["default_model_tier"],
+        "status": manager.initialization_messages.get(provider, "Unknown"),
+    }
 
 
 def _normalize_provider_input(manager, provider: Optional[Union[str, int]]):
@@ -150,19 +168,26 @@ def create_web_api(manager_class):
     @app.get('/')
     async def get_status():
         available = manager.get_available_providers()
-        return {"framework": manager.framework, "available_providers": available, "total_available": len(available), "initialization_status": manager.initialization_messages, "status": "healthy" if available else "no_providers"}
+        return {
+            "framework": manager.framework,
+            "available_providers": available,
+            "available_provider_details": [_provider_payload(provider, manager) for provider in available],
+            "total_available": len(available),
+            "initialization_status": manager.initialization_messages,
+            "status": "healthy" if available else "no_providers",
+        }
 
     @app.get('/providers')
     async def get_providers():
         providers = manager.get_available_providers()
-        return {"framework": manager.framework, "providers": [{"name": p, "display_name": get_display_name(p), "model": get_default_model(p), "status": manager.initialization_messages.get(p, "Unknown")} for p in providers], "count": len(providers)}
+        return {"framework": manager.framework, "providers": [_provider_payload(provider, manager) for provider in providers], "count": len(providers)}
 
     @app.get('/capabilities')
     async def get_capabilities():
         return {"framework": manager.framework, "streaming": True, "memory": supports_memory(manager), "memory_retrieval": supports_memory_retrieval(manager), "coagent": supports_coagent(manager)}
 
     @app.post('/query')
-    async def query_single(request: QueryRequest):
+    async def query_single(request: SharedQueryRequest):
         try:
             with redirect_stdout(io.StringIO()):
                 args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
@@ -183,7 +208,7 @@ def create_web_api(manager_class):
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post('/query-stream')
-    async def query_stream(request: QueryRequest):
+    async def query_stream(request: SharedQueryRequest):
         async def stream_events():
             try:
                 with redirect_stdout(io.StringIO()):
@@ -207,7 +232,7 @@ def create_web_api(manager_class):
         return StreamingResponse(stream_events(), media_type='text/event-stream')
 
     @app.post('/query-all')
-    async def query_all(request: QueryAllRequest):
+    async def query_all(request: SharedQueryAllRequest):
         try:
             with redirect_stdout(io.StringIO()):
                 result = manager.query_all_providers(topic=request.topic, template=request.template, max_tokens=request.max_tokens, temperature=request.temperature)
@@ -239,7 +264,7 @@ def create_web_api(manager_class):
         return manager.get_history(provider, session_id)
 
     @app.post('/reset-memory')
-    async def reset_memory(request: Optional[ResetMemoryRequest] = Body(None), provider: Optional[str] = None, session_id: Optional[str] = None):
+    async def reset_memory(request: Optional[SharedResetMemoryRequest] = Body(None), provider: Optional[str] = None, session_id: Optional[str] = None):
         if not supports_session_memory(manager):
             raise HTTPException(status_code=400, detail='Session memory not supported by this manager')
         body_provider = request.provider if request else None

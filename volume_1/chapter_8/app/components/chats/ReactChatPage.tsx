@@ -160,6 +160,7 @@ const ReactChatPage = () => {
         title="React UI (Vanilla React + useReducer)"
         color="orange"
         settings={settings}
+        providers={providers}
         onSettingsClick={() => setShowSettings(!showSettings)}
         apiStatus={apiStatus}
         apiCapabilities={apiCapabilities}

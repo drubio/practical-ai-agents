@@ -3,7 +3,13 @@ import readline from "node:readline";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
-import { getAllProviders as getAllProvidersShared, getApiKey as getApiKeyShared, getDefaultModelName, getDisplayName as getDisplayNameShared } from "./llm_models.mjs";
+import {
+  getAllProviders,
+  getApiKey,
+  getDefaultModelConfig,
+  getDefaultModelName,
+  getDisplayName,
+} from "./llm_models.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -52,11 +58,24 @@ export function normalizeResponseText(payload) {
   return String(payload);
 }
 
-export function getApiKey(provider) { return getApiKeyShared(provider); }
-export function getDisplayName(provider) { return getDisplayNameShared(provider); }
-export function getAllProviders() { return getAllProvidersShared(); }
+export { getAllProviders, getApiKey, getDisplayName };
 export function getDefaultModel(provider) { return getDefaultModelName(provider); }
 export function getAllProviderNames() { return getAllProviders(); }
+export function getDefaultModelDetails(provider) {
+  const config = getDefaultModelConfig(provider);
+  return {
+    provider,
+    canonicalProvider: config.provider,
+    displayName: getDisplayName(provider),
+    defaultModel: config.model,
+    defaultModelIdentifier: config.name,
+    defaultModelTier: config.tier,
+  };
+}
+export function formatProviderSummary(provider) {
+  const details = getDefaultModelDetails(provider);
+  return `${details.displayName} [provider: ${details.canonicalProvider}, default model: ${details.defaultModel} (${details.defaultModelIdentifier}, ${details.defaultModelTier})]`;
+}
 
 let sharedRl = null;
 export function getSharedAsk() {

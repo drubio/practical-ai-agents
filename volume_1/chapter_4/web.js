@@ -3,7 +3,7 @@
  * Supports optional memory endpoints and session-based tracking.
  */
 
-import { getAllProviders, getDisplayName, getDefaultModel, parseStructuredJsonResponse } from './utils.js';
+import { getAllProviders, getDefaultModelDetails, getDisplayName, parseStructuredJsonResponse } from './utils.js';
 import { buildManager, captureConsoleOutputAsync, chunkText, createExpressApp, normalizeResponseText, resolveSessionId, resultIsSuccess, streamTextSse, supportsCoagent, supportsMemory, supportsMemoryRetrieval, supportsSessionMemory, toSseLine } from '../../shared/web.mjs';
 
 function parseStructuredRawResponse(rawResponse) {
@@ -67,6 +67,19 @@ function normalizeProviderInput(manager, provider) {
   return candidate;
 }
 
+function buildProviderPayload(provider, manager) {
+  const details = getDefaultModelDetails(provider);
+  return {
+    name: provider,
+    display_name: details.displayName,
+    provider: details.canonicalProvider,
+    default_model: details.defaultModel,
+    default_model_identifier: details.defaultModelIdentifier,
+    default_model_tier: details.defaultModelTier,
+    status: manager.initializationMessages[provider] || 'Unknown',
+  };
+}
+
 export function createWebApi(managerClassOrFactory) {
   const app = createExpressApp();
   let manager;
@@ -82,11 +95,18 @@ export function createWebApi(managerClassOrFactory) {
 
   app.get('/', (_, res) => {
     const available = manager.getAvailableProviders();
-    res.json({ framework: manager.framework, available_providers: available, total_available: available.length, initialization_status: manager.initializationMessages, status: available.length > 0 ? 'healthy' : 'no_providers' });
+    res.json({
+      framework: manager.framework,
+      available_providers: available,
+      available_provider_details: available.map((provider) => buildProviderPayload(provider, manager)),
+      total_available: available.length,
+      initialization_status: manager.initializationMessages,
+      status: available.length > 0 ? 'healthy' : 'no_providers',
+    });
   });
   app.get('/providers', (_, res) => {
     const available = manager.getAvailableProviders();
-    res.json({ framework: manager.framework, providers: available.map((provider) => ({ name: provider, display_name: getDisplayName(provider), model: getDefaultModel(provider), status: manager.initializationMessages[provider] || 'Unknown' })), count: available.length });
+    res.json({ framework: manager.framework, providers: available.map((provider) => buildProviderPayload(provider, manager)), count: available.length });
   });
   app.get('/capabilities', (_, res) => {
     res.json({ framework: manager.framework, streaming: true, memory: supportsMemory(manager), memory_retrieval: supportsMemoryRetrieval(manager), coagent: supportsCoagent(manager) });

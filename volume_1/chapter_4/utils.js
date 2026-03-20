@@ -4,10 +4,12 @@ import {
   closeSharedAsk,
   displayProviderResponse,
   formatFilename,
+  formatProviderSummary,
   getAllProviderNames,
   getAllProviders,
   getApiKey,
   getDefaultModel,
+  getDefaultModelDetails,
   getDisplayName,
   getNonEmptyInput,
   getSharedAsk,
@@ -20,10 +22,12 @@ import {
 export {
   displayProviderResponse,
   formatFilename,
+  formatProviderSummary,
   getAllProviderNames,
   getAllProviders,
   getApiKey,
   getDefaultModel,
+  getDefaultModelDetails,
   getDisplayName,
   getNonEmptyInput,
   getUserChoice,
@@ -92,7 +96,8 @@ export async function interactiveCli(manager) {
     const { temperature, maxTokens } = await getUserParameters(ask);
     console.log(`\nUsing temperature: ${temperature}, max tokens: ${maxTokens}`);
     const sortedProviders = [...availableProviders].sort((a, b) => (a === 'openai' ? -1 : b === 'openai' ? 1 : getDisplayName(a).localeCompare(getDisplayName(b))));
-    console.log(`\nAvailable providers: ${sortedProviders.map((p) => getDisplayName(p)).join(', ')}`);
+    console.log('\nAvailable providers:');
+    sortedProviders.forEach((provider) => console.log(`- ${formatProviderSummary(provider)}`));
     const mode = ((await ask('Query ALL providers or select one? (all/one, default one): ')).trim().toLowerCase() || 'one');
     const memorySupported = Boolean((manager.memoryEnabled || manager.retrievalMemoryEnabled) && typeof manager.askQuestion === 'function' && typeof manager.getHistory === 'function' && typeof manager.resetMemory === 'function');
     if (['all', 'a', ''].includes(mode)) {
@@ -107,6 +112,8 @@ export async function interactiveCli(manager) {
       if (save === 'y' || save === 'yes') saveResponseToFile(results, formatFilename(question, manager.framework.toLowerCase()));
     } else {
       const provider = sortedProviders[await getUserChoice(sortedProviders.map((p) => getDisplayName(p)), 'Select a provider:', ask)];
+      const providerDetails = getDefaultModelDetails(provider);
+      console.log(`\nUsing provider: ${providerDetails.displayName} (provider: ${providerDetails.canonicalProvider}, default model: ${providerDetails.defaultModel} / ${providerDetails.defaultModelIdentifier} / ${providerDetails.defaultModelTier})`);
       let sessionId = 'default';
       if (memorySupported) {
         const sessionInput = (await ask("Enter memory session ID (default: 'default'): ")).trim();

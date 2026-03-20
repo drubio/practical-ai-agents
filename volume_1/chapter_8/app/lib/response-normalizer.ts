@@ -14,6 +14,7 @@ export type CoagentCallDetails = Record<string, any>;
 
 export type ResponseDetails = {
   provider?: string;
+  model?: string;
   sessionId?: string;
   summary?: string;
   distilled?: string;
@@ -247,6 +248,7 @@ export const buildDetails = (structured: any, data: any): ResponseDetails | unde
 
   const details: ResponseDetails = {
     provider: data?.provider,
+    model: data?.model,
     sessionId: data?.session_id || data?.sessionId,
     summary: structuredData?.summary,
     distilled: structuredData?.distilled,
@@ -286,6 +288,7 @@ export const mergeDetails = (base?: ResponseDetails, fallback?: ResponseDetails)
 
   const merged: ResponseDetails = {
     provider: base?.provider || fallback?.provider,
+    model: base?.model || fallback?.model,
     sessionId: base?.sessionId || fallback?.sessionId,
     summary: base?.summary || fallback?.summary,
     distilled: base?.distilled || fallback?.distilled,
@@ -437,7 +440,11 @@ export const processApiResponse = (data: any, queryMode: string): ProcessedRespo
 
     for (const [provider, response] of Object.entries(data.responses)) {
       const providerResponse = response as any;
-      content += `**${provider}**: `;
+      content += `**${provider}**\n`;
+      if (providerResponse.model) {
+        content += `- Model: ${providerResponse.model}\n`;
+      }
+      content += `- Response: `;
 
       if (providerResponse.success) {
         if (typeof providerResponse.response === 'string') {

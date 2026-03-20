@@ -184,6 +184,7 @@ const AssistantUIChatPage = () => {
         title="Assistant UI (@assistant-ui/react)"
         color="green"
         settings={settings}
+        providers={providers}
         onSettingsClick={() => setShowSettings(!showSettings)}
         apiStatus={apiStatus}
         apiCapabilities={apiCapabilities}
