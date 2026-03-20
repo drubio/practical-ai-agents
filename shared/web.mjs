@@ -127,10 +127,22 @@ export function supportsResetMemory(manager) {
   return typeof manager?.resetMemory === "function";
 }
 
+export function logApiRequest(req, res) {
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    const durationMs = Date.now() - startedAt;
+    console.info(`[API] ${req.method} ${req.originalUrl || req.url} -> ${res.statusCode} (${durationMs}ms)`);
+  });
+}
+
 export function createExpressApp() {
   const app = express();
   app.use(cors());
   app.use(express.json());
+  app.use((req, res, next) => {
+    logApiRequest(req, res);
+    next();
+  });
   return app;
 }
 
@@ -150,4 +162,3 @@ export async function* streamTextSse(text, chunkSize = 28, delayMs = 0, eventTyp
     if (part) yield toSseLine({ type: eventType, content: part });
   }
 }
-
