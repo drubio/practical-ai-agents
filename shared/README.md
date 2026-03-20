@@ -12,7 +12,7 @@ These files centralize common logic so later chapters can avoid duplicating the 
 - `web.py` / `web.mjs`: shared web server helpers for examples that expose HTTP APIs.
 - `llm_models.py` / `llm_models.mjs`: shared model/provider configuration and initialization helpers.
 - `__init__.py`: package marker for Python imports.
-
+- `.env` - Environment file with LLM API keys
 
 ## Environment Setup
 
@@ -39,7 +39,7 @@ For each language, install the dependencies in the root level folder (one level 
    XAI_API_KEY="xai-UXxxxxxxx"
    ```
 
-### You're set! The chapters that require this shared code to run are ready!
+### You're set! The chapters that require this shared code are ready to run!
 
 ## Which chapters use this shared folder?
 

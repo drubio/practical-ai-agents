@@ -19,9 +19,6 @@ chapter_4/
 ├── utils.js
 ├── web.py
 ├── web.js
-├── requirements.txt
-├── package.json
-└── .env
 ````
 
 You choose what framework to run by choosing the script language and framework subfolder:
@@ -37,18 +34,12 @@ The following files are **shared** for both LangChain and LlamaIndex implementat
 
 - `utils.py` / `utils.js` — shared CLI and logic
 - `web.py` / `web.js` — shared web server for all frameworks
-- `requirements.txt` / `package.json` — shared package dependencies
-- `.env` - Environment file with LLM API keys
 
 ## Environment Setup
-Update the `.env` file with the LLM API keys:
+Ensure you install the dependencies of your language of choice located in the root level folder—requirements.txt or package.json. These dependencies are needed to run code in this chapter and the shared/ folder.
 
-```env
-OPENAI_API_KEY=your-openai-key
-ANTHROPIC_API_KEY=your-anthropic-key
-GOOGLE_API_KEY=your-google-key
-XAI_API_KEY=your-xai-key
-````
+Once these dependencies are installed, you must also ensure the shared/ folder has access to an `.env` file with all the necessary LLM API keys. These API keys ensure your code has to LLM providers. See the shared/ folder README.md for additional details.
+
 
 ## Usage Modes
 
