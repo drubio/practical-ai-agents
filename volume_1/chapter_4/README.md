@@ -19,6 +19,16 @@ chapter_4/
 ├── utils.js
 ├── web.py
 ├── web.js
+│
+shared/
+├── llm_models.py
+├── llm_models.mjs
+├── utils.py
+├── utils.mjs
+├── web.py
+├── web.mjs
+├──.env
+
 ````
 
 You choose what framework to run by choosing the script language and framework subfolder:
@@ -30,15 +40,23 @@ You choose what framework to run by choosing the script language and framework s
 | **LlamaIndex**  | `llamaindex/llm_app.py`         | `llamaindex/llm_app.js`      |
 ------------------------------------------------------------------------------------
 
-The following files are **shared** for both LangChain and LlamaIndex implementations, as well as other chapter exercises:
+The following files are **shared** for both LangChain and LlamaIndex implementations:
 
-- `utils.py` / `utils.js` — shared CLI and logic
-- `web.py` / `web.js` — shared web server for all frameworks
+- `utils.py` / `utils.js` — shared CLI and logic for both frameworks
+- `web.py` / `web.js` — shared web API for both frameworks
+
+The following files are **shared** across this and other book chapters:
+
+- `llm_models.py` / `llm_models.mjs` — shared LLM model configurations for all book exercises
+- `utils.py` / `utils.mjs` — shared CLI and standard logic for all book exercises
+- `web.py` / `web.mjs` — shared web server and web logic for all book exercises
+- `.env` — LLM API keys for model configurations
+
 
 ## Environment Setup
-Ensure you install the dependencies of your language of choice located in the root level folder—requirements.txt or package.json. These dependencies are needed to run code in this chapter and the shared/ folder.
+Ensure you install the dependencies for your language of choice located in the root level folder—requirements.txt or package.json. These dependencies are needed to run code in this chapter and the shared/ folder.
 
-Once these dependencies are installed, you must also ensure the shared/ folder has access to an `.env` file with all the necessary LLM API keys. These API keys ensure your code has to LLM providers. See the shared/ folder README.md for additional details.
+Once these dependencies are installed, you must also ensure the shared/ folder has access to an `.env` file with all the necessary LLM API keys. These API keys ensure your code can access LLM providers. See the shared/ folder README.md for additional details.
 
 
 ## Usage Modes

@@ -5,7 +5,7 @@
 1. **Memory and persistence**
 2. **Memory, persistence and structured output parsing**
 
-Both variations are available across **LangChain** and **LlamaIndex**, in **Python** and **JavaScript**, as well as CLI and Web API modes.
+Both variations are available across **LangChain** and **LlamaIndex**, in **Python** and **JavaScript**, as well as CLI and web API modes.
 
 ## Project structure
 
@@ -33,20 +33,15 @@ chapter_5/
 
 ## Dependencies and environment
 
-Chapter 5 reuses Chapter 4 shared components:
+Chapter 5 reuses Chapter 4 and shared components:
 - `chapter_4/utils.py` / `chapter_4/utils.js`
 - `chapter_4/web.py` / `chapter_4/web.js`
-- `chapter_4/requirements.txt` / `chapter_4/package.json`
-- `chapter_4/.env`
+- `shared/llm_models.py` / `shared/llm_models.mjs`
+- `shared/utils.py` / `shared/utils.mjs`
+- `shared/web.py` / `shared/web.mjs`
 
-Ensure API keys are set in `chapter_4/.env`:
+Ensure you install the dependencies for your language of choice located in the root level folder—requirements.txt or package.json—in addition to declaring LLM API keys in the shared/.env file. See the shared/ folder README.md for additional details.
 
-```env
-OPENAI_API_KEY=your-openai-key
-ANTHROPIC_API_KEY=your-anthropic-key
-GOOGLE_API_KEY=your-google-key
-XAI_API_KEY=your-xai-key
-```
 
 ## Usage
 
