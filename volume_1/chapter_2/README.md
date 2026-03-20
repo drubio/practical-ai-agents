@@ -98,4 +98,4 @@ console.log(apiKey);
 
 ## Summary
 
-Both the Python and JavaScript examples use standard libraries to safely load environment variables from a local `.env` file—a best practice for working with API keys.
+Both the Python and JavaScript examples use standard libraries to safely load environment variables from a local `.env` file, which is a best practice for working with API keys.
