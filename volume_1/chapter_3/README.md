@@ -1,6 +1,6 @@
 # Direct LLM API access: Anthropic, OpenAI, Google, xAI
 
-This chapter demonstrates how to access the major LLM providers— Anthropic, OpenAI, Google, and xAI—using their in-house APIs and minimal working scripts in both Python and JavaScript.
+This chapter demonstrates how to access the major LLM providers—Anthropic, OpenAI, Google and xAI—using their in-house APIs and minimal working scripts in both Python and JavaScript.
 
 ## Project Contents
 Each subfolder reflects an LLM provider and contains:
@@ -12,7 +12,7 @@ Each subfolder reflects an LLM provider and contains:
 The scripts generate and test completions using the nursery rhyme:  
 `"Twinkle, Twinkle, Little"`, to verify LLM functionality and output quality.
 
-*NOTE*: An `.env`- file with the corresponding API key must also be generated.
+*NOTE*: An `.env` file with the corresponding LLM API keys must also be generated directly in this folder, like it was done in the last chapter
 ---
 
 
@@ -35,7 +35,7 @@ For each provider (`anthropic`, `openai`, `google`, `xai`):
 
 NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
 
-### Step 3. Create an `.env` file with the correct API key:
+### Step 3. Create an `.env` file with the correct LLM APIs keys like it was done in the last chapter:
 
    ```env
    ANTHROPIC_API_KEY="sk-ant-api03-xxxxxx"
@@ -68,7 +68,7 @@ NOTE: This chapter does **not** use the repository-level shared libraries in `sh
 
 NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
 
-### Step 3. Create an `.env` file with the correct API key (same format as above).
+### Step 3. Create an `.env` file with the correct LLM API keys like it was done in the last chapter (or described above).
 
 ### Step 4. Run the script:
 
@@ -82,9 +82,9 @@ NOTE: This chapter does **not** use the repository-level shared libraries in `sh
 
 Each script:
 
-* Loads its API key from `.env`
+* Loads its provider LLM  API key from `.env`
 * Sends the prompt `"Twinkle, Twinkle, Little"` to the model
 * Outputs the model's prediction
-* Requires the minimum code requirements for Python and JavaScript.
+* Uses the minimum code requirements for Python and JavaScript.
 
 This setup for each provider also gives a clear baseline for model behavior across providers before using higher-level frameworks like LangChain or LlamaIndex.
