@@ -4,7 +4,7 @@
     "start": "node nursery.js"
   },
   "dependencies": {
-    "dotenv": "^16.0.0",
-    "openai": "^6.17.0"
+    "dotenv": "^16.6.1",
+    "openai": "^6.32.0"
   }
 }
