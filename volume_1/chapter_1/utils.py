@@ -1,20 +1,72 @@
 """
 Shared utility functions for all language model implementations.
 """
-import html
 import re
 import os
 import json
+import cloudscraper
 import requests
 import unicodedata
 from collections import Counter
 from pathlib import Path
+
 from bs4 import BeautifulSoup
 
 # Configuration
 CACHE_DIR = "model_cache"
 CORPUS_CACHE_DIR = "corpus_cache"
 VOCAB_CACHE_DIR = "vocab_cache"
+
+BROWSER_LIKE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/132.0.0.0 Safari/537.36 OPR/117.0.0.0"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+def create_web_session():
+    """Create a requests session with only the headers we want to send."""
+    session = requests.Session()
+    session.headers.clear()
+    return session
+
+
+def get_request_headers(url):
+    """Return a simple browser-like header set for an individual request."""
+    headers = dict(BROWSER_LIKE_HEADERS)
+    if "poetryfoundation.org" in url:
+        headers["Referer"] = url
+    elif "gutenberg.org" in url:
+        headers["Referer"] = "https://www.gutenberg.org/"
+    else:
+        headers["Referer"] = "https://www.google.com/"
+    return headers
+
+
+def should_use_cloudscraper(url):
+    """Only use cloudscraper for hosts that may benefit from anti-bot handling."""
+    return "poetryfoundation.org" in url and cloudscraper is not None
+
+
+def fetch_with_cloudscraper(url, timeout=30):
+    """Fetch a URL with a minimal cloudscraper configuration."""
+    scraper = cloudscraper.create_scraper(browser={"browser": "firefox", "platform": "linux", "mobile": False})
+    return scraper.get(url, timeout=timeout)
+
+
+def fetch_url(url, timeout=30):
+    """Fetch a URL with the transport best suited for that host."""
+    if should_use_cloudscraper(url):
+        return fetch_with_cloudscraper(url, timeout=timeout)
+
+    session = create_web_session()
+    return session.get(url, headers=get_request_headers(url), timeout=timeout)
 
 # Unified Text Processing
 def basic_tokenize(text):
@@ -37,18 +89,18 @@ def load_corpus(corpus_type, use_cache=True):
     """Load corpus from source or cache."""
     # Create cache directory
     os.makedirs(CORPUS_CACHE_DIR, exist_ok=True)
-    
+
     cache_file = Path(CORPUS_CACHE_DIR) / f"{corpus_type}_corpus.txt"
-    
+
     # Return from cache if available and requested
     if use_cache and cache_file.exists():
         print(f"[INFO] Loading corpus from cache: {cache_file}")
         with open(cache_file, "r", encoding="utf-8") as f:
             return f.read()
-    
+
     # Otherwise download fresh
     print(f"[INFO] Downloading {corpus_type} corpus...")
-    
+
     try:
         if corpus_type == "nursery":
             urls = [
@@ -58,7 +110,7 @@ def load_corpus(corpus_type, use_cache=True):
             full_text = ""
             for url in urls:
                 print(f"[INFO] Fetching: {url}")
-                response = requests.get(url, timeout=30)
+                response = fetch_url(url, timeout=30)
                 response.raise_for_status()
                 soup = BeautifulSoup(response.text, "html.parser")
                 if "gutenberg.org" in url:
@@ -78,16 +130,16 @@ def load_corpus(corpus_type, use_cache=True):
             text = full_text.strip()
         elif corpus_type == "shakespeare":
             url = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
-            response = requests.get(url, timeout=30)
+            response = fetch_url(url, timeout=30)
             response.raise_for_status()
             text = response.text
         else:
             raise ValueError(f"Unknown corpus type: {corpus_type}")
-        
+
         # Cache the corpus
         with open(cache_file, "w", encoding="utf-8") as f:
             f.write(text)
-            
+
         return text
     except Exception as e:
         print(f"[ERROR] Failed to download corpus: {e}")
