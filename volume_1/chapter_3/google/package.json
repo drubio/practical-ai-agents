@@ -4,7 +4,7 @@
     "start": "node nursery.js"
   },
   "dependencies": {
-    "@google/genai": "^1.39.0",
-    "dotenv": "^16.0.0"
+    "@google/genai": "^1.46.0",
+    "dotenv": "^16.6.1"
   }
 }
