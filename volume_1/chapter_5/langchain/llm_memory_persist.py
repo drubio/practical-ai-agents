@@ -1,5 +1,6 @@
 """LLM Memory Gateway - LangChain with persistent session memory."""
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -17,6 +18,31 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from llm_app import LangChainLLMManager as Chapter4LangChainManager
 from utils import get_default_model, interactive_cli
+
+
+def _migrate_js_session_file(file_path: Path, provider: str, session_id: str) -> None:
+    """Convert the legacy JS nested store into the Python FileChatMessageHistory format."""
+
+    if not file_path.exists():
+        return
+
+    raw = file_path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return
+
+    payload = json.loads(raw)
+    if isinstance(payload, list):
+        return
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Unsupported session history format in {file_path}")
+
+    session_key = f"{provider}__{session_id}"
+    messages = payload.get(provider, {}).get(session_key, {}).get("messages")
+    if not isinstance(messages, list):
+        raise ValueError(f"Unsupported session history format in {file_path}")
+
+    file_path.write_text(json.dumps(messages, ensure_ascii=True), encoding="utf-8")
 
 
 class LangChainLLMManager(Chapter4LangChainManager):
@@ -37,7 +63,9 @@ class LangChainLLMManager(Chapter4LangChainManager):
     def _get_history(self, provider: str, session_id: str) -> FileChatMessageHistory:
         key = (provider, session_id)
         if key not in self.histories:
-            self.histories[key] = FileChatMessageHistory(file_path=str(self._session_file_path(provider, session_id)))
+            file_path = self._session_file_path(provider, session_id)
+            _migrate_js_session_file(file_path, provider, session_id)
+            self.histories[key] = FileChatMessageHistory(file_path=str(file_path))
         return self.histories[key]
 
     def _test_provider(self, provider: str):

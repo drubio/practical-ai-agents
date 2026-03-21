@@ -15,6 +15,27 @@ import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+async function migratePythonSessionFile(filePath, provider, sessionId) {
+    try {
+        const raw = await fs.promises.readFile(filePath, 'utf8');
+        if (!raw.trim()) return;
+
+        const payload = JSON.parse(raw);
+        if (!Array.isArray(payload)) return;
+
+        const sessionKey = `${provider}__${sessionId}`;
+        await fs.promises.writeFile(filePath, JSON.stringify({
+            [provider]: {
+                [sessionKey]: {
+                    messages: payload,
+                },
+            },
+        }));
+    } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+    }
+}
+
 class LangChainLLMManager extends Chapter4LangChainManager {
     constructor(memoryEnabled = true) {
         super();
@@ -104,6 +125,7 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         const model = getDefaultModel(resolvedProvider);
 
         try {
+            await migratePythonSessionFile(this._sessionFilePath(resolvedProvider, sessionId), resolvedProvider, sessionId);
             const chain = this._getChain(resolvedProvider, sessionId, temperature, maxTokens);
             const result = await chain.invoke({ input: prompt }, { configurable: { sessionId } });
             const responseText = this._extractText(resolvedProvider, result);
@@ -144,6 +166,7 @@ class LangChainLLMManager extends Chapter4LangChainManager {
     }
 
     async getHistory(provider, sessionId = 'default') {
+        await migratePythonSessionFile(this._sessionFilePath(provider, sessionId), provider, sessionId);
         const history = this._getHistory(provider, sessionId);
         const messages = await history.getMessages();
         const turns = messages.map((message) => {

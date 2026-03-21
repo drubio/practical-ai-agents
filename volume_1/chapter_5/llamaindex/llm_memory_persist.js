@@ -15,6 +15,66 @@ import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function buildPythonStorePayload(storeKey, messages) {
+    return {
+        store: {
+            [storeKey]: messages,
+        },
+        class_name: 'SimpleChatStore',
+    };
+}
+
+function extractMessageText(message) {
+    if (typeof message?.content === 'string') return message.content;
+    if (Array.isArray(message?.content)) {
+        return message.content
+            .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+            .map((item) => item.text)
+            .join('\n\n');
+    }
+    if (Array.isArray(message?.blocks)) {
+        return message.blocks
+            .filter((block) => block?.block_type === 'text' && typeof block.text === 'string')
+            .map((block) => block.text)
+            .join('\n\n');
+    }
+    return '';
+}
+
+function normalizePersistedMessage(message) {
+    return {
+        ...message,
+        content: extractMessageText(message),
+    };
+}
+
+function normalizePersistedMessages(messages) {
+    return messages.map((message) => normalizePersistedMessage(message));
+}
+
+function migratePythonSessionFile(filePath, provider, sessionId) {
+    if (!fs.existsSync(filePath)) return;
+
+    const raw = fs.readFileSync(filePath, 'utf8').trim();
+    if (!raw) return;
+
+    const payload = JSON.parse(raw);
+    if (payload?.store && typeof payload.store === 'object') return;
+
+    const storeKey = `${provider}__${sessionId}`;
+    const messages = Array.isArray(payload?.messages)
+        ? payload.messages
+        : Array.isArray(payload)
+            ? payload
+            : null;
+
+    if (!messages) {
+        throw new Error(`Unsupported session history format in ${filePath}`);
+    }
+
+    fs.writeFileSync(filePath, JSON.stringify(buildPythonStorePayload(storeKey, messages)), 'utf8');
+}
+
 class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     constructor(memoryEnabled = true) {
         super();
@@ -50,18 +110,10 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         const filePath = this._sessionFilePath(provider, sessionId);
 
         if (fs.existsSync(filePath)) {
-            try {
-                const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                if (Array.isArray(payload?.messages)) {
-                    chatStore.setMessages(storeKey, payload.messages);
-                } else if (Array.isArray(payload?.turns)) {
-                    chatStore.setMessages(storeKey, payload.turns);
-                } else if (Array.isArray(payload)) {
-                    chatStore.setMessages(storeKey, payload);
-                }
-            } catch {
-                chatStore.setMessages(storeKey, []);
-            }
+            migratePythonSessionFile(filePath, provider, sessionId);
+            const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            const messages = payload?.store?.[storeKey];
+            chatStore.setMessages(storeKey, Array.isArray(messages) ? normalizePersistedMessages(messages) : []);
         }
 
         this.chatStores.set(key, chatStore);
@@ -98,11 +150,10 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     async _persistMemory(provider, sessionId) {
         const storeKey = this._sessionStoreKey(provider, sessionId);
         const messages = await this._getMemory(provider, sessionId).get({ type: 'llamaindex' });
-        const chatStore = this._getChatStore(provider, sessionId)
+        const chatStore = this._getChatStore(provider, sessionId);
         chatStore.setMessages(storeKey, messages);
-        // No built-in persist method like Py version, manually fs sync messages
         const filePath = this._sessionFilePath(provider, sessionId);
-        fs.writeFileSync(filePath, JSON.stringify({ messages }, null, 2), 'utf8');
+        fs.writeFileSync(filePath, JSON.stringify(buildPythonStorePayload(storeKey, messages)), 'utf8');
     }
 
     _getChatEngine(provider, sessionId, temperature, maxTokens) {

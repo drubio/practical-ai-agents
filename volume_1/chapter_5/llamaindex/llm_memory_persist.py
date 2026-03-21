@@ -1,5 +1,6 @@
 """LLM Memory Gateway - LlamaIndex with persistent session memory."""
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -18,6 +19,34 @@ from llama_index.core.storage.chat_store import SimpleChatStore
 
 from llm_app import LlamaIndexLLMManager as Chapter4LlamaIndexManager
 from utils import get_default_model, interactive_cli
+
+
+def _migrate_js_session_file(file_path: Path, provider: str, session_id: str) -> None:
+    """Convert JS session payloads into the SimpleChatStore persist format."""
+
+    if not file_path.exists():
+        return
+
+    raw = file_path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return
+
+    payload = json.loads(raw)
+    if isinstance(payload, dict) and isinstance(payload.get("store"), dict):
+        return
+
+    if isinstance(payload, dict) and isinstance(payload.get("messages"), list):
+        messages = payload["messages"]
+    elif isinstance(payload, list):
+        messages = payload
+    else:
+        raise ValueError(f"Unsupported session history format in {file_path}")
+
+    store_key = f"{provider}__{session_id}"
+    file_path.write_text(
+        json.dumps({"store": {store_key: messages}, "class_name": "SimpleChatStore"}),
+        encoding="utf-8",
+    )
 
 
 class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
@@ -45,6 +74,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
             return self.chat_stores[key]
 
         path = self._session_file_path(provider, session_id)
+        _migrate_js_session_file(path, provider, session_id)
         chat_store = SimpleChatStore.from_persist_path(str(path)) if path.exists() else SimpleChatStore()
         self.chat_stores[key] = chat_store
         return chat_store
