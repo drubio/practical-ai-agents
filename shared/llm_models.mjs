@@ -36,24 +36,17 @@ export const ALL_MODEL_IDENTIFIERS = [
   "xai_grok_3_mini",
 ];
 
-export const PROVIDER_ALIASES = {
-  google: "google_genai",
-  "google-genai": "google_genai",
-};
-
 export const PROVIDER_DISPLAY_NAMES = {
   openai: "OpenAI GPT",
   anthropic: "Anthropic Claude",
   google: "Google Gemini",
-  google_genai: "Google Gemini",
   xai: "xAI Grok",
 };
 
 export const PROVIDER_API_KEY_ENV_VARS = {
   openai: ["OPENAI_API_KEY"],
   anthropic: ["ANTHROPIC_API_KEY"],
-  google: ["GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"],
-  google_genai: ["GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"],
+  google: ["GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"],
   xai: ["XAI_API_KEY"],
 };
 
@@ -61,13 +54,8 @@ export const PROVIDER_DEFAULT_MODEL_IDENTIFIERS = {
   openai: "openai_gpt_5_4",
   anthropic: "anthropic_claude_sonnet_4_6",
   google: "google_genai_gemini_3_flash",
-  google_genai: "google_genai_gemini_3_flash",
   xai: "xai_grok_4",
 };
-
-export function normalizeProvider(provider) {
-  return PROVIDER_ALIASES[provider] || provider;
-}
 
 export function getIdentifierMappings() {
   return {
@@ -77,9 +65,9 @@ export function getIdentifierMappings() {
     anthropic_claude_opus_4_6: { name: "anthropic_claude_opus_4_6", provider: "anthropic", model: "claude-opus-4-6", tier: "advanced", strengths: ["deep-reasoning", "coding", "planning"] },
     anthropic_claude_sonnet_4_6: { name: "anthropic_claude_sonnet_4_6", provider: "anthropic", model: "claude-sonnet-4-6", tier: "standard", strengths: ["coding", "reasoning", "balanced"] },
     anthropic_claude_haiku_4_5: { name: "anthropic_claude_haiku_4_5", provider: "anthropic", model: "claude-haiku-4-5", tier: "lite", strengths: ["speed", "coding", "cost-efficient"] },
-    google_genai_gemini_3_1_pro: { name: "google_genai_gemini_3_1_pro", provider: "google_genai", model: "gemini-3.1-pro-preview", tier: "advanced", strengths: ["reasoning", "tool-use", "multimodal"] },
-    google_genai_gemini_3_flash: { name: "google_genai_gemini_3_flash", provider: "google_genai", model: "gemini-3-flash-preview", tier: "standard", strengths: ["long-context", "research", "synthesis"] },
-    google_genai_gemini_3_1_flash_lite: { name: "google_genai_gemini_3_1_flash_lite", provider: "google_genai", model: "gemini-3.1-flash-lite-preview", tier: "lite", strengths: ["fast", "retrieval", "classification"] },
+    google_genai_gemini_3_1_pro: { name: "google_genai_gemini_3_1_pro", provider: "google", model: "gemini-3.1-pro-preview", tier: "advanced", strengths: ["reasoning", "tool-use", "multimodal"] },
+    google_genai_gemini_3_flash: { name: "google_genai_gemini_3_flash", provider: "google", model: "gemini-3-flash-preview", tier: "standard", strengths: ["long-context", "research", "synthesis"] },
+    google_genai_gemini_3_1_flash_lite: { name: "google_genai_gemini_3_1_flash_lite", provider: "google", model: "gemini-3.1-flash-lite-preview", tier: "lite", strengths: ["fast", "retrieval", "classification"] },
     xai_grok_4: { name: "xai_grok_4", provider: "xai", model: "grok-4", tier: "advanced", strengths: ["deep-analysis", "social", "long-form"] },
     xai_grok_3: { name: "xai_grok_3", provider: "xai", model: "grok-3", tier: "standard", strengths: ["social", "trends", "analysis"] },
     xai_grok_3_mini: { name: "xai_grok_3_mini", provider: "xai", model: "grok-3-mini", tier: "lite", strengths: ["social", "fast", "cost-efficient"] },
@@ -87,7 +75,7 @@ export function getIdentifierMappings() {
 }
 
 export function getDefaultModelConfig(provider) {
-  const identifier = PROVIDER_DEFAULT_MODEL_IDENTIFIERS[normalizeProvider(provider)];
+  const identifier = PROVIDER_DEFAULT_MODEL_IDENTIFIERS[provider];
   return getIdentifierMappings()[identifier];
 }
 
@@ -95,11 +83,10 @@ export function getProviderCatalog(providers = Object.keys(PROVIDER_DEFAULT_MODE
   return Object.fromEntries(
     providers.map((provider) => {
       const config = getDefaultModelConfig(provider);
-      const normalized = normalizeProvider(provider);
       return [provider, {
         provider,
         canonicalProvider: config.provider,
-        apiKeyEnv: PROVIDER_API_KEY_ENV_VARS[normalized][0],
+        apiKeyEnv: PROVIDER_API_KEY_ENV_VARS[provider][0],
         defaultModel: config.model,
         defaultModelIdentifier: config.name,
         displayName: PROVIDER_DISPLAY_NAMES[provider] || provider,
@@ -109,7 +96,7 @@ export function getProviderCatalog(providers = Object.keys(PROVIDER_DEFAULT_MODE
 }
 
 export function getApiKey(provider) {
-  for (const envVar of PROVIDER_API_KEY_ENV_VARS[normalizeProvider(provider)] || []) {
+  for (const envVar of PROVIDER_API_KEY_ENV_VARS[provider] || []) {
     const value = (process.env[envVar] || "").trim();
     if (value) return value;
   }
@@ -121,7 +108,7 @@ export function getDefaultModelName(provider) {
 }
 
 export function getDisplayName(provider) {
-  return PROVIDER_DISPLAY_NAMES[provider] || PROVIDER_DISPLAY_NAMES[normalizeProvider(provider)] || provider;
+  return PROVIDER_DISPLAY_NAMES[provider] || provider;
 }
 
 export function getPublicProviderNames() {
@@ -164,12 +151,12 @@ function inferTier(promptLower, selectedTools) {
 export function routeModelForPrompt(prompt, selectedTools, modelIdentifiers = ALL_MODEL_IDENTIFIERS) {
   const promptLower = String(prompt || "").toLowerCase();
   const selectedPool = new Set(modelIdentifiers || ALL_MODEL_IDENTIFIERS);
-  const provider = normalizeProvider(inferProvider(promptLower, selectedTools));
+  const provider = inferProvider(promptLower, selectedTools);
   const tier = inferTier(promptLower, selectedTools);
   const providerTierCandidates = {
     openai: { advanced: "openai_gpt_5_4_pro", standard: "openai_gpt_5_4", lite: "openai_gpt_5_mini" },
     anthropic: { advanced: "anthropic_claude_opus_4_6", standard: "anthropic_claude_sonnet_4_6", lite: "anthropic_claude_haiku_4_5" },
-    google_genai: { advanced: "google_genai_gemini_3_1_pro", standard: "google_genai_gemini_3_flash", lite: "google_genai_gemini_3_1_flash_lite" },
+    google: { advanced: "google_genai_gemini_3_1_pro", standard: "google_genai_gemini_3_flash", lite: "google_genai_gemini_3_1_flash_lite" },
     xai: { advanced: "xai_grok_4", standard: "xai_grok_3", lite: "xai_grok_3_mini" },
   };
   const mappings = getIdentifierMappings();
@@ -193,8 +180,8 @@ export function resolveLlamaindexModel(selectedModel) {
     throw new Error(`Unknown model identifier '${selectedModel}'`);
   }
 
-  const provider = normalizeProvider(config.provider);
-  const llmProvider = provider === "google_genai" ? "google" : provider;
+  const provider = config.provider;
+  const llmProvider = provider;
   const builders = {
     openai: () => ({ llmClass: OpenAI, llmConfig: { model: config.model } }),
     anthropic: () => ({ llmClass: Anthropic, llmConfig: { model: config.model, apiKey: process.env.ANTHROPIC_API_KEY } }),

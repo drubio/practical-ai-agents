@@ -92,7 +92,7 @@ export class LangChainAgentRoutingManager {
       this.agentCache.set(
         key,
         createAgent({
-          model: `${provider}:${model}`,
+          model: `${provider === "google" ? "google-genai" : provider}:${model}`,
           tools: selectTools(logToolCall, logger, selectedToolNames),
           systemPrompt:
             "You are an AI assistant that can use tools. " +

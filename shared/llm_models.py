@@ -1,7 +1,7 @@
 """Shared LLM model registry and routing helpers.
 
 This module centralizes provider/model metadata so multiple volumes can reuse
-consistent model identifiers, default selections, and provider aliases.
+consistent model identifiers and default selections.
 """
 
 from __future__ import annotations
@@ -44,24 +44,17 @@ ALL_MODEL_IDENTIFIERS = [
     "xai_grok_3_mini",
 ]
 
-PROVIDER_ALIASES = {
-    "google": "google_genai",
-    "google-genai": "google_genai",
-}
-
 PROVIDER_DISPLAY_NAMES = {
     "openai": "OpenAI GPT",
     "anthropic": "Anthropic Claude",
     "google": "Google Gemini",
-    "google_genai": "Google Gemini",
     "xai": "xAI Grok",
 }
 
 PROVIDER_API_KEY_ENV_VARS = {
     "openai": ("OPENAI_API_KEY",),
     "anthropic": ("ANTHROPIC_API_KEY",),
-    "google": ("GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"),
-    "google_genai": ("GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"),
+    "google": ("GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"),
     "xai": ("XAI_API_KEY",),
 }
 
@@ -69,13 +62,8 @@ PROVIDER_DEFAULT_MODEL_IDENTIFIERS = {
     "openai": "openai_gpt_5_4",
     "anthropic": "anthropic_claude_sonnet_4_6",
     "google": "google_genai_gemini_3_flash",
-    "google_genai": "google_genai_gemini_3_flash",
     "xai": "xai_grok_4",
 }
-
-
-def normalize_provider(provider: str) -> str:
-    return PROVIDER_ALIASES.get(provider, provider)
 
 
 def get_identifier_mappings() -> dict[str, ModelConfig]:
@@ -125,21 +113,21 @@ def get_identifier_mappings() -> dict[str, ModelConfig]:
         ),
         "google_genai_gemini_3_1_pro": ModelConfig(
             name="google_genai_gemini_3_1_pro",
-            provider="google_genai",
+            provider="google",
             model="gemini-3.1-pro-preview",
             tier="advanced",
             strengths=("reasoning", "tool-use", "multimodal"),
         ),
         "google_genai_gemini_3_flash": ModelConfig(
             name="google_genai_gemini_3_flash",
-            provider="google_genai",
+            provider="google",
             model="gemini-3-flash-preview",
             tier="standard",
             strengths=("long-context", "research", "synthesis"),
         ),
         "google_genai_gemini_3_1_flash_lite": ModelConfig(
             name="google_genai_gemini_3_1_flash_lite",
-            provider="google_genai",
+            provider="google",
             model="gemini-3.1-flash-lite-preview",
             tier="lite",
             strengths=("fast", "retrieval", "classification"),
@@ -169,8 +157,7 @@ def get_identifier_mappings() -> dict[str, ModelConfig]:
 
 
 def get_default_model_config(provider: str) -> ModelConfig:
-    normalized = normalize_provider(provider)
-    identifier = PROVIDER_DEFAULT_MODEL_IDENTIFIERS[normalized]
+    identifier = PROVIDER_DEFAULT_MODEL_IDENTIFIERS[provider]
     return get_identifier_mappings()[identifier]
 
 
@@ -182,7 +169,7 @@ def get_provider_catalog(providers: Sequence[str] | None = None) -> dict[str, di
         catalog[provider] = {
             "provider": provider,
             "canonical_provider": config.provider,
-            "api_key_env": PROVIDER_API_KEY_ENV_VARS[normalize_provider(provider)][0],
+            "api_key_env": PROVIDER_API_KEY_ENV_VARS[provider][0],
             "default_model": config.model,
             "default_model_identifier": config.name,
             "display_name": PROVIDER_DISPLAY_NAMES.get(provider, provider.replace('_', ' ').title()),
@@ -191,7 +178,7 @@ def get_provider_catalog(providers: Sequence[str] | None = None) -> dict[str, di
 
 
 def get_api_key_env_vars(provider: str) -> tuple[str, ...]:
-    return PROVIDER_API_KEY_ENV_VARS.get(normalize_provider(provider), ())
+    return PROVIDER_API_KEY_ENV_VARS.get(provider, ())
 
 
 def get_api_key(provider: str) -> str | None:
@@ -207,8 +194,7 @@ def get_default_model_name(provider: str) -> str:
 
 
 def get_display_name(provider: str) -> str:
-    normalized = normalize_provider(provider)
-    return PROVIDER_DISPLAY_NAMES.get(provider, PROVIDER_DISPLAY_NAMES.get(normalized, provider.replace("_", " ").title()))
+    return PROVIDER_DISPLAY_NAMES.get(provider, provider.replace("_", " ").title())
 
 
 def get_public_provider_names() -> list[str]:
@@ -272,13 +258,13 @@ def _infer_tier(prompt_l: str, selected_tools: Iterable[str]) -> str:
 def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_identifiers: Sequence[str] | None = None) -> ModelConfig:
     prompt_l = prompt.lower()
     selected_pool = set(model_identifiers or ALL_MODEL_IDENTIFIERS)
-    provider = normalize_provider(_infer_provider(prompt_l, selected_tools))
+    provider = _infer_provider(prompt_l, selected_tools)
     tier = _infer_tier(prompt_l, selected_tools)
 
     provider_tier_candidates = {
         "openai": {"advanced": "openai_gpt_5_4_pro", "standard": "openai_gpt_5_4", "lite": "openai_gpt_5_mini"},
         "anthropic": {"advanced": "anthropic_claude_opus_4_6", "standard": "anthropic_claude_sonnet_4_6", "lite": "anthropic_claude_haiku_4_5"},
-        "google_genai": {"advanced": "google_genai_gemini_3_1_pro", "standard": "google_genai_gemini_3_flash", "lite": "google_genai_gemini_3_1_flash_lite"},
+        "google": {"advanced": "google_genai_gemini_3_1_pro", "standard": "google_genai_gemini_3_flash", "lite": "google_genai_gemini_3_1_flash_lite"},
         "xai": {"advanced": "xai_grok_4", "standard": "xai_grok_3", "lite": "xai_grok_3_mini"},
     }
 
@@ -305,8 +291,7 @@ def resolve_llamaindex_model(selected_model: str):
 
     provider = config.provider
     model = config.model
-    normalized_provider = normalize_provider(provider)
-    llamaindex_provider = "google" if normalized_provider == "google_genai" else normalized_provider
+    llamaindex_provider = provider
 
     if llamaindex_provider == "openai":
         from llama_index.llms.openai import OpenAI

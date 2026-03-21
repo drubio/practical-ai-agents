@@ -119,8 +119,9 @@ class LangChainAgentRoutingManager:
         key = (f"{provider}:{model}", tuple(selected_tool_names))
         if key not in self._agent_cache:
             logger.info("Building LangChain agent | provider=%s | model=%s | tools=%s", provider, model, ",".join(selected_tool_names))
+            provider_name = "google_genai" if provider == "google" else provider
             self._agent_cache[key] = create_agent(
-                model=f"{provider}:{model}",
+                model=f"{provider_name}:{model}",
                 tools=select_tools(log_tool_call, logger, selected_tool_names),
                 system_prompt=(
                     "You are an AI assistant that can use tools. "

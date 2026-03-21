@@ -69,8 +69,9 @@ export class LangChainAgentManager {
     this.activeModelIdentifier = model;
     this.provider = config?.provider ?? "unknown";
     this.model = config?.model ?? model;
-    const selectedModel = this.provider && this.provider !== "unknown"
-      ? `${this.provider}:${this.model}`
+    const providerName = this.provider === "google" ? "google-genai" : this.provider;
+    const selectedModel = providerName && providerName !== "unknown"
+      ? `${providerName}:${this.model}`
       : this.model;
     this.stream = stream;
 

@@ -88,8 +88,9 @@ class LangChainAgentManager:
             self.model,
             self.stream,
         )
+        provider_name = "google_genai" if self.provider == "google" else self.provider
         self.agent = create_agent(
-            model=f"{self.provider}:{self.model}",
+            model=f"{provider_name}:{self.model}",
             tools=AGENT_TOOLS,
             system_prompt=(
                 "You are an AI assistant that can use tools. "
