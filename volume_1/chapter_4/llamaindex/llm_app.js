@@ -13,6 +13,36 @@ import {
     interactiveCli,
 } from '../utils.js';
 
+const GOOGLE_GEMINI_FALLBACK_CONTEXT_WINDOW = 1_000_000;
+const GOOGLE_GEMINI_FALLBACK_MODELS = new Set([
+    'gemini-3-flash-preview',
+]);
+
+// This is patch to support newer Gemini version (e.g. 3.0)
+// since the LlamaIndex package is no longer being updated beyond 2.5 models
+class CompatibleGemini extends Gemini {
+    get metadata() {
+        try {
+            return super.metadata;
+        } catch (error) {
+            if (!GOOGLE_GEMINI_FALLBACK_MODELS.has(this.model)) {
+                throw error;
+            }
+
+            return {
+                model: this.model,
+                temperature: this.temperature,
+                topP: this.topP,
+                maxTokens: this.maxTokens,
+                contextWindow: GOOGLE_GEMINI_FALLBACK_CONTEXT_WINDOW,
+                tokenizer: undefined,
+                structuredOutput: false,
+                safetySettings: this.safetySettings,
+            };
+        }
+    }
+}
+
 class LlamaIndexLLMManager extends BaseLLMManager {
     constructor() {
         super('LlamaIndex JS');
@@ -39,8 +69,9 @@ class LlamaIndexLLMManager extends BaseLLMManager {
                 maxCompletionTokens: maxTokens,
             });
         }
+	// Using patch CompatibleGemini vs. native Gemini llamaindex (see above)
         if (provider === 'google') {
-            return new Gemini({
+            return new CompatibleGemini({
                 apiKey: getApiKey(provider),
                 model: getDefaultModel(provider),
                 temperature,
