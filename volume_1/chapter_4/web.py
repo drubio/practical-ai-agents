@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import os
 import sys
-from contextlib import redirect_stdout
-import io
 from typing import Optional, Union
 
 from fastapi import Body, HTTPException
@@ -25,6 +23,7 @@ from shared.web import (
     normalize_response_text,
     resolve_session_id,
     result_is_success,
+    run_manager_in_thread,
     run_uvicorn_app,
     stream_text_sse,
     supports_coagent,
@@ -189,12 +188,11 @@ def create_web_api(manager_class):
     @app.post('/query')
     async def query_single(request: SharedQueryRequest):
         try:
-            with redirect_stdout(io.StringIO()):
-                args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
-                effective_session_id = resolve_session_id(request.sessionId, request.session_id)
-                if supports_session_memory(manager):
-                    args["session_id"] = effective_session_id
-                result = _recover_structured_parse_error(_ask_question_with_recovery(manager, args, effective_session_id))
+            args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
+            effective_session_id = resolve_session_id(request.sessionId, request.session_id)
+            if supports_session_memory(manager):
+                args["session_id"] = effective_session_id
+            result = _recover_structured_parse_error(await run_manager_in_thread(lambda: _ask_question_with_recovery(manager, args, effective_session_id)))
             if not isinstance(result, dict):
                 raise HTTPException(status_code=500, detail="Manager returned a non-dict response")
             if not result_is_success(result):
@@ -211,12 +209,11 @@ def create_web_api(manager_class):
     async def query_stream(request: SharedQueryRequest):
         async def stream_events():
             try:
-                with redirect_stdout(io.StringIO()):
-                    args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
-                    effective_session_id = resolve_session_id(request.sessionId, request.session_id)
-                    if supports_session_memory(manager):
-                        args["session_id"] = effective_session_id
-                    result = _recover_structured_parse_error(_ask_question_with_recovery(manager, args, effective_session_id))
+                args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
+                effective_session_id = resolve_session_id(request.sessionId, request.session_id)
+                if supports_session_memory(manager):
+                    args["session_id"] = effective_session_id
+                result = _recover_structured_parse_error(await run_manager_in_thread(lambda: _ask_question_with_recovery(manager, args, effective_session_id)))
                 if not isinstance(result, dict):
                     yield to_sse_line({"type": "error", "error": "Manager returned a non-dict response"})
                     return
@@ -234,8 +231,7 @@ def create_web_api(manager_class):
     @app.post('/query-all')
     async def query_all(request: SharedQueryAllRequest):
         try:
-            with redirect_stdout(io.StringIO()):
-                result = manager.query_all_providers(topic=request.topic, template=request.template, max_tokens=request.max_tokens, temperature=request.temperature)
+            result = await run_manager_in_thread(lambda: manager.query_all_providers(topic=request.topic, template=request.template, max_tokens=request.max_tokens, temperature=request.temperature))
             if not isinstance(result, dict):
                 raise HTTPException(status_code=500, detail='Manager returned a non-dict response')
             if not result_is_success(result):

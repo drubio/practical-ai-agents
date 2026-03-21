@@ -130,6 +130,11 @@ def capture_console_output(func: Callable[[], Any]) -> tuple[Any, str]:
         return result, buffer.getvalue()
 
 
+async def run_manager_in_thread(func: Callable[[], Any]) -> Any:
+    result, _ = await asyncio.to_thread(capture_console_output, func)
+    return result
+
+
 def build_manager(manager_class_or_factory):
     if not callable(manager_class_or_factory):
         raise TypeError("Invalid manager class/factory provided")
