@@ -1,556 +1,75 @@
-import { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, getIdentifierMappings, routeModelForPrompt } from "../../shared/llm_models.mjs";
+import 'dotenv/config';
+import readline from 'node:readline';
+import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from '../../shared/llm_models.mjs';
 
-import "dotenv/config";
-import fs from "node:fs";
-import path from "node:path";
-import readline from "node:readline";
+export function getChapterLogger(name) {
+  return { info: (...a) => console.log(`[INFO] [${name}]`, ...a), error: (...a) => console.error(`[ERROR] [${name}]`, ...a) };
+}
 
-import { buildTaskPrompt, getChapterLogger, logToolCall, parseStructuredJsonResponse } from "../../shared/utils.mjs";
-import { chunkText, iterTextChunks as iterTextChunksShared, normalizeResponseText, toSseLine } from "../../shared/web.mjs";
+export function logToolCall(logger, toolName, fn) {
+  return (input) => { logger.info(`tool=${toolName} input=`, input); const out = fn(input); logger.info(`tool=${toolName} output=`, out); return out; };
+}
 
-export { buildTaskPrompt, getChapterLogger, logToolCall, normalizeResponseText, parseStructuredJsonResponse, toSseLine };
-
-export function loadChapterEnv() {
-  const chapterRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname));
-  const candidates = [
-    path.resolve(chapterRoot, "..", "..", "shared", ".env"),
-    path.resolve(process.cwd(), ".env"),
-    path.resolve(chapterRoot, ".env"),
-    path.resolve(chapterRoot, "..", ".env"),
-    path.resolve(chapterRoot, "..", "..", ".env")
-  ];
-
-  for (const candidate of [...new Set(candidates)]) {
-    if (!fs.existsSync(candidate)) continue;
-    for (const rawLine of fs.readFileSync(candidate, "utf-8").split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line || line.startsWith("#") || !line.includes("=")) continue;
-      const [rawKey, ...rest] = line.split("=");
-      const key = rawKey.trim();
-      const value = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
-      if (key && !(key in process.env)) process.env[key] = value;
-    }
-    return candidate;
+export function buildCommonArgs(argv = process.argv.slice(2)) {
+  let mode = 'cli', stream = false, host = '0.0.0.0', port = Number(process.env.PORT || 8000), modelIdentifier = null;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === 'cli' || arg === 'web') mode = arg;
+    else if (arg === '--stream') stream = true;
+    else if (arg === '--host') host = argv[++i];
+    else if (arg === '--port') port = Number(argv[++i]);
+    else if (arg === '--model-identifier') modelIdentifier = argv[++i];
   }
-  return null;
+  return { mode, stream, host, port, modelIdentifier };
 }
 
-loadChapterEnv();
-
-export function chunkTextLocal(text, chunkSize = 28) {
-  return chunkText(text, chunkSize);
-}
-
-export async function* iterTextChunks(text, chunkSize = 28, delayMs = 0) {
-  yield* iterTextChunksShared(text, chunkSize, delayMs);
-}
-
-function extractTextFromContent(content) {
-  if (content == null) return "";
-  if (typeof content === "string") return content;
-
-  if (Array.isArray(content)) {
-    const parts = [];
-    for (const item of content) {
-      if (typeof item === "string") {
-        parts.push(item);
-        continue;
-      }
-
-      if (item && typeof item === "object") {
-        if (item.type === "text" && typeof item.text === "string") {
-          parts.push(item.text);
-          continue;
-        }
-        if (typeof item.text === "string") {
-          parts.push(item.text);
-          continue;
-        }
-        if (typeof item.delta === "string") {
-          parts.push(item.delta);
-        }
-      }
-    }
-    return parts.join("");
-  }
-
-  if (typeof content === "object") {
-    if (typeof content.text === "string") return content.text;
-    if (typeof content.delta === "string") return content.delta;
-  }
-
-  return "";
-}
-
-function extractTextFromMessageLike(obj) {
-  if (obj == null) return "";
-  if (typeof obj === "string") return obj;
-
-  const direct = extractTextFromContent(obj);
-  if (direct) return direct;
-
-  for (const key of ["content", "text", "response", "message", "output", "delta"]) {
-    const value = obj?.[key];
-    const text = extractTextFromContent(value);
-    if (text) return text;
-
-    if (value != null && value !== obj) {
-      const nested = extractTextFromMessageLike(value);
-      if (nested) return nested;
-    }
-  }
-
-  if (typeof obj === "object") {
-    for (const key of ["output", "response", "content", "text", "delta"]) {
-      const text = extractTextFromContent(obj[key]);
-      if (text) return text;
-    }
-
-    const messages = obj.messages || [];
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const text = extractTextFromMessageLike(messages[i]);
-      if (text) return text;
-    }
-  }
-
-  return "";
-}
-
-function appendStreamText(parts, text) {
-  if (!text) return;
-
-  const current = parts.join("");
-  if (!current) {
-    parts.push(text);
-    return;
-  }
-
-  if (text.startsWith(current)) {
-    const suffix = text.slice(current.length);
-    if (suffix) parts.push(suffix);
-    return;
-  }
-
-  if (text === current || text === parts[parts.length - 1]) return;
-  parts.push(text);
-}
-
-function nextStreamChunk(parts, text) {
-  const before = parts.join("");
-  appendStreamText(parts, text);
-  const after = parts.join("");
-  return after.startsWith(before) ? after.slice(before.length) : (after !== before ? text : "");
-}
-
-function collectLangchainStreamText(result) {
-  const parts = [];
-
-  for (const chunk of result || []) {
-    if (!Array.isArray(chunk) || chunk.length !== 2) continue;
-    const [streamMode, payload] = chunk;
-    if (streamMode !== "messages") continue;
-
-    const messageChunk = Array.isArray(payload) ? payload[0] : payload;
-    if (!messageChunk) continue;
-
-    const text = extractTextFromMessageLike(messageChunk);
-    if (text) parts.push(text);
-  }
-
-  return parts.join("").trim();
-}
-
-export async function collectAsyncEventStreamText(eventStream) {
-  const parts = [];
-  for await (const event of eventStream) {
-    if (Array.isArray(event) && event.length === 2 && typeof event[0] === "string") {
-      const [streamMode, payload] = event;
-      if (streamMode !== "messages") {
-        continue;
-      }
-
-      const messageChunk = Array.isArray(payload) ? payload[0] : payload;
-      const messageText = extractTextFromMessageLike(messageChunk);
-      if (messageText) {
-        appendStreamText(parts, messageText);
-      }
-      continue;
-    }
-
-    const delta = event?.delta;
-    if (typeof delta === "string" && delta) {
-      appendStreamText(parts, delta);
-      continue;
-    }
-
-    const text = extractTextFromMessageLike(event);
-    if (text) appendStreamText(parts, text);
-  }
-  return parts.join("").trim();
-}
-
-export async function* iterStreamTextChunks(rawResponse) {
-  if (rawResponse == null) return;
-
-  if (typeof rawResponse === "string") {
-    yield* chunkText(rawResponse);
-    return;
-  }
-
-  if (typeof rawResponse?.[Symbol.asyncIterator] === "function") {
-    const parts = [];
-    for await (const event of rawResponse) {
-      if (Array.isArray(event) && event.length === 2 && typeof event[0] === "string") {
-        const [streamMode, payload] = event;
-        if (streamMode !== "messages") continue;
-        const messageChunk = Array.isArray(payload) ? payload[0] : payload;
-        const messageText = extractTextFromMessageLike(messageChunk);
-        const delta = nextStreamChunk(parts, messageText);
-        if (delta) yield delta;
-        continue;
-      }
-
-      if (typeof event?.delta === "string" && event.delta) {
-        const delta = nextStreamChunk(parts, event.delta);
-        if (delta) yield delta;
-        continue;
-      }
-
-      const text = extractTextFromMessageLike(event);
-      const delta = nextStreamChunk(parts, text);
-      if (delta) yield delta;
-    }
-    return;
-  }
-
-  const parts = [];
-  for (const chunk of rawResponse) {
-    if (!Array.isArray(chunk) || chunk.length !== 2) continue;
-    const [streamMode, payload] = chunk;
-    if (streamMode !== "messages") continue;
-    const messageChunk = Array.isArray(payload) ? payload[0] : payload;
-    const text = extractTextFromMessageLike(messageChunk);
-    const delta = nextStreamChunk(parts, text);
-    if (delta) yield delta;
-  }
-}
-
-export async function extractStreamText(result) {
-  if (result == null) return "";
-  if (typeof result === "string") return result.trim();
-
-  if (typeof result?.[Symbol.asyncIterator] === "function") {
-    return collectAsyncEventStreamText(result);
-  }
-
-  if (typeof result?.stream_events === "function") {
-    return collectAsyncEventStreamText(result.stream_events());
-  }
-
-  return collectLangchainStreamText(result);
-}
-
-export async function extractOutputText(result) {
-  if (result == null) return "";
-  if (typeof result === "string") return result.trim();
-
-  const text = extractTextFromMessageLike(result);
-  if (text) return text.trim();
-
-  if (typeof result?.then === "function") {
-    const resolved = await result;
-    return extractOutputText(resolved);
-  }
-
-  return String(result);
-}
-
-export async function renderResponseText(rawResponse, stream) {
-  if (stream) return extractStreamText(rawResponse);
-  return extractOutputText(rawResponse);
-}
-
-export async function normalizeAgentApiPayload(rawResponse, stream) {
-  const responseText = String(await renderResponseText(rawResponse, stream)).trim();
-  const payload = {
-    response: responseText,
-    raw_answer: responseText
-  };
-
-  if (!responseText) return payload;
-
-  try {
-    const structured = parseStructuredJsonResponse(responseText);
-    payload.response = structured;
-    if (typeof structured.final_answer === "string" && structured.final_answer.trim()) {
-      payload.raw_answer = structured.final_answer.trim();
-    }
-    if (Array.isArray(structured.tool_calls)) {
-      payload.tool_calls = structured.tool_calls;
-    }
-  } catch {
-    // Plain text response is still valid.
-  }
-
-  return payload;
-}
-
-export async function getProviderOptions(modelIdentifiers) {
-  const availability = await getModelAvailability(modelIdentifiers);
-  const configuredNames = new Set(availability.configured.map((entry) => entry.identifier));
-  return availability.routable.map((entry) => ({
-    name: entry.identifier,
-    display_name: `${formatProviderLabel(entry.provider)} - ${entry.model}`,
-    provider: entry.provider,
-    model: entry.model,
-    status: configuredNames.has(entry.identifier) ? "Ready" : "Unavailable"
-  }));
-}
-
-const PROVIDER_ENV_KEYS = {
-  openai: ["OPENAI_API_KEY"],
-  anthropic: ["ANTHROPIC_API_KEY"],
-  google: ["GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"],
-  google_genai: ["GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"],
-  "google-genai": ["GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"],
-  xai: ["XAI_API_KEY"]
-};
-
-function providerIsConfigured(provider) {
-  const keys = PROVIDER_ENV_KEYS[provider] ?? [];
-  return keys.some((key) => (process.env[key] || "").trim());
-}
-
-function modelLabel(name, model, provider) {
-  const providerLabel = provider.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  return `${name} (${providerLabel}, ${model})`;
-}
-
-function buildModelAvailability(modelIdentifiers, getIdentifierMappings) {
-  const available = getIdentifierMappings();
-  const names = Array.isArray(modelIdentifiers) && modelIdentifiers.length ? modelIdentifiers : Object.keys(available);
-  const catalog = names
-    .map((name) => {
-      const config = available[name];
-      if (!config) return null;
-      return {
-        name,
-        provider: config.provider,
-        model: config.model,
-        identifier: name,
-        label: modelLabel(config.name, config.model, config.provider)
-      };
-    })
-    .filter(Boolean);
-
-  const configured = catalog.filter((entry) => providerIsConfigured(entry.provider));
-  const routable = configured.length ? configured : catalog;
-  const unavailableProviders = [...new Set(
-    catalog.filter((entry) => !providerIsConfigured(entry.provider)).map((entry) => entry.provider)
-  )];
-
-  return { catalog, configured, routable, usingFallbackCatalog: configured.length === 0, unavailableProviders };
-}
-
-function formatProviderLabel(provider) {
-  const normalized = provider.replaceAll("-", "_").toLowerCase();
-  const mapping = {
-    openai: "OpenAI",
-    anthropic: "Anthropic",
-    google: "Google",
-    google_genai: "Google GenAI",
-    xai: "xAI"
-  };
-  return mapping[normalized] || provider.replaceAll("_", " ").replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-export async function getModelAvailability(modelIdentifiers) {
-  return buildModelAvailability(modelIdentifiers, getIdentifierMappings);
-}
-
-export async function getRoutableModelIdentifiers(modelIdentifiers, explicitModelIdentifier = null) {
-  if (explicitModelIdentifier) return [explicitModelIdentifier];
-  const availability = await getModelAvailability(modelIdentifiers);
-  return availability.routable.map((entry) => entry.identifier);
-}
-
-export async function describeModelAvailability(modelIdentifiers) {
-  const availability = await getModelAvailability(modelIdentifiers);
-  const configuredLabels = availability.routable.map((entry) => entry.label);
-  const lines = [];
-
-  if (availability.usingFallbackCatalog) {
-    lines.push("No provider API keys detected; automatic routing will consider every bundled model.");
-  } else {
-    lines.push(`Automatic model routing is limited to configured providers: ${configuredLabels.join(", ")}.`);
-  }
-
-  if (availability.unavailableProviders.length) {
-    lines.push(`Skipping unavailable providers: ${availability.unavailableProviders.map(formatProviderLabel).join(", ")}.`);
-  }
-
-  return lines.join(" ");
-}
-
-async function chooseFromList(options, defaultIndex, prompt) {
+function chooseModelInteractive(ids) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
-
-  try {
-    while (true) {
-      const raw = (await ask(prompt)).trim();
-      if (!raw) return options[defaultIndex];
-      const choice = Number(raw) - 1;
-      if (Number.isInteger(choice) && choice >= 0 && choice < options.length) return options[choice];
-      console.log("Invalid selection. Please try again.");
-    }
-  } finally {
-    rl.close();
-  }
+  console.log('\nModel selection:');
+  ids.forEach((id, i) => console.log(`${i + 1}. ${id}${i === 0 ? ' [default]' : ''}`));
+  return new Promise((resolve) => {
+    const ask = () => rl.question(`Select model (1-${ids.length}, default 1): `, (raw) => {
+      const t = String(raw || '').trim();
+      if (!t) { rl.close(); return resolve(ids[0]); }
+      const n = Number(t);
+      if (Number.isInteger(n) && n >= 1 && n <= ids.length) { rl.close(); return resolve(ids[n - 1]); }
+      console.log('Invalid selection. Try again.');
+      ask();
+    });
+    ask();
+  });
 }
 
 export async function selectStartupModel(modelIdentifiers, mode, explicitModelIdentifier) {
   if (explicitModelIdentifier) return explicitModelIdentifier;
-  const availability = await getModelAvailability(modelIdentifiers);
-  if (!availability.catalog.length) throw new Error("No model configurations available for startup selection.");
-
-  const defaultIndex = 0;
-
-  if (mode !== "cli" || !process.stdin.isTTY || !process.stdout.isTTY) {
-    return availability.routable[defaultIndex].identifier;
-  }
-
-  console.log("\nModel selection (configured via environment variables):");
-  availability.routable.forEach((entry, idx) => {
-    const suffix = idx === defaultIndex ? " [default]" : "";
-    console.log(`${idx + 1}. ${entry.label}${suffix}`);
-  });
-
-  const selected = await chooseFromList(
-    availability.routable,
-    defaultIndex,
-    `Select model (1-${availability.routable.length}, default ${defaultIndex + 1}): `
-  );
-  return selected.identifier;
+  const ids = (modelIdentifiers && modelIdentifiers.length ? modelIdentifiers : ALL_MODEL_IDENTIFIERS);
+  if (mode !== 'cli' || !process.stdin.isTTY || !process.stdout.isTTY) return ids[0];
+  return chooseModelInteractive(ids);
 }
 
-export function buildCommonArgs(argv = process.argv.slice(2)) {
-  let mode = "cli";
-  let stream = false;
-  let host = "0.0.0.0";
-  let port = Number(process.env.PORT || 8000);
-  let modelIdentifier = null;
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === "cli" || arg === "web") mode = arg;
-    else if (arg === "--stream") stream = true;
-    else if (arg === "--host") host = argv[i + 1], i += 1;
-    else if (arg === "--port") port = Number(argv[i + 1]), i += 1;
-    else if (arg === "--model-identifier") modelIdentifier = argv[i + 1], i += 1;
-  }
-
-  return { mode, stream, host, port, modelIdentifier };
-}
-
-
-async function readCliPrompt(lineIterator, maxWaitMs = 200) {
-  process.stdout.write("\n(exit or enter question) > ");
-
-  const first = await lineIterator.next();
-  if (first.done) return null;
-
-  const lines = [String(first.value ?? "").replace(/\r$/, "")];
-
-  while (true) {
-    const next = await Promise.race([
-      lineIterator.next(),
-      new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), maxWaitMs)),
-    ]);
-
-    if (next?.timeout || next.done) break;
-
-    lines.push(String(next.value ?? "").replace(/\r$/, ""));
-    maxWaitMs = 40;
-  }
-
-  return lines.join("\n").trim();
-}
-
-function printCliBanner(manager) {
+export async function runMode(manager, mode) {
+  if (mode === 'web') throw new Error('Web mode removed for this chapter. Use cli mode.');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   console.log(`\n===== ${manager.framework} CLI =====`);
   console.log("Type a question and press Enter.");
   console.log("Type 'exit' to quit.\n");
-
   const names = Array.isArray(manager.toolNames) ? manager.toolNames : [];
   if (names.length) {
-    console.log("Available local tools:");
-    names.forEach((name) => console.log(`  - ${name}`));
+    console.log('Available local tools:');
+    names.forEach((n) => console.log(`  - ${n}`));
   } else {
-    console.log("Available local tools: (none declared)");
+    console.log('Available local tools: (none declared)');
   }
-
-  console.log(`\n${manager.toolTriggerHelp || "Tools are selected automatically from your prompt. You can mention a specific task (for example: calculate) to encourage tool use."}`);
-  console.log("Tip: multi-line pasted text is accepted as a single prompt.");
-  console.log("====================================");
-}
-
-export async function runInteractiveCli(manager) {
-  printCliBanner(manager);
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-  const lineIterator = rl[Symbol.asyncIterator]();
-
+  console.log(`\n${manager.toolTriggerHelp || 'Tools are triggered automatically from your prompt.'}`);
+  console.log('Tip: ask for a UUID to force tool usage.');
+  console.log('====================================');
   while (true) {
-    const userInput = await readCliPrompt(lineIterator);
-
-    if (!userInput) {
-      console.log("No prompt provided. Please enter a question.");
-      continue;
-    }
-    if (["exit", "quit"].includes(userInput.toLowerCase())) {
-      console.log("Exiting.");
-      break;
-    }
-
-    console.log("*** Agent is working locally ***");
-    const result = await manager.askQuestion(userInput);
-    if (result.localOnly) {
-      console.log("*** Local tool response generated (LLM bypassed) ***");
-    } else {
-      console.log("*** Agent working with LLM, awaiting response ***");
-    }
-    console.log("\n============= AGENT RESPONSE =============");
-    if (result.success) {
-      console.log(await renderResponseText(result.response, manager.stream));
-    } else {
-      console.log(result.error || "");
-    }
-    console.log("==========================================\n");
+    const prompt = await new Promise((resolve) => rl.question('> ', resolve));
+    if (!prompt || prompt.trim().toLowerCase() === 'exit') break;
+    const result = await manager.askQuestion(prompt.trim());
+    console.log(result.success ? result.finalText : result.error);
   }
-
   rl.close();
 }
 
-export async function runMode(manager, mode, host, port, stream) {
-  if (mode === "web") {
-    const { runWebServer } = await import("./web.js");
-    runWebServer(manager, host, port, stream);
-    return;
-  }
-  await runInteractiveCli(manager);
-}
-
-export async function* defaultChunkIterator(manager, topic) {
-  const result = await manager.askQuestion(topic);
-
-  let responseText = "";
-  if (result.success) {
-    responseText = await renderResponseText(result.response, manager.stream);
-  } else {
-    responseText = String(result.error || "");
-  }
-
-  yield* chunkText(responseText);
-}
-
-export { ALL_MODEL_IDENTIFIERS, createLlamaindexLLM, getIdentifierMappings, routeModelForPrompt };
+export { ALL_MODEL_IDENTIFIERS, getIdentifierMappings };

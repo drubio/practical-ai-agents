@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simplified LangChain agent for volume 2 chapter 2 (UUID tool only)."""
+"""LangChain agent with explicit message logging."""
 
 from __future__ import annotations
 
@@ -13,19 +13,13 @@ if str(CHAPTER_1_ROOT) not in sys.path:
 
 from langchain.agents import create_agent
 from langchain.tools import tool
+from langchain_core.messages import HumanMessage, SystemMessage
 
 import tools
-from utils import (
-    ALL_MODEL_IDENTIFIERS,
-    build_common_parser,
-    get_chapter_logger,
-    get_identifier_mappings,
-    log_tool_call,
-    run_mode,
-    select_startup_model,
-)
+from utils import ALL_MODEL_IDENTIFIERS, build_common_parser, get_chapter_logger, get_identifier_mappings, log_tool_call, run_mode, select_startup_model
 
-logger = get_chapter_logger("volume_2.chapter_2.agent_uuid")
+logger = get_chapter_logger("volume_2.chapter_2.agent_basic")
+SYSTEM_PROMPT = "Use generate_uuid when user asks for UUID. Keep responses short."
 
 
 @tool
@@ -35,61 +29,63 @@ def generate_uuid_tool(_: str = ""):
 
 
 class LangChainUuidAgentManager:
-    framework = "LangChain UUID Agent"
+    framework = "LangChain Basic Agent"
     tool_names = ["generate_uuid"]
-    model_identifiers = ALL_MODEL_IDENTIFIERS
+    tool_trigger_help = "Tools are triggered automatically. Ask for a UUID/ticket ID to trigger generate_uuid."
 
-    def __init__(self, model: str, stream: bool = True):
+    def __init__(self, model: str):
         config = get_identifier_mappings().get(model)
-        self.active_model_identifier = model
-        self.provider = config.provider if config else "unknown"
+        self.provider = config.provider if config else "openai"
         self.model = config.model if config else model
-        self.stream = stream
-
         provider_name = "google_genai" if self.provider == "google" else self.provider
         self.agent = create_agent(
             model=f"{provider_name}:{self.model}",
             tools=[generate_uuid_tool],
-            system_prompt=(
-                "You are an AI assistant that can use only one tool: generate_uuid. "
-                "Use generate_uuid whenever the user asks for a UUID or unique identifier."
-            ),
+            system_prompt=SYSTEM_PROMPT,
         )
 
     def ask_question(self, topic: str) -> Dict[str, Any]:
         try:
-            input_payload = {"messages": [{"role": "user", "content": topic}]}
-            if self.stream:
-                result = self.agent.stream(input_payload, stream_mode=["messages", "updates"])
-            else:
-                result = self.agent.invoke(input_payload)
+            print("\n[STEP 1 - SYSTEM MESSAGE] SystemMessage")
+            print(SystemMessage(content=SYSTEM_PROMPT).content)
+            human = HumanMessage(content=topic)
+            print("\n[STEP 2 - USER -> LLM] HumanMessage")
+            print(human.content)
 
-            return {
-                "success": True,
-                "stream": self.stream,
-                "provider": self.provider,
-                "model": self.model,
-                "prompt": topic,
-                "response": result,
-            }
+            final_text = ""
+            for event in self.agent.stream({"messages": [human]}, stream_mode=["messages"]):
+                chunk = event[1][0] if isinstance(event, tuple) and len(event) == 2 and isinstance(event[1], list) else event
+                name = chunk.__class__.__name__
+                text = getattr(chunk, "content", "") or ""
+
+                tool_calls = getattr(chunk, "tool_calls", None)
+                if "AIMessage" in name and tool_calls:
+                    print("\n[STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS] AIMessage.tool_calls")
+                    print(tool_calls)
+
+                if name == "AIMessageChunk":
+                    out = text if isinstance(text, str) else str(text)
+                    print(out, end="")
+                    final_text += out
+                elif "ToolMessage" in name:
+                    print("\n[STEP 4 - TOOL -> LLM] ToolMessage")
+                    print(text)
+                elif "AIMessage" in name:
+                    print("\n[STEP 5 - LLM FINAL MESSAGE] AIMessage")
+                    print(text)
+
+            print("\n")
+            return {"success": True, "final_text": final_text.strip()}
         except Exception as exc:
-            logger.exception("LangChain UUID ask_question failed")
-            return {
-                "success": False,
-                "stream": self.stream,
-                "provider": self.provider,
-                "model": self.model,
-                "prompt": topic,
-                "error": str(exc),
-                "response": None,
-            }
+            logger.exception(exc)
+            return {"success": False, "error": str(exc)}
 
 
 def main() -> None:
-    parser = build_common_parser("LangChain UUID Agent")
+    parser = build_common_parser("LangChain Basic Agent")
     args = parser.parse_args()
     startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
-    manager = LangChainUuidAgentManager(model=startup_model, stream=args.stream)
+    manager = LangChainUuidAgentManager(model=startup_model)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 

@@ -1,248 +1,45 @@
-"""Local deterministic tools for LLM agents."""
+"""Local tools used by agent exercises."""
 
 from __future__ import annotations
 
-import ast
-import math
-import re
 import uuid
-from typing import Any, Callable, Dict
-
-from dateutil import parser as date_parser
-
-
-def _normalize_whitespace(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
-
-
-def _sanitize_math_candidate(candidate: str) -> str:
-    candidate = _normalize_whitespace(candidate).strip(".,;:")
-    while candidate.count(")") > candidate.count("(") and candidate.endswith(")"):
-        candidate = candidate[:-1].rstrip()
-    while candidate.count("(") > candidate.count(")") and candidate.startswith("("):
-        candidate = candidate[1:].lstrip()
-    return candidate
-
-
-def _extract_math_expression(text: str) -> str:
-    """Extract the most likely arithmetic expression from natural language text."""
-    cleaned = _normalize_whitespace(text)
-    if not cleaned:
-        return ""
-
-    parenthesized = re.findall(r"\(([^()]+)\)", cleaned)
-    for candidate in reversed(parenthesized):
-        candidate = _sanitize_math_candidate(candidate)
-        if re.search(r"\d", candidate) and re.search(r"[+\-*/]", candidate):
-            return candidate
-
-    for inline in re.finditer(r"[\d\s+\-*/().,]+", cleaned):
-        candidate = _sanitize_math_candidate(inline.group(0))
-        if re.search(r"\d", candidate) and re.search(r"[+\-*/]", candidate):
-            return candidate
-
-    return cleaned
-
-def _apply_time_keywords(text: str, dt: Any) -> Any:
-    lower = text.lower()
-
-    if re.search(r"\bnoon\b", lower):
-        return dt.replace(hour=12, minute=0, second=0, microsecond=0)
-
-    if re.search(r"\bmidnight\b", lower):
-        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    return dt
-
-
-def resolve_datetime(text: str) -> Dict[str, Any]:
-    """Parses datetime-like input into ISO and human-readable formats."""
-    text = _normalize_whitespace(text)
-    if not text:
-        return {"error": "No datetime text provided."}
-
-    try:
-        dt = date_parser.parse(text, fuzzy=True)
-        dt = _apply_time_keywords(text, dt)
-    except (ValueError, OverflowError) as exc:
-        return {"error": f"Could not parse datetime: {exc}"}
-
-    return {
-        "original": text,
-        "resolved_iso": dt.isoformat(),
-        "human_readable": dt.strftime("%A, %B %d, %Y %I:%M %p"),
-    }
-
-
-class _SafeMathEvaluator(ast.NodeVisitor):
-    ALLOWED_BINOPS = {
-        ast.Add: lambda a, b: a + b,
-        ast.Sub: lambda a, b: a - b,
-        ast.Mult: lambda a, b: a * b,
-        ast.Div: lambda a, b: a / b,
-        ast.FloorDiv: lambda a, b: a // b,
-        ast.Mod: lambda a, b: a % b,
-        ast.Pow: lambda a, b: a**b,
-    }
-
-    ALLOWED_UNARYOPS = {
-        ast.UAdd: lambda a: +a,
-        ast.USub: lambda a: -a,
-    }
-
-    ALLOWED_NAMES = {
-        "pi": math.pi,
-        "e": math.e,
-    }
-
-    ALLOWED_FUNCS = {
-        "sqrt": math.sqrt,
-        "sin": math.sin,
-        "cos": math.cos,
-        "tan": math.tan,
-        "log": math.log,
-        "log10": math.log10,
-        "exp": math.exp,
-        "fabs": math.fabs,
-        "ceil": math.ceil,
-        "floor": math.floor,
-    }
-
-    def visit_Expression(self, node: ast.Expression) -> Any:
-        return self.visit(node.body)
-
-    def visit_Constant(self, node: ast.Constant) -> Any:
-        if isinstance(node.value, (int, float)):
-            return node.value
-        raise ValueError("Only numeric constants are allowed.")
-
-    def visit_Num(self, node: ast.Num) -> Any:
-        return node.n
-
-    def visit_BinOp(self, node: ast.BinOp) -> Any:
-        operator = type(node.op)
-        if operator not in self.ALLOWED_BINOPS:
-            raise ValueError(f"Unsupported operator: {operator.__name__}")
-
-        left = self.visit(node.left)
-        right = self.visit(node.right)
-
-        return self.ALLOWED_BINOPS[operator](left, right)
-
-    def visit_UnaryOp(self, node: ast.UnaryOp) -> Any:
-        operator = type(node.op)
-
-        if operator not in self.ALLOWED_UNARYOPS:
-            raise ValueError(f"Unsupported unary operator: {operator.__name__}")
-
-        operand = self.visit(node.operand)
-
-        return self.ALLOWED_UNARYOPS[operator](operand)
-
-    def visit_Name(self, node: ast.Name) -> Any:
-        if node.id in self.ALLOWED_NAMES:
-            return self.ALLOWED_NAMES[node.id]
-
-        raise ValueError(f"Unsupported name: {node.id}")
-
-    def visit_Call(self, node: ast.Call) -> Any:
-        if not isinstance(node.func, ast.Name):
-            raise ValueError("Only direct function calls are allowed.")
-
-        func_name = node.func.id
-
-        if func_name not in self.ALLOWED_FUNCS:
-            raise ValueError(f"Unsupported function: {func_name}")
-
-        args = [self.visit(arg) for arg in node.args]
-
-        return self.ALLOWED_FUNCS[func_name](*args)
-
-    def generic_visit(self, node: ast.AST) -> Any:
-        raise ValueError(f"Unsupported expression: {type(node).__name__}")
+from datetime import datetime
+from typing import Any, Dict
 
 
 def calculator(expression: str) -> Dict[str, Any]:
-    """Safely evaluates arithmetic expressions."""
-    expression = _extract_math_expression(expression)
-
-    if not expression:
+    text = (expression or "").strip()
+    if not text:
         return {"error": "No expression provided."}
 
+    if any(ch not in "0123456789+-*/().% ^" for ch in text):
+        return {"error": "Only basic arithmetic characters are allowed."}
+
     try:
-        tree = ast.parse(expression, mode="eval")
-        evaluator = _SafeMathEvaluator()
-        result = evaluator.visit(tree)
-
-        return {
-            "expression": expression,
-            "result": result,
-        }
-
+        result = eval(text.replace("^", "**"), {"__builtins__": {}}, {})
+        if not isinstance(result, (int, float)):
+            return {"error": "Invalid numeric result."}
+        return {"expression": text, "result": result}
     except Exception as exc:
         return {"error": f"Could not evaluate expression: {exc}"}
 
 
-def generate_uuid(_: Any = None) -> Dict[str, Any]:
-    """Generate a unique UUID identifier."""
-    return {
-        "uuid": str(uuid.uuid4())
-    }
-
-
-
-TOOLS: Dict[str, Callable[[Any], Dict[str, Any]]] = {
-    "calculator": calculator,
-    "resolve_datetime": resolve_datetime,
-    "generate_uuid": generate_uuid,
-}
-
-
-TOOL_DESCRIPTIONS: Dict[str, str] = {
-    "calculator": "Safely evaluate arithmetic expressions.",
-    "resolve_datetime": "Resolve date/time phrases into ISO and human-readable values.",
-    "generate_uuid": "Generate a unique UUID identifier.",
-}
-
-
-def list_tools() -> Dict[str, Any]:
-    return {
-        "tools": [
-            {"name": name, "description": TOOL_DESCRIPTIONS[name]}
-            for name in TOOLS
-        ]
-    }
-
-
-def build_tools_prompt() -> str:
-    lines = [
-        "You can use the following local deterministic tools:",
-        "",
-    ]
-
-    for name, description in TOOL_DESCRIPTIONS.items():
-        lines.append(f"- {name}: {description}")
-
-    lines.extend([
-        "",
-        "When a tool is needed, respond in this format:",
-        "TOOL: <tool_name>",
-        "INPUT: <tool_input>",
-        "",
-        "After receiving the tool result, continue your reasoning using the observation.",
-    ])
-
-    return "\n".join(lines)
-
-
-def run_tool(name: str, input_data: Any) -> Dict[str, Any]:
-    tool = TOOLS.get(name)
-
-    if tool is None:
-        return {"error": f"Tool '{name}' not found."}
+def resolve_datetime(text: str) -> Dict[str, Any]:
+    value = (text or "").strip()
+    if not value:
+        return {"error": "No datetime text provided."}
 
     try:
-        return tool(input_data)
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return {"error": "Could not parse datetime."}
 
-    except Exception as exc:
-        return {"error": f"Tool '{name}' failed: {exc}"}
+    return {
+        "original": value,
+        "resolved_iso": dt.isoformat(),
+        "human_readable": dt.strftime("%a, %d %b %Y %H:%M:%S"),
+    }
+
+
+def generate_uuid(_: Any = None) -> Dict[str, Any]:
+    return {"uuid": str(uuid.uuid4())}
