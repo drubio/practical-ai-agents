@@ -1,4 +1,4 @@
-"""Minimal helpers for chapter 2 examples without breaking core CLI flows."""
+"""Shared chapter utilities for CLI and web modes."""
 
 from __future__ import annotations
 
@@ -62,20 +62,24 @@ def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, exp
         print("Invalid selection. Try again.")
 
 
-def run_mode(manager: Any, mode: str, _host: str, _port: int, _stream: bool) -> None:
+def run_mode(manager: Any, mode: str, host: str, port: int, stream: bool) -> None:
     if mode == "web":
-        raise SystemExit("Web mode removed for this chapter. Use cli mode.")
+        from web import run_web_server
+
+        run_web_server(manager, host=host, port=port, stream_default=stream)
+        return
+
     print(f"\n===== {manager.framework} CLI =====")
     print("Type a question and press Enter.")
     print("Type 'exit' to quit.\n")
 
-    names = getattr(manager, 'tool_names', []) or []
+    names = getattr(manager, "tool_names", []) or []
     if names:
-        print('Available local tools:')
+        print("Available local tools:")
         for name in names:
-            print(f'  - {name}')
+            print(f"  - {name}")
     else:
-        print('Available local tools: (none declared)')
+        print("Available local tools: (none declared)")
 
     print(f"\n{getattr(manager, 'tool_trigger_help', 'Tools are triggered automatically from your prompt.')}")
     print("Tip: ask for a UUID to force tool usage.")

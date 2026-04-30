@@ -47,8 +47,12 @@ export async function selectStartupModel(modelIdentifiers, mode, explicitModelId
   return chooseModelInteractive(ids);
 }
 
-export async function runMode(manager, mode) {
-  if (mode === 'web') throw new Error('Web mode removed for this chapter. Use cli mode.');
+export async function runMode(manager, mode, host = '0.0.0.0', port = 8000, stream = false) {
+  if (mode === 'web') {
+    const { runWebServer } = await import('./web.js');
+    await runWebServer(manager, host, port, stream);
+    return;
+  }
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   console.log(`\n===== ${manager.framework} CLI =====`);
   console.log("Type a question and press Enter.");
