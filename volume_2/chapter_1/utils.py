@@ -13,24 +13,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
 from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
+from shared.utils import get_chapter_logger, log_tool_call
 from shared.web import normalize_response_text
-
-
-def get_chapter_logger(name: str):
-    class _Logger:
-        def info(self, *args: Any): print(f"[INFO] [{name}]", *args)
-        def error(self, *args: Any): print(f"[ERROR] [{name}]", *args)
-        exception = error
-    return _Logger()
-
-
-def log_tool_call(logger: Any, tool_name: str, fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    def wrapper(arg: Any = None):
-        logger.info(f"tool={tool_name} input=", arg)
-        out = fn(arg)
-        logger.info(f"tool={tool_name} output=", out)
-        return out
-    return wrapper
 
 
 def extract_text_content(content: Any) -> str:

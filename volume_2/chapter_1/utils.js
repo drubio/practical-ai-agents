@@ -1,14 +1,9 @@
 import 'dotenv/config';
 import readline from 'node:readline';
 import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from '../../shared/llm_models.mjs';
+import { getChapterLogger, logToolCall } from '../../shared/utils.mjs';
 
-export function getChapterLogger(name) {
-  return { info: (...a) => console.log(`[INFO] [${name}]`, ...a), error: (...a) => console.error(`[ERROR] [${name}]`, ...a) };
-}
-
-export function logToolCall(logger, toolName, fn) {
-  return (input) => { logger.info(`tool=${toolName} input=`, input); const out = fn(input); logger.info(`tool=${toolName} output=`, out); return out; };
-}
+export { getChapterLogger, logToolCall };
 
 export function buildCommonArgs(argv = process.argv.slice(2)) {
   let mode = 'cli', stream = false, host = '0.0.0.0', port = Number(process.env.PORT || 8000), modelIdentifier = null;
