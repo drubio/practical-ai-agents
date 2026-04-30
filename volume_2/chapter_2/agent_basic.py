@@ -13,10 +13,19 @@ if str(CHAPTER_1_ROOT) not in sys.path:
 
 from langchain.agents import create_agent
 from langchain.tools import tool
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 
 import tools
-from utils import ALL_MODEL_IDENTIFIERS, build_common_parser, get_chapter_logger, get_identifier_mappings, log_tool_call, run_mode, select_startup_model
+from utils import (
+    ALL_MODEL_IDENTIFIERS,
+    build_common_parser,
+    get_chapter_logger,
+    get_identifier_mappings,
+    log_tool_call,
+    run_mode,
+    select_startup_model,
+    stream_message_chunks,
+)
 
 logger = get_chapter_logger("volume_2.chapter_2.agent_basic")
 SYSTEM_PROMPT = "Use generate_uuid when user asks for UUID. Keep responses short."
@@ -53,29 +62,28 @@ class LangChainUuidAgentManager:
             print(human.content)
 
             final_text = ""
-            for event in self.agent.stream({"messages": [human]}, stream_mode=["messages"]):
-                chunk = event[1][0] if isinstance(event, tuple) and len(event) == 2 and isinstance(event[1], list) else event
-                name = chunk.__class__.__name__
-                text = getattr(chunk, "content", "") or ""
+            for chunk, text in stream_message_chunks(self.agent, human):
 
                 tool_calls = getattr(chunk, "tool_calls", None)
-                if "AIMessage" in name and tool_calls:
+                if isinstance(chunk, (AIMessage, AIMessageChunk)) and tool_calls:
                     print("\n[STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS] AIMessage.tool_calls")
                     print(tool_calls)
 
-                if name == "AIMessageChunk":
-                    out = text if isinstance(text, str) else str(text)
-                    print(out, end="")
-                    final_text += out
-                elif "ToolMessage" in name:
+                if isinstance(chunk, AIMessageChunk):
+                    if text:
+                        print(text, end="")
+                    final_text += text
+                elif isinstance(chunk, ToolMessage):
                     print("\n[STEP 4 - TOOL -> LLM] ToolMessage")
                     print(text)
-                elif "AIMessage" in name:
+                elif isinstance(chunk, AIMessage):
                     print("\n[STEP 5 - LLM FINAL MESSAGE] AIMessage")
                     print(text)
+                    final_text += text
 
             print("\n")
-            return {"success": True, "final_text": final_text.strip()}
+            normalized_final_text = final_text.strip()
+            return {"success": True, "final_text": normalized_final_text, "finalText": normalized_final_text}
         except Exception as exc:
             logger.exception(exc)
             return {"success": False, "error": str(exc)}

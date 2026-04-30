@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +12,7 @@ from pydantic import BaseModel
 import uvicorn
 
 from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
+from shared.web import normalize_response_text, stream_text_sse, to_sse_line
 
 
 class QueryRequest(BaseModel):
@@ -20,7 +22,12 @@ class QueryRequest(BaseModel):
 
 
 def _extract_text(result: dict[str, Any]) -> str:
-    return str(result.get("final_text") or result.get("response") or "")
+    return normalize_response_text(
+        result.get("final_text")
+        or result.get("finalText")
+        or result.get("response")
+        or ""
+    )
 
 
 def _provider_payload(manager: Any, model_identifier: str, idx: int) -> dict[str, str]:
@@ -68,7 +75,7 @@ def create_web_api(manager: Any, stream_default: bool = False) -> FastAPI:
     async def query(request: QueryRequest):
         try:
             selected_provider = request.provider or request.model_identifier
-            result = manager.ask_question(request.topic)
+            result = await asyncio.to_thread(manager.ask_question, request.topic)
             if not isinstance(result, dict):
                 raise HTTPException(status_code=500, detail="Manager returned invalid payload")
             if not result.get("success"):
@@ -83,17 +90,17 @@ def create_web_api(manager: Any, stream_default: bool = False) -> FastAPI:
     async def query_stream(request: QueryRequest):
         async def events():
             try:
-                result = manager.ask_question(request.topic)
+                result = await asyncio.to_thread(manager.ask_question, request.topic)
                 if not isinstance(result, dict) or not result.get("success"):
                     error = result.get("error", "Query failed") if isinstance(result, dict) else "Manager returned invalid payload"
-                    yield f"data: {{\"type\":\"error\",\"error\":\"{error}\"}}\n\n"
+                    yield to_sse_line({"type": "error", "error": str(error)})
                     return
                 text = _extract_text(result)
-                for chunk in text.split():
-                    yield f"data: {{\"type\":\"chunk\",\"content\":{chunk!r}}}\n\n"
-                yield "data: {\"type\":\"done\"}\n\n"
+                async for event in stream_text_sse(text, delay_seconds=0.03):
+                    yield event
+                yield to_sse_line({"type": "done"})
             except Exception as exc:
-                yield f"data: {{\"type\":\"error\",\"error\":\"{str(exc)}\"}}\n\n"
+                yield to_sse_line({"type": "error", "error": str(exc)})
 
         return StreamingResponse(events(), media_type="text/event-stream")
 

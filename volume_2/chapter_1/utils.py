@@ -6,13 +6,14 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable
+from typing import Any, Callable, Dict, Iterable, Iterator, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
 from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
+from shared.web import normalize_response_text
 
 
 def get_chapter_logger(name: str):
@@ -30,6 +31,34 @@ def log_tool_call(logger: Any, tool_name: str, fn: Callable[[Any], Any]) -> Call
         logger.info(f"tool={tool_name} output=", out)
         return out
     return wrapper
+
+
+def extract_text_content(content: Any) -> str:
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                if item.strip():
+                    parts.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type == "text":
+                text_value = item.get("text")
+                if isinstance(text_value, str) and text_value.strip():
+                    parts.append(text_value)
+            elif "text" in item and isinstance(item.get("text"), str) and item["text"].strip():
+                parts.append(item["text"])
+        return "".join(parts)
+    return normalize_response_text(content)
+
+
+def stream_message_chunks(agent: Any, human_message: Any) -> Iterator[Tuple[Any, str]]:
+    stream = agent.stream({"messages": [human_message]}, stream_mode="messages")
+    for event in stream:
+        chunk = event[0] if isinstance(event, tuple) and len(event) == 2 else event
+        yield chunk, extract_text_content(getattr(chunk, "content", ""))
 
 
 def build_common_parser(description: str) -> argparse.ArgumentParser:
