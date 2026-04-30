@@ -20,6 +20,7 @@ from utils import (
     ALL_MODEL_IDENTIFIERS,
     build_common_parser,
     get_chapter_logger,
+    extract_text_content,
     get_identifier_mappings,
     log_tool_call,
     run_mode,
@@ -53,7 +54,7 @@ class LangChainUuidAgentManager:
             system_prompt=SYSTEM_PROMPT,
         )
 
-    def ask_question(self, topic: str) -> Dict[str, Any]:
+    def ask_question(self, topic: str, stream: bool = False) -> Dict[str, Any]:
         try:
             print("\n[STEP 1 - SYSTEM MESSAGE] SystemMessage")
             print(SystemMessage(content=SYSTEM_PROMPT).content)
@@ -62,24 +63,40 @@ class LangChainUuidAgentManager:
             print(human.content)
 
             final_text = ""
-            for chunk, text in stream_message_chunks(self.agent, human):
+            if stream:
+                for chunk, text in stream_message_chunks(self.agent, human):
+                    tool_calls = getattr(chunk, "tool_calls", None)
+                    if isinstance(chunk, (AIMessage, AIMessageChunk)) and tool_calls:
+                        print("\n[STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS] AIMessage.tool_calls")
+                        print(tool_calls)
 
-                tool_calls = getattr(chunk, "tool_calls", None)
-                if isinstance(chunk, (AIMessage, AIMessageChunk)) and tool_calls:
-                    print("\n[STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS] AIMessage.tool_calls")
-                    print(tool_calls)
-
-                if isinstance(chunk, AIMessageChunk):
-                    if text:
-                        print(text, end="")
-                    final_text += text
-                elif isinstance(chunk, ToolMessage):
-                    print("\n[STEP 4 - TOOL -> LLM] ToolMessage")
-                    print(text)
-                elif isinstance(chunk, AIMessage):
-                    print("\n[STEP 5 - LLM FINAL MESSAGE] AIMessage")
-                    print(text)
-                    final_text += text
+                    if isinstance(chunk, AIMessageChunk):
+                        if text:
+                            print(text, end="")
+                        final_text += text
+                    elif isinstance(chunk, ToolMessage):
+                        print("\n[STEP 4 - TOOL -> LLM] ToolMessage")
+                        print(text)
+                    elif isinstance(chunk, AIMessage):
+                        print("\n[STEP 5 - LLM FINAL MESSAGE] AIMessage")
+                        print(text)
+                        final_text += text
+            else:
+                response = self.agent.invoke({"messages": [human]})
+                messages = response.get("messages", []) if isinstance(response, dict) else []
+                for message in messages:
+                    text = extract_text_content(getattr(message, "content", ""))
+                    tool_calls = getattr(message, "tool_calls", None)
+                    if isinstance(message, AIMessage) and tool_calls:
+                        print("\n[STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS] AIMessage.tool_calls")
+                        print(tool_calls)
+                    if isinstance(message, ToolMessage):
+                        print("\n[STEP 4 - TOOL -> LLM] ToolMessage")
+                        print(text)
+                    elif isinstance(message, AIMessage):
+                        print("\n[STEP 5 - LLM FINAL MESSAGE] AIMessage")
+                        print(text)
+                        final_text = text
 
             print("\n")
             normalized_final_text = final_text.strip()

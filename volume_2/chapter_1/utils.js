@@ -65,7 +65,7 @@ export async function runMode(manager, mode, host = '0.0.0.0', port = 8000, stre
   while (true) {
     const prompt = await new Promise((resolve) => rl.question('> ', resolve));
     if (!prompt || prompt.trim().toLowerCase() === 'exit') break;
-    const result = await manager.askQuestion(prompt.trim());
+    const result = await manager.askQuestion(prompt.trim(), { stream });
     console.log(result.success ? result.finalText : result.error);
   }
   rl.close();

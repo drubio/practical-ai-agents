@@ -101,5 +101,5 @@ def run_mode(manager: Any, mode: str, host: str, port: int, stream: bool) -> Non
         prompt = input("> ").strip()
         if not prompt or prompt.lower() == "exit":
             break
-        result: Dict[str, Any] = manager.ask_question(prompt)
+        result: Dict[str, Any] = manager.ask_question(prompt, stream=stream)
         print(result.get("final_text") if result.get("success") else result.get("error"))

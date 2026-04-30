@@ -47,16 +47,19 @@ export class LangChainUuidAgentManager {
     });
   }
 
-  async askQuestion(topic) {
+  async askQuestion(topic, options = {}) {
     try {
       printMsg('STEP 1 - SYSTEM MESSAGE', new SystemMessage(SYSTEM_PROMPT));
       const human = new HumanMessage(topic);
       printMsg('STEP 2 - USER -> LLM', human);
 
-      const stream = await this.agent.stream({ messages: [human] }, { streamMode: ['messages'] });
+      const shouldStream = Boolean(options.stream);
       let finalText = '';
 
-      for await (const event of stream) {
+      if (shouldStream) {
+        const stream = await this.agent.stream({ messages: [human] }, { streamMode: ['messages'] });
+
+        for await (const event of stream) {
         const chunk = Array.isArray(event) ? event[1]?.[0] ?? event[1] : event;
         if (!chunk) continue;
 
@@ -74,6 +77,26 @@ export class LangChainUuidAgentManager {
           printMsg('STEP 4 - TOOL -> LLM', new ToolMessage(textFromContent(chunk.content), chunk.tool_call_id));
         } else if (type.includes('AIMessage')) {
           printMsg('STEP 5 - LLM FINAL MESSAGE', new AIMessage(textFromContent(chunk.content)));
+        }
+        }
+      } else {
+        const response = await this.agent.invoke({ messages: [human] });
+        const messages = Array.isArray(response?.messages) ? response.messages : [];
+
+        for (const message of messages) {
+          const type = message?.constructor?.name || '';
+          if (type.includes('AIMessage') && Array.isArray(message.tool_calls) && message.tool_calls.length) {
+            console.log('\n[STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS] AIMessage.tool_calls');
+            console.log(JSON.stringify(message.tool_calls, null, 2));
+          }
+
+          if (type === 'ToolMessage') {
+            printMsg('STEP 4 - TOOL -> LLM', new ToolMessage(textFromContent(message.content), message.tool_call_id));
+          } else if (type.includes('AIMessage')) {
+            const text = textFromContent(message.content);
+            printMsg('STEP 5 - LLM FINAL MESSAGE', new AIMessage(text));
+            finalText = text;
+          }
         }
       }
 
