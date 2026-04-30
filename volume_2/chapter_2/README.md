@@ -6,8 +6,8 @@ This chapter focuses on **LangChain agent examples** in both Python and JavaScri
 
 ```text
 chapter_2/
-├── agent_basic.py
-├── agent_basic.js
+├── basic.py
+├── basic.js
 └── package.json
 ```
 
