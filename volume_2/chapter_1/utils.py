@@ -6,7 +6,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -55,6 +55,44 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     return parser
 
 
+MODEL_PROVIDER_PREFIXES = (
+    ("google_genai_", "Google"),
+    ("anthropic_", "Anthropic"),
+    ("openai_", "OpenAI"),
+    ("xai_", "xAI"),
+)
+
+
+def _provider_and_model_name(model_identifier: str) -> tuple[str, str]:
+    for prefix, provider in MODEL_PROVIDER_PREFIXES:
+        if model_identifier.startswith(prefix):
+            return provider, model_identifier[len(prefix) :]
+    provider, _, model_name = model_identifier.partition("_")
+    return (provider.title() if provider else "Other"), (model_name or model_identifier)
+
+
+def compact_model_selection_lines(model_identifiers: Sequence[str]) -> list[str]:
+    lines: list[str] = []
+    current_provider: str | None = None
+    current_options: list[str] = []
+
+    def flush_current() -> None:
+        nonlocal current_options
+        if current_provider and current_options:
+            lines.append(f"{current_provider}: " + " | ".join(current_options))
+        current_options = []
+
+    for index, model_identifier in enumerate(model_identifiers, start=1):
+        provider, model_name = _provider_and_model_name(model_identifier)
+        if provider != current_provider or len(current_options) == 3:
+            flush_current()
+            current_provider = provider
+        default_suffix = " [default]" if index == 1 else ""
+        current_options.append(f"{index}. {model_name}{default_suffix}")
+    flush_current()
+    return lines
+
+
 def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, explicit_model_identifier: str | None) -> str:
     if explicit_model_identifier:
         return explicit_model_identifier
@@ -64,8 +102,8 @@ def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, exp
     if mode != "cli" or not sys.stdin.isatty() or not sys.stdout.isatty():
         return ids[0]
     print("\nModel selection:")
-    for i, mid in enumerate(ids, start=1):
-        print(f"{i}. {mid}" + (" [default]" if i == 1 else ""))
+    for line in compact_model_selection_lines(ids):
+        print(line)
     while True:
         raw = input(f"Select model (1-{len(ids)}, default 1): ").strip()
         if not raw:

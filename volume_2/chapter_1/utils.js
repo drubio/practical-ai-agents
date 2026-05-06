@@ -18,10 +18,47 @@ export function buildCommonArgs(argv = process.argv.slice(2)) {
   return { mode, stream, host, port, modelIdentifier };
 }
 
+const MODEL_PROVIDER_PREFIXES = [
+  ['google_genai_', 'Google'],
+  ['anthropic_', 'Anthropic'],
+  ['openai_', 'OpenAI'],
+  ['xai_', 'xAI'],
+];
+
+function providerAndModelName(modelIdentifier) {
+  for (const [prefix, provider] of MODEL_PROVIDER_PREFIXES) {
+    if (modelIdentifier.startsWith(prefix)) return [provider, modelIdentifier.slice(prefix.length)];
+  }
+  const [provider, ...modelParts] = modelIdentifier.split('_');
+  return [provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : 'Other', modelParts.join('_') || modelIdentifier];
+}
+
+export function compactModelSelectionLines(ids) {
+  const lines = [];
+  let currentProvider = null;
+  let currentOptions = [];
+
+  const flushCurrent = () => {
+    if (currentProvider && currentOptions.length) lines.push(`${currentProvider}: ${currentOptions.join(' | ')}`);
+    currentOptions = [];
+  };
+
+  ids.forEach((id, i) => {
+    const [provider, modelName] = providerAndModelName(id);
+    if (provider !== currentProvider || currentOptions.length === 3) {
+      flushCurrent();
+      currentProvider = provider;
+    }
+    currentOptions.push(`${i + 1}. ${modelName}${i === 0 ? ' [default]' : ''}`);
+  });
+  flushCurrent();
+  return lines;
+}
+
 function chooseModelInteractive(ids) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   console.log('\nModel selection:');
-  ids.forEach((id, i) => console.log(`${i + 1}. ${id}${i === 0 ? ' [default]' : ''}`));
+  compactModelSelectionLines(ids).forEach((line) => console.log(line));
   return new Promise((resolve) => {
     const ask = () => rl.question(`Select model (1-${ids.length}, default 1): `, (raw) => {
       const t = String(raw || '').trim();
