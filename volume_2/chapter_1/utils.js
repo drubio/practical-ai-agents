@@ -79,6 +79,25 @@ export async function selectStartupModel(modelIdentifiers, mode, explicitModelId
   return chooseModelInteractive(ids);
 }
 
+export function extractTextContent(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map((item) => (typeof item === 'string' ? item : (item?.text || item?.content || ''))).join('');
+  if (content && typeof content === 'object') return content.text || content.content || '';
+  return '';
+}
+
+export function langChainMessageTypeName(message) {
+  return message?.constructor?.name || 'Message';
+}
+
+export function langChainMessageToolCalls(message) {
+  return Array.isArray(message?.tool_calls) && message.tool_calls.length ? message.tool_calls : null;
+}
+
+export function langChainStreamChunkFromEvent(event) {
+  return Array.isArray(event) ? event[1]?.[0] ?? event[1] : event;
+}
+
 export async function runMode(manager, mode, host = '0.0.0.0', port = 8000, stream = false) {
   if (mode === 'web') {
     const { runWebServer } = await import('./web.js');
@@ -103,7 +122,11 @@ export async function runMode(manager, mode, host = '0.0.0.0', port = 8000, stre
     const prompt = await new Promise((resolve) => rl.question('> ', resolve));
     if (!prompt || prompt.trim().toLowerCase() === 'exit') break;
     const result = await manager.askQuestion(prompt.trim(), { stream });
-    console.log(result.success ? result.finalText : result.error);
+    if (result.success) {
+      if (!manager.printsOwnOutput) console.log(result.finalText);
+    } else {
+      console.log(result.error);
+    }
   }
   rl.close();
 }

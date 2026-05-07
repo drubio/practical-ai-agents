@@ -1,36 +1,106 @@
 #!/usr/bin/env node
 
 import { createAgent } from 'langchain';
-import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from '@langchain/core/messages';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 
 import * as tools from '../chapter_1/tools.js';
-import { ALL_MODEL_IDENTIFIERS, buildCommonArgs, getChapterLogger, getIdentifierMappings, logToolCall, runMode, selectStartupModel } from '../chapter_1/utils.js';
+import { ALL_MODEL_IDENTIFIERS, buildCommonArgs, extractTextContent, getChapterLogger, getIdentifierMappings, langChainMessageToolCalls, langChainMessageTypeName, langChainStreamChunkFromEvent, runMode, selectStartupModel } from '../chapter_1/utils.js';
 
 const logger = getChapterLogger('volume_2.chapter_2.agent_basic');
 const SYSTEM_PROMPT = 'Use generate_uuid when user asks for UUID. Keep responses short.';
 
-const generateUuidTool = tool(() => logToolCall(logger, 'generate_uuid', tools.generateUUID)(), {
-  name: 'generate_uuid',
-  description: 'Generate a unique UUID identifier.',
-  schema: z.object({}),
-});
-
-function textFromContent(content) {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) return content.map((c) => (typeof c === 'string' ? c : (c?.text || c?.content || ''))).join('');
-  if (content && typeof content === 'object') return content.text || content.content || '';
-  return '';
+function printStepHeader(step, typeName) {
+  console.log(`\n[${step}] ${typeName}`);
 }
 
-function printMsg(tag, msg) {
-  console.log(`\n[${tag}] ${msg.constructor?.name || 'Message'}`);
-  console.log(textFromContent(msg.content));
+function printStepMessage(step, message, content = extractTextContent(message?.content)) {
+  printStepHeader(step, langChainMessageTypeName(message));
+  console.log(content);
+}
+
+function flushPendingToolLogs(state) {
+  while (state.pendingToolLogs.length) {
+    const { name, input, output } = state.pendingToolLogs.shift();
+    logger.info(`Tool call | name=${name} | input=%o`, input);
+    logger.info(`Tool result | name=${name} | output=%o`, output);
+  }
+}
+
+function printBasicAgentStepMessage(message, state, { stream = false } = {}) {
+  if (!message) return;
+
+  const typeName = langChainMessageTypeName(message);
+  const toolCalls = langChainMessageToolCalls(message);
+  if (typeName === 'SystemMessage') {
+    if (!state.printedSystemMessage) {
+      printStepMessage('STEP 1 - SYSTEM MESSAGE', message);
+      state.printedSystemMessage = true;
+    }
+    return;
+  }
+  if (typeName === 'HumanMessage') {
+    if (!state.printedHumanMessage) {
+      printStepMessage('STEP 2 - USER -> LLM', message);
+      state.printedHumanMessage = true;
+    }
+    return;
+  }
+  if (typeName.includes('AIMessage') && toolCalls) {
+    printStepHeader('STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS', 'AIMessage.tool_calls');
+    console.log(JSON.stringify(toolCalls, null, 2));
+    return;
+  }
+  if (typeName === 'ToolMessage') {
+    flushPendingToolLogs(state);
+    printStepMessage('STEP 4 - TOOL -> LLM', message);
+    return;
+  }
+  if (typeName === 'AIMessageChunk') {
+    const delta = extractTextContent(message.content);
+    if (delta && !state.printedFinalHeader) {
+      printStepHeader('STEP 5 - LLM FINAL MESSAGE', 'AIMessage');
+      state.printedFinalHeader = true;
+    }
+    if (delta) process.stdout.write(delta);
+    state.finalText += delta;
+    return;
+  }
+  if (typeName.includes('AIMessage')) {
+    const text = extractTextContent(message.content);
+    if (stream) {
+      if (!state.printedFinalHeader) {
+        printStepMessage('STEP 5 - LLM FINAL MESSAGE', message, text);
+        state.printedFinalHeader = true;
+      }
+      if (!state.finalText) state.finalText = text;
+    } else {
+      printStepMessage('STEP 5 - LLM FINAL MESSAGE', message, text);
+      state.printedFinalHeader = true;
+      state.finalText = text;
+    }
+  }
+}
+
+function createBasicAgentStepState(pendingToolLogs = []) {
+  return { finalText: '', pendingToolLogs, printedFinalHeader: false, printedSystemMessage: false, printedHumanMessage: false };
+}
+
+async function printBasicAgentStepOutput({ messages = [], streamEvents = null, state = createBasicAgentStepState() } = {}) {
+  for (const message of messages) printBasicAgentStepMessage(message, state);
+  if (streamEvents) {
+    for await (const event of streamEvents) {
+      printBasicAgentStepMessage(langChainStreamChunkFromEvent(event), state, { stream: true });
+    }
+  }
+  console.log('\n');
+  return state.finalText.trim();
 }
 
 export class LangChainUuidAgentManager {
   framework = 'LangChain Basic Agent';
+  printsOwnOutput = true;
   toolNames = ['generate_uuid'];
   toolTriggerHelp = "Tools are triggered automatically. Ask for a UUID/ticket ID to trigger generate_uuid.";
   modelIdentifiers = ALL_MODEL_IDENTIFIERS;
@@ -40,6 +110,16 @@ export class LangChainUuidAgentManager {
     this.provider = config?.provider ?? 'unknown';
     this.model = config?.model ?? model;
     const providerName = this.provider === 'google' ? 'google-genai' : this.provider;
+    this.pendingToolLogs = [];
+    const generateUuidTool = tool((input) => {
+      const output = tools.generateUUID(input);
+      this.pendingToolLogs.push({ name: 'generate_uuid', input, output });
+      return output;
+    }, {
+      name: 'generate_uuid',
+      description: 'Generate a unique UUID identifier.',
+      schema: z.object({}),
+    });
     this.agent = createAgent({
       model: `${providerName}:${this.model}`,
       tools: [generateUuidTool],
@@ -49,59 +129,23 @@ export class LangChainUuidAgentManager {
 
   async askQuestion(topic, options = {}) {
     try {
-      printMsg('STEP 1 - SYSTEM MESSAGE', new SystemMessage(SYSTEM_PROMPT));
-      const human = new HumanMessage(topic);
-      printMsg('STEP 2 - USER -> LLM', human);
-
+      const initialMessages = [new SystemMessage(SYSTEM_PROMPT), new HumanMessage(topic)];
       const shouldStream = Boolean(options.stream);
-      let finalText = '';
+      this.pendingToolLogs.length = 0;
+      const state = createBasicAgentStepState(this.pendingToolLogs);
+      for (const message of initialMessages) printBasicAgentStepMessage(message, state);
+      let finalText;
 
       if (shouldStream) {
-        const stream = await this.agent.stream({ messages: [human] }, { streamMode: ['messages'] });
-
-        for await (const event of stream) {
-        const chunk = Array.isArray(event) ? event[1]?.[0] ?? event[1] : event;
-        if (!chunk) continue;
-
-        const type = chunk.constructor?.name || '';
-        if (type.includes('AIMessage') && Array.isArray(chunk.tool_calls) && chunk.tool_calls.length) {
-          console.log('\n[STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS] AIMessage.tool_calls');
-          console.log(JSON.stringify(chunk.tool_calls, null, 2));
-        }
-
-        if (type === 'AIMessageChunk') {
-          const delta = textFromContent(chunk.content);
-          if (delta) process.stdout.write(delta);
-          finalText += delta;
-        } else if (type === 'ToolMessage') {
-          printMsg('STEP 4 - TOOL -> LLM', new ToolMessage(textFromContent(chunk.content), chunk.tool_call_id));
-        } else if (type.includes('AIMessage')) {
-          printMsg('STEP 5 - LLM FINAL MESSAGE', new AIMessage(textFromContent(chunk.content)));
-        }
-        }
+        const stream = await this.agent.stream({ messages: [initialMessages[1]] }, { streamMode: ['messages'] });
+        finalText = await printBasicAgentStepOutput({ streamEvents: stream, state });
       } else {
-        const response = await this.agent.invoke({ messages: [human] });
-        const messages = Array.isArray(response?.messages) ? response.messages : [];
-
-        for (const message of messages) {
-          const type = message?.constructor?.name || '';
-          if (type.includes('AIMessage') && Array.isArray(message.tool_calls) && message.tool_calls.length) {
-            console.log('\n[STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS] AIMessage.tool_calls');
-            console.log(JSON.stringify(message.tool_calls, null, 2));
-          }
-
-          if (type === 'ToolMessage') {
-            printMsg('STEP 4 - TOOL -> LLM', new ToolMessage(textFromContent(message.content), message.tool_call_id));
-          } else if (type.includes('AIMessage')) {
-            const text = textFromContent(message.content);
-            printMsg('STEP 5 - LLM FINAL MESSAGE', new AIMessage(text));
-            finalText = text;
-          }
-        }
+        const response = await this.agent.invoke({ messages: [initialMessages[1]] });
+        const responseMessages = Array.isArray(response?.messages) ? response.messages : [];
+        finalText = await printBasicAgentStepOutput({ messages: responseMessages, state });
       }
 
-      console.log('\n');
-      return { success: true, finalText: finalText.trim() };
+      return { success: true, finalText };
     } catch (error) {
       logger.error(error);
       return { success: false, error: error?.message || String(error) };

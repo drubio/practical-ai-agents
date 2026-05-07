@@ -45,6 +45,15 @@ def stream_message_chunks(agent: Any, human_message: Any) -> Iterator[Tuple[Any,
         yield chunk, extract_text_content(getattr(chunk, "content", ""))
 
 
+def langchain_message_type_name(message: Any) -> str:
+    return message.__class__.__name__ if message is not None else "Message"
+
+
+def langchain_message_tool_calls(message: Any) -> Any:
+    tool_calls = getattr(message, "tool_calls", None)
+    return tool_calls if tool_calls else None
+
+
 def build_common_parser(description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("mode", nargs="?", default="cli", choices=["cli", "web"])
@@ -136,8 +145,15 @@ def run_mode(manager: Any, mode: str, host: str, port: int, stream: bool) -> Non
     print("Tip: ask for a UUID to force tool usage.")
     print("====================================")
     while True:
-        prompt = input("> ").strip()
+        try:
+            prompt = input("> ").strip()
+        except EOFError:
+            break
         if not prompt or prompt.lower() == "exit":
             break
         result: Dict[str, Any] = manager.ask_question(prompt, stream=stream)
-        print(result.get("final_text") if result.get("success") else result.get("error"))
+        if result.get("success"):
+            if not getattr(manager, "prints_own_output", False):
+                print(result.get("final_text"))
+        else:
+            print(result.get("error"))
