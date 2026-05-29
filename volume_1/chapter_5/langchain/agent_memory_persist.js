@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { FileSystemChatMessageHistory } from '@langchain/community/stores/message/file_system';
+import { mapChatMessagesToStoredMessages } from '@langchain/core/messages';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { RunnableWithMessageHistory } from '@langchain/core/runnables';
 import { LangChainLLMManager as Chapter4LangChainManager } from '../../chapter_4/langchain/agent_app.js';
@@ -15,24 +16,47 @@ import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function migratePythonSessionFile(filePath, sessionId) {
-    try {
-        const raw = await fs.promises.readFile(filePath, 'utf8');
-        if (!raw.trim()) return;
+function patchFileSystemChatMessageHistory(history) {
+    history.loadStore = async function loadSharedStore() {
+        try {
+            const raw = await fs.promises.readFile(this.filePath, 'utf8');
+            if (!raw.trim()) return {};
 
-        const payload = JSON.parse(raw);
-        if (!Array.isArray(payload)) return;
+            const payload = JSON.parse(raw);
+            if (Array.isArray(payload)) {
+                return {
+                    [this.userId ?? '']: {
+                        [this.sessionId]: { messages: payload },
+                    },
+                };
+            }
+            if (Array.isArray(payload?.messages)) {
+                return {
+                    [this.userId ?? '']: {
+                        [this.sessionId]: { messages: payload.messages },
+                    },
+                };
+            }
 
-        await fs.promises.writeFile(filePath, JSON.stringify({
-            '': {
-                [sessionId]: {
-                    messages: payload,
-                },
-            },
-        }));
-    } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-    }
+            return payload;
+        } catch (error) {
+            if (error.code === 'ENOENT') return {};
+            throw new Error(`Error loading FileSystemChatMessageHistory store: ${error}`);
+        }
+    };
+
+    history.saveStore = async function saveSharedStore() {
+        try {
+            const messages = await this.getMessages();
+            const storedMessages = mapChatMessagesToStoredMessages(messages);
+            await fs.promises.mkdir(path.dirname(this.filePath), { recursive: true });
+            await fs.promises.writeFile(this.filePath, JSON.stringify(storedMessages));
+        } catch (error) {
+            throw new Error(`Error saving FileSystemChatMessageHistory store: ${error}`);
+        }
+    };
+
+    return history;
 }
 
 class LangChainLLMManager extends Chapter4LangChainManager {
@@ -57,7 +81,10 @@ class LangChainLLMManager extends Chapter4LangChainManager {
     _getHistory(sessionId) {
         if (!this.histories.has(sessionId)) {
             const filePath = this._sessionFilePath(sessionId);
-            this.histories.set(sessionId, new FileSystemChatMessageHistory({ sessionId, filePath }));
+            this.histories.set(
+                sessionId,
+                patchFileSystemChatMessageHistory(new FileSystemChatMessageHistory({ sessionId, filePath })),
+            );
         }
         return this.histories.get(sessionId);
     }
@@ -123,7 +150,6 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         const model = getDefaultModel(resolvedProvider);
 
         try {
-            await migratePythonSessionFile(this._sessionFilePath(sessionId), sessionId);
             const chain = this._getChain(resolvedProvider, sessionId, temperature, maxTokens);
             const result = await chain.invoke({ input: prompt }, { configurable: { sessionId } });
             const responseText = this._extractText(resolvedProvider, result);
@@ -164,7 +190,6 @@ class LangChainLLMManager extends Chapter4LangChainManager {
     }
 
     async getHistory(provider, sessionId = 'default') {
-        await migratePythonSessionFile(this._sessionFilePath(sessionId), sessionId);
         const history = this._getHistory(sessionId);
         const messages = await history.getMessages();
         const turns = messages.map((message) => {
