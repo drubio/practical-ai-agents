@@ -1,6 +1,6 @@
-# Direct LLM API access: Anthropic, OpenAI, Google, xAI
+# Direct LLM API access: Anthropic, OpenAI, Google, xAI, DeepSeek
 
-This chapter demonstrates how to access the major LLM providers—Anthropic, OpenAI, Google and xAI—using their in-house APIs and minimal working scripts in both Python and JavaScript.
+This chapter demonstrates how to access the major LLM providers—Anthropic, OpenAI, Google, xAI and DeepSeek—using their in-house APIs and minimal working scripts in both Python and JavaScript.
 
 ## Project Contents
 Each subfolder reflects an LLM provider and contains:
@@ -18,13 +18,13 @@ The scripts generate and test completions using the nursery rhyme:
 
 ## Environment Setup
 
-For each provider (`anthropic`, `openai`, `google`, `xai`):
+For each provider (`anthropic`, `openai`, `google`, `xai`, `deepseek`):
 
 ### ❯ Example (Python)
 
 ### Step 1. Navigate into the provider folder:
    ```bash
-   cd anthropic  # or openai, google, xai
+   cd anthropic  # or openai, google, xai, deepseek
 ````
 
 ### Step 2. Install dependencies:
@@ -42,6 +42,7 @@ NOTE: This chapter does **not** use the repository-level shared libraries in `sh
    OPENAI_API_KEY="sk-proj-xxxx-xxxx-xxxx"
    GOOGLE_API_KEY="AIzaSyBAKuqxxxxxxxxxxxx"
    XAI_API_KEY="xai-UXxxxxxxx"
+   DEEPSEEK_API_KEY="sk-e0fxxxxxxx"
    ```
 
 ### Step 4. Run the script:
@@ -57,7 +58,7 @@ NOTE: This chapter does **not** use the repository-level shared libraries in `sh
 ### Step 1. Navigate into the provider folder:
 
    ```bash
-   cd anthropic  # or openai, google, xai
+   cd anthropic  # or openai, google, xai, deepseek
    ```
 
 ### Step 2. Install dependencies:
