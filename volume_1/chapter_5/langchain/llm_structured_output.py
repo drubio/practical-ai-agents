@@ -11,7 +11,7 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CURRENT_DIR)
 
-from llm_memory_persist import LangChainLLMManager as Chapter5LangChainManager
+from agent_memory_persist import LangChainLLMManager as Chapter5LangChainManager
 from utils import interactive_cli, parse_structured_json_response
 
 
