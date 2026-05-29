@@ -38,8 +38,8 @@ from fastapi.responses import StreamingResponse
 from utils import (
     get_all_providers,
     get_default_model_details,
-    get_display_name,
     parse_structured_json_response,
+    sort_providers_by_display_order,
 )
 
 
@@ -93,7 +93,7 @@ def _recover_structured_parse_error(result: dict) -> dict:
 
 def _provider_selection_map(manager):
     available = manager.get_available_providers()
-    sorted_providers = sorted(available, key=lambda provider: (provider != "openai", get_display_name(provider)))
+    sorted_providers = sort_providers_by_display_order(available)
     return {str(index): provider for index, provider in enumerate(sorted_providers, start=1)}
 
 

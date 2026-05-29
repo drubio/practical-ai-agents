@@ -9,6 +9,7 @@ import {
   getDefaultModelConfig,
   getDefaultModelName,
   getDisplayName,
+  sortProvidersByDisplayOrder,
 } from "./llm_models.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -58,7 +59,7 @@ export function normalizeResponseText(payload) {
   return String(payload);
 }
 
-export { getAllProviders, getApiKey, getDisplayName };
+export { getAllProviders, getApiKey, getDisplayName, sortProvidersByDisplayOrder };
 export function getDefaultModel(provider) { return getDefaultModelName(provider); }
 export function getAllProviderNames() { return getAllProviders(); }
 export function getDefaultModelDetails(provider) {

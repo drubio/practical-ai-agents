@@ -27,6 +27,7 @@ from shared.utils import (
     parse_structured_json_response,
     print_initialization_status,
     save_response_to_file,
+    sort_providers_by_display_order,
 )
 
 
@@ -75,7 +76,7 @@ def interactive_cli(manager: BaseLLMManager):
 
     temperature, max_tokens = get_user_parameters()
     print(f"\nUsing temperature: {temperature}, max tokens: {max_tokens}")
-    available_providers = sorted(available_providers, key=lambda provider: (provider != "openai", get_display_name(provider)))
+    available_providers = sort_providers_by_display_order(available_providers)
     print("\nAvailable providers:")
     for provider in available_providers:
         print(f"- {format_provider_summary(provider)}")

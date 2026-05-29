@@ -188,7 +188,7 @@ def get_default_model_config(provider: str) -> ModelConfig:
 
 
 def get_provider_catalog(providers: Sequence[str] | None = None) -> dict[str, dict[str, str]]:
-    selected_providers = providers or list(PROVIDER_DEFAULT_MODEL_IDENTIFIERS)
+    selected_providers = providers or list(PROVIDER_DISPLAY_NAMES)
     catalog: dict[str, dict[str, str]] = {}
     for provider in selected_providers:
         config = get_default_model_config(provider)
@@ -224,11 +224,24 @@ def get_display_name(provider: str) -> str:
 
 
 def get_public_provider_names() -> list[str]:
-    return ["anthropic", "openai", "google", "xai", "deepseek"]
+    return list(PROVIDER_DISPLAY_NAMES)
 
 
 def get_all_providers() -> list[str]:
     return get_public_provider_names()
+
+
+def sort_providers_by_display_order(providers: Sequence[str]) -> list[str]:
+    """Return providers in the canonical display order, with unknowns last."""
+    display_rank = {provider: index for index, provider in enumerate(PROVIDER_DISPLAY_NAMES)}
+    return sorted(
+        providers,
+        key=lambda provider: (
+            display_rank.get(provider, len(display_rank)),
+            get_display_name(provider).casefold(),
+            provider,
+        ),
+    )
 
 
 def select_models(model_identifiers: Sequence[str]) -> list[ModelConfig]:

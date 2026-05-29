@@ -3,7 +3,7 @@
  * Supports optional memory endpoints and session-based tracking.
  */
 
-import { getAllProviders, getDefaultModelDetails, getDisplayName, parseStructuredJsonResponse } from './utils.js';
+import { getAllProviders, getDefaultModelDetails, parseStructuredJsonResponse, sortProvidersByDisplayOrder } from './utils.js';
 import { buildManager, captureConsoleOutputAsync, chunkText, createExpressApp, normalizeResponseText, resolveSessionId, resultIsSuccess, streamTextSse, supportsCoagent, supportsMemory, supportsMemoryRetrieval, supportsSessionMemory, toSseLine } from '../../shared/web.mjs';
 
 function parseStructuredRawResponse(rawResponse) {
@@ -45,11 +45,7 @@ function recoverStructuredParseError(result) {
 }
 
 function providerSelectionMap(manager) {
-  const sortedProviders = [...manager.getAvailableProviders()].sort((a, b) => {
-    if (a === 'openai') return -1;
-    if (b === 'openai') return 1;
-    return getDisplayName(a).localeCompare(getDisplayName(b));
-  });
+  const sortedProviders = sortProvidersByDisplayOrder(manager.getAvailableProviders());
   return Object.fromEntries(sortedProviders.map((provider, index) => [String(index + 1), provider]));
 }
 

@@ -18,6 +18,7 @@ from shared.llm_models import (
     get_default_model_config,
     get_default_model_name,
     get_display_name,
+    sort_providers_by_display_order,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

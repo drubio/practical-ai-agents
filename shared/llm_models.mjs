@@ -87,7 +87,7 @@ export function getDefaultModelConfig(provider) {
   return getIdentifierMappings()[identifier];
 }
 
-export function getProviderCatalog(providers = Object.keys(PROVIDER_DEFAULT_MODEL_IDENTIFIERS)) {
+export function getProviderCatalog(providers = Object.keys(PROVIDER_DISPLAY_NAMES)) {
   return Object.fromEntries(
     providers.map((provider) => {
       const config = getDefaultModelConfig(provider);
@@ -120,11 +120,21 @@ export function getDisplayName(provider) {
 }
 
 export function getPublicProviderNames() {
-  return ["anthropic", "openai", "google", "xai", "deepseek"];
+  return Object.keys(PROVIDER_DISPLAY_NAMES);
 }
 
 export function getAllProviders() {
   return getPublicProviderNames();
+}
+
+export function sortProvidersByDisplayOrder(providers) {
+  const displayRank = new Map(Object.keys(PROVIDER_DISPLAY_NAMES).map((provider, index) => [provider, index]));
+  return [...providers].sort((a, b) => {
+    const aRank = displayRank.has(a) ? displayRank.get(a) : displayRank.size;
+    const bRank = displayRank.has(b) ? displayRank.get(b) : displayRank.size;
+    if (aRank !== bRank) return aRank - bRank;
+    return getDisplayName(a).localeCompare(getDisplayName(b)) || String(a).localeCompare(String(b));
+  });
 }
 
 function inferProvider(promptLower, selectedTools) {

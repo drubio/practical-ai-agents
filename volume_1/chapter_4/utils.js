@@ -17,6 +17,7 @@ import {
   getUserParameters,
   parseStructuredJsonResponse,
   saveResponseToFile,
+  sortProvidersByDisplayOrder,
 } from '../../shared/utils.mjs';
 
 export {
@@ -34,6 +35,7 @@ export {
   getUserParameters,
   parseStructuredJsonResponse,
   saveResponseToFile,
+  sortProvidersByDisplayOrder,
 };
 
 export class BaseLLMManager {
@@ -84,7 +86,7 @@ export async function interactiveCli(manager) {
     }
     const { temperature, maxTokens } = await getUserParameters(ask);
     console.log(`\nUsing temperature: ${temperature}, max tokens: ${maxTokens}`);
-    const sortedProviders = [...availableProviders].sort((a, b) => (a === 'openai' ? -1 : b === 'openai' ? 1 : getDisplayName(a).localeCompare(getDisplayName(b))));
+    const sortedProviders = sortProvidersByDisplayOrder(availableProviders);
     console.log('\nAvailable providers:');
     sortedProviders.forEach((provider) => console.log(`- ${formatProviderSummary(provider)}`));
     const memorySupported = Boolean((manager.memoryEnabled || manager.retrievalMemoryEnabled) && typeof manager.askQuestion === 'function' && typeof manager.getHistory === 'function' && typeof manager.resetMemory === 'function');
