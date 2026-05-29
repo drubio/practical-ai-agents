@@ -228,31 +228,6 @@ def create_web_api(manager_class):
                 yield to_sse_line({"type": "error", "error": str(exc)})
         return StreamingResponse(stream_events(), media_type='text/event-stream')
 
-    @app.post('/query-all')
-    async def query_all(request: SharedQueryAllRequest):
-        try:
-            result = await run_manager_in_thread(lambda: manager.query_all_providers(topic=request.topic, template=request.template, max_tokens=request.max_tokens, temperature=request.temperature))
-            if not isinstance(result, dict):
-                raise HTTPException(status_code=500, detail='Manager returned a non-dict response')
-            if not result_is_success(result):
-                raise HTTPException(status_code=400, detail=result.get('error', 'Query failed'))
-            responses = result.get('responses')
-            if not isinstance(responses, dict):
-                raise HTTPException(status_code=500, detail='Manager returned invalid responses payload')
-            clean_responses = {}
-            for provider, res in responses.items():
-                if not isinstance(res, dict):
-                    clean_responses[provider] = {"success": False, "model": '', "response": normalize_response_text(res), "parameters": {"temperature": None, "max_tokens": None}}
-                    continue
-                raw_content = _result_value(res, 'response')
-                content = raw_content if isinstance(raw_content, (dict, list)) else normalize_response_text(raw_content)
-                clean_responses[provider] = {"success": bool(_result_value(res, 'success', default=False)), "model": _result_value(res, 'model', default=''), "response": content, "parameters": {"temperature": _result_value(res, 'temperature'), "max_tokens": _result_value(res, 'max_tokens', 'maxTokens')}}
-            return {"success": True, "framework": manager.framework, "prompt": _result_value(result, 'prompt', default=request.template.format(topic=request.topic)), "responses": clean_responses}
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
     @app.get('/history')
     async def get_history(provider: str = 'openai', session_id: str = 'default'):
         if not supports_session_memory(manager):

@@ -42,6 +42,8 @@ ALL_MODEL_IDENTIFIERS = [
     "xai_grok_4",
     "xai_grok_3",
     "xai_grok_3_mini",
+    "deepseek_4_flash",
+    "deepseek_4_pro",
 ]
 
 PROVIDER_DISPLAY_NAMES = {
@@ -49,6 +51,7 @@ PROVIDER_DISPLAY_NAMES = {
     "anthropic": "Anthropic Claude",
     "google": "Google Gemini",
     "xai": "xAI Grok",
+    "deepseek": "DeepSeek",
 }
 
 PROVIDER_API_KEY_ENV_VARS = {
@@ -56,6 +59,7 @@ PROVIDER_API_KEY_ENV_VARS = {
     "anthropic": ("ANTHROPIC_API_KEY",),
     "google": ("GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"),
     "xai": ("XAI_API_KEY",),
+    "deepseek": ("DEEPSEEK_API_KEY",),
 }
 
 PROVIDER_DEFAULT_MODEL_IDENTIFIERS = {
@@ -63,6 +67,7 @@ PROVIDER_DEFAULT_MODEL_IDENTIFIERS = {
     "anthropic": "anthropic_claude_sonnet_4_6",
     "google": "google_genai_gemini_3_flash",
     "xai": "xai_grok_4",
+    "deepseek": "deepseek_4_flash",
 }
 
 
@@ -153,6 +158,27 @@ def get_identifier_mappings() -> dict[str, ModelConfig]:
             tier="lite",
             strengths=("social", "fast", "cost-efficient"),
         ),
+        "deepseek_4_pro": ModelConfig(
+            name="deepseek_4_pro",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            tier="advanced",
+            strengths=("deep-analysis", "social", "long-form"),
+        ),
+        "deepseek_4_pro": ModelConfig(
+            name="deepseek_4_pro",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            tier="standard",
+            strengths=("social", "trends", "analysis"),
+        ),
+        "deepseek_4_flash": ModelConfig(
+            name="deepseek_4_flash",
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            tier="lite",
+            strengths=("social", "fast", "cost-efficient"),
+        ),        
     }
 
 
@@ -198,7 +224,7 @@ def get_display_name(provider: str) -> str:
 
 
 def get_public_provider_names() -> list[str]:
-    return ["anthropic", "openai", "google", "xai"]
+    return ["anthropic", "openai", "google", "xai", "deepseek"]
 
 
 def get_all_providers() -> list[str]:
@@ -226,6 +252,8 @@ def _infer_provider(prompt_l: str, selected_tools: Iterable[str]) -> str:
         return "xai"
     if any(token in prompt_l for token in social_markers):
         return "xai"
+    if any(token in prompt_l for token in {"deepseek"}):
+        return "deepseek"
 
     calculator_is_primary = "calculator" in tools and len(tools) <= 2
     if any(token in prompt_l for token in coding_markers) or calculator_is_primary:
@@ -266,6 +294,7 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_ide
         "anthropic": {"advanced": "anthropic_claude_opus_4_6", "standard": "anthropic_claude_sonnet_4_6", "lite": "anthropic_claude_haiku_4_5"},
         "google": {"advanced": "google_genai_gemini_3_1_pro", "standard": "google_genai_gemini_3_flash", "lite": "google_genai_gemini_3_1_flash_lite"},
         "xai": {"advanced": "xai_grok_4", "standard": "xai_grok_3", "lite": "xai_grok_3_mini"},
+        "deepseek": {"advanced": "deepseek_4_pro", "standard": "deepseek_4_pro", "lite": "deepseek_4_flash"},
     }
 
     candidates = provider_tier_candidates.get(provider, provider_tier_candidates["openai"])
@@ -311,8 +340,17 @@ def resolve_llamaindex_model(selected_model: str):
             is_chat_model=True,
             is_function_calling_model=True,
         )
+    elif llamaindex_provider == "deepseek":
+        from llama_index.llms.openai_like import OpenAILike
+        llm = OpenAILike(
+            model=model,
+            api_base=os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com"),
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            is_chat_model=True,
+            is_function_calling_model=True,
+        )        
     else:
-        supported = "anthropic, google, openai, xai"
+        supported = "anthropic, google, openai, xai, deepseek"
         raise ValueError(
             f"Unsupported provider '{config.provider}' for '{selected_model}'. Supported: {supported}"
         )

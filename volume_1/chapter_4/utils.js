@@ -68,24 +68,13 @@ export class BaseLLMManager {
     }
     console.log('='.repeat(50) + '\n');
   }
-
-  async queryAllProviders(topic, template = '{topic}', maxTokens = 1000, temperature = 0.7) {
-    const available = this.getAvailableProviders();
-    if (available.length === 0) return { success: false, error: 'No providers available', prompt: template.replace('{topic}', topic), responses: {} };
-    const responses = {};
-    for (const provider of available) {
-      console.log(`Querying ${getDisplayName(provider)}...`);
-      responses[provider] = await this.askQuestion(topic, provider, template, maxTokens, temperature);
-    }
-    return { success: true, prompt: template.replace('{topic}', topic), responses };
-  }
 }
 
 export async function interactiveCli(manager) {
   const ask = getSharedAsk();
   try {
     console.log('='.repeat(60));
-    console.log(`LLM Application - ${manager.framework} Framework`);
+    console.log(`Agent Application - ${manager.framework} Framework`);
     console.log('='.repeat(60));
     manager.displayInitializationStatus();
     const availableProviders = manager.getAvailableProviders();
@@ -98,58 +87,46 @@ export async function interactiveCli(manager) {
     const sortedProviders = [...availableProviders].sort((a, b) => (a === 'openai' ? -1 : b === 'openai' ? 1 : getDisplayName(a).localeCompare(getDisplayName(b))));
     console.log('\nAvailable providers:');
     sortedProviders.forEach((provider) => console.log(`- ${formatProviderSummary(provider)}`));
-    const mode = ((await ask('Query ALL providers or select one? (all/one, default one): ')).trim().toLowerCase() || 'one');
     const memorySupported = Boolean((manager.memoryEnabled || manager.retrievalMemoryEnabled) && typeof manager.askQuestion === 'function' && typeof manager.getHistory === 'function' && typeof manager.resetMemory === 'function');
-    if (['all', 'a', ''].includes(mode)) {
-      const question = await getNonEmptyInput('Enter your question: ', ask);
-      const results = await manager.queryAllProviders(question, '{topic}', maxTokens, temperature);
-      if (results.success) {
-        for (const [provider, res] of Object.entries(results.responses)) displayProviderResponse(provider, res, manager.framework);
-      } else {
-        console.log(`Error: ${results.error}`);
+
+    const provider = sortedProviders[await getUserChoice(sortedProviders.map((p) => getDisplayName(p)), 'Select a provider:', ask)];
+    const providerDetails = getDefaultModelDetails(provider);
+    console.log(`\nUsing provider: ${providerDetails.displayName} (provider: ${providerDetails.canonicalProvider}, default model: ${providerDetails.defaultModel} / ${providerDetails.defaultModelIdentifier} / ${providerDetails.defaultModelTier})`);
+    let sessionId = 'default';
+    if (memorySupported) {
+      const sessionInput = (await ask("Enter memory session ID (default: 'default'): ")).trim();
+      if (sessionInput) sessionId = sessionInput;
+      console.log(`Using memory session: ${sessionId}`);
+    }
+    console.log('\n' + '='.repeat(50));
+    console.log(`${manager.framework.toUpperCase()} INTERACTIVE MODE - ${getDisplayName(provider).toUpperCase()}`);
+    console.log('='.repeat(50));
+    while (true) {
+      const userInput = (await ask(memorySupported ? "\nAsk a question (or 'history', 'clear', 'exit'): " : "\nAsk a question (or 'exit'): ")).trim();
+      if (['exit', 'quit'].includes(userInput.toLowerCase())) break;
+      if (!userInput) {
+        console.log('Input cannot be empty. Please try again.');
+        continue;
       }
-      const save = (await ask('\nSave results? (y/n): ')).toLowerCase();
-      if (save === 'y' || save === 'yes') saveResponseToFile(results, formatFilename(question, manager.framework.toLowerCase()));
-    } else {
-      const provider = sortedProviders[await getUserChoice(sortedProviders.map((p) => getDisplayName(p)), 'Select a provider:', ask)];
-      const providerDetails = getDefaultModelDetails(provider);
-      console.log(`\nUsing provider: ${providerDetails.displayName} (provider: ${providerDetails.canonicalProvider}, default model: ${providerDetails.defaultModel} / ${providerDetails.defaultModelIdentifier} / ${providerDetails.defaultModelTier})`);
-      let sessionId = 'default';
-      if (memorySupported) {
-        const sessionInput = (await ask("Enter memory session ID (default: 'default'): ")).trim();
-        if (sessionInput) sessionId = sessionInput;
-        console.log(`Using memory session: ${sessionId}`);
+      if (memorySupported && userInput.toLowerCase() === 'history') {
+        const history = await Promise.resolve(manager.getHistory(provider, sessionId));
+        console.log(`\n🧠 Memory for ${getDisplayName(provider)} (session: ${sessionId}):`);
+        for (const turn of history.turns) console.log(`[${String(turn.role || 'unknown').replace(/^./, (c) => c.toUpperCase())}] ${turn.content}`);
+        if (!history.turns.length) console.log('No memory yet.');
+        continue;
       }
-      console.log('\n' + '='.repeat(50));
-      console.log(`${manager.framework.toUpperCase()} INTERACTIVE MODE - ${getDisplayName(provider).toUpperCase()}`);
-      console.log('='.repeat(50));
-      while (true) {
-        const userInput = (await ask(memorySupported ? "\nAsk a question (or 'history', 'clear', 'exit'): " : "\nAsk a question (or 'exit'): ")).trim();
-        if (['exit', 'quit'].includes(userInput.toLowerCase())) break;
-        if (!userInput) {
-          console.log('Input cannot be empty. Please try again.');
-          continue;
-        }
-        if (memorySupported && userInput.toLowerCase() === 'history') {
-          const history = await Promise.resolve(manager.getHistory(provider, sessionId));
-          console.log(`\n🧠 Memory for ${getDisplayName(provider)} (session: ${sessionId}):`);
-          for (const turn of history.turns) console.log(`[${String(turn.role || 'unknown').replace(/^./, (c) => c.toUpperCase())}] ${turn.content}`);
-          if (!history.turns.length) console.log('No memory yet.');
-          continue;
-        }
-        if (memorySupported && userInput.toLowerCase() === 'clear') {
-          await Promise.resolve(manager.resetMemory(provider, sessionId));
-          console.log(`✅ Memory cleared for session '${sessionId}'`);
-          continue;
-        }
-        const result = memorySupported ? await manager.askQuestion(userInput, provider, '{topic}', maxTokens, temperature, sessionId) : await manager.askQuestion(userInput, provider, '{topic}', maxTokens, temperature);
-        displayProviderResponse(provider, result, manager.framework);
+      if (memorySupported && userInput.toLowerCase() === 'clear') {
+        await Promise.resolve(manager.resetMemory(provider, sessionId));
+        console.log(`✅ Memory cleared for session '${sessionId}'`);
+        continue;
       }
+      const result = memorySupported ? await manager.askQuestion(userInput, provider, '{topic}', maxTokens, temperature, sessionId) : await manager.askQuestion(userInput, provider, '{topic}', maxTokens, temperature);
+      displayProviderResponse(provider, result, manager.framework);
     }
   } catch (error) {
     console.error('Fatal Error:', error);
   } finally {
-    console.log(`\nThank you for using the ${manager.framework} LLM Application!`);
+    console.log(`\nThank you for using the ${manager.framework} Agent Application!`);
     closeSharedAsk();
   }
 }

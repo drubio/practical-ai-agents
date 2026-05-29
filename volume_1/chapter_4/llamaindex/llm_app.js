@@ -87,6 +87,15 @@ class LlamaIndexLLMManager extends BaseLLMManager {
                 maxCompletionTokens: maxTokens,
             });
         }
+        if (provider === 'deepseek') {
+            return new OpenAI({
+                apiKey: getApiKey(provider),
+                baseURL: 'https://api.deepseek.com',
+                model: getDefaultModel(provider),
+                temperature,
+                maxCompletionTokens: maxTokens,
+            });
+        }	
         throw new Error(`Unsupported provider: ${provider}`);
     }
 

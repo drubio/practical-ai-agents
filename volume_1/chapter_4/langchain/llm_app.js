@@ -56,6 +56,15 @@ class LangChainLLMManager extends BaseLLMManager {
                 temperature,
                 maxTokens,
             });
+	}
+        if (provider === 'deepseek') {
+            return new ChatOpenAI({
+                apiKey: getApiKey(provider),
+                configuration: { baseURL: 'https://api.deepseek.com' },
+                model: getDefaultModel(provider),
+                temperature,
+                maxTokens,
+            });	    
         }
         throw new Error(`Unsupported provider: ${provider}`);
     }

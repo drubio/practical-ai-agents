@@ -52,6 +52,14 @@ class LangChainLLMManager(BaseLLMManager):
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+        if provider == "deepseek":
+            return ChatOpenAI(
+                api_key=get_api_key(provider),
+                base_url="https://api.deepseek.com",
+                model=get_default_model(provider),
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )        
         raise ValueError(f"Unsupported provider: {provider}")
 
     def _resolve_provider(self, provider: Optional[str]):

@@ -34,6 +34,8 @@ export const ALL_MODEL_IDENTIFIERS = [
   "xai_grok_4",
   "xai_grok_3",
   "xai_grok_3_mini",
+  "deepseek_4_flash",
+  "deepseek_4_pro",  
 ];
 
 export const PROVIDER_DISPLAY_NAMES = {
@@ -41,6 +43,7 @@ export const PROVIDER_DISPLAY_NAMES = {
   anthropic: "Anthropic Claude",
   google: "Google Gemini",
   xai: "xAI Grok",
+  deepseek: "DeepSeek",
 };
 
 export const PROVIDER_API_KEY_ENV_VARS = {
@@ -48,6 +51,7 @@ export const PROVIDER_API_KEY_ENV_VARS = {
   anthropic: ["ANTHROPIC_API_KEY"],
   google: ["GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"],
   xai: ["XAI_API_KEY"],
+  deepseek: ["DEEPSEEK_API_KEY"],
 };
 
 export const PROVIDER_DEFAULT_MODEL_IDENTIFIERS = {
@@ -55,6 +59,7 @@ export const PROVIDER_DEFAULT_MODEL_IDENTIFIERS = {
   anthropic: "anthropic_claude_sonnet_4_6",
   google: "google_genai_gemini_3_flash",
   xai: "xai_grok_4",
+  deepseek: "deepseek_4_flash",  
 };
 
 export function getIdentifierMappings() {
@@ -71,6 +76,9 @@ export function getIdentifierMappings() {
     xai_grok_4: { name: "xai_grok_4", provider: "xai", model: "grok-4", tier: "advanced", strengths: ["deep-analysis", "social", "long-form"] },
     xai_grok_3: { name: "xai_grok_3", provider: "xai", model: "grok-3", tier: "standard", strengths: ["social", "trends", "analysis"] },
     xai_grok_3_mini: { name: "xai_grok_3_mini", provider: "xai", model: "grok-3-mini", tier: "lite", strengths: ["social", "fast", "cost-efficient"] },
+    deepseek_4_pro: { name: "deepseek_4_pro", provider: "deepseek", model: "deepseek-v4-pro", tier: "advanced", strengths: ["deep-analysis", "social", "long-form"] },
+    deepseek_4_pro: { name: "deepseek_4_pro", provider: "deepseek", model: "deepseek-v4-pro", tier: "standard", strengths: ["social", "trends", "analysis"] },
+    deepseek_4_flash: { name: "deepseek_4_flash", provider: "deepseek", model: "deepseek-v4-flash", tier: "lite", strengths: ["social", "fast", "cost-efficient"] },    
   };
 }
 
@@ -112,7 +120,7 @@ export function getDisplayName(provider) {
 }
 
 export function getPublicProviderNames() {
-  return ["anthropic", "openai", "google", "xai"];
+  return ["anthropic", "openai", "google", "xai", "deepseek"];
 }
 
 export function getAllProviders() {
@@ -128,6 +136,7 @@ function inferProvider(promptLower, selectedTools) {
   if (["claude", "anthropic"].some((token) => promptLower.includes(token))) return "anthropic";
   if (["gemini", "google"].some((token) => promptLower.includes(token))) return "google";
   if (["grok", "xai"].some((token) => promptLower.includes(token))) return "xai";
+  if (["deepseek"].some((token) => promptLower.includes(token))) return "deepseek";
   if (socialMarkers.some((token) => promptLower.includes(token))) return "xai";
   const calculatorIsPrimary = tools.has("calculator") && tools.size <= 2;
   if (codingMarkers.some((token) => promptLower.includes(token)) || calculatorIsPrimary) return "anthropic";
@@ -158,6 +167,7 @@ export function routeModelForPrompt(prompt, selectedTools, modelIdentifiers = AL
     anthropic: { advanced: "anthropic_claude_opus_4_6", standard: "anthropic_claude_sonnet_4_6", lite: "anthropic_claude_haiku_4_5" },
     google: { advanced: "google_genai_gemini_3_1_pro", standard: "google_genai_gemini_3_flash", lite: "google_genai_gemini_3_1_flash_lite" },
     xai: { advanced: "xai_grok_4", standard: "xai_grok_3", lite: "xai_grok_3_mini" },
+    deepseek: { advanced: "deepseek_4_pro", standard: "deepseek_4_pro", lite: "deepseek_4_flash" },    
   };
   const mappings = getIdentifierMappings();
   const candidates = providerTierCandidates[provider] || providerTierCandidates.openai;
@@ -187,6 +197,7 @@ export function resolveLlamaindexModel(selectedModel) {
     anthropic: () => ({ llmClass: Anthropic, llmConfig: { model: config.model, apiKey: process.env.ANTHROPIC_API_KEY } }),
     google: () => ({ llmClass: Gemini, llmConfig: { model: config.model, apiKey: process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY } }),
     xai: () => ({ llmClass: OpenAI, llmConfig: { model: config.model, apiKey: process.env.XAI_API_KEY, baseURL: process.env.XAI_API_BASE || "https://api.x.ai/v1" } }),
+    deepseek: () => ({ llmClass: OpenAI, llmConfig: { model: config.model, apiKey: process.env.DEEPSEEK_API_KEY, baseURL: process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com" } }),    
   };
   const builder = builders[llmProvider];
   if (!builder) {

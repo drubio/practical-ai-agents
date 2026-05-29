@@ -154,30 +154,6 @@ export function createWebApi(managerClassOrFactory) {
     }
   });
 
-  app.post('/query-all', async (req, res) => {
-    try {
-      const { topic, template = '{topic}', max_tokens = 1000, temperature = 0.7 } = req.body;
-      if (!topic) return res.status(400).json({ error: 'Topic is required' });
-      const { result, logs } = await captureConsoleOutputAsync(async () => manager.queryAllProviders(topic, template, max_tokens, temperature));
-      if (!resultIsSuccess(result)) return res.status(400).json({ error: result.error || 'Query failed', framework: manager.framework, debug: logs || null });
-      const cleanResponses = {};
-      let successful = 0;
-      let failed = 0;
-      for (const [provider, response] of Object.entries(result.responses || {})) {
-        if (response.success) {
-          cleanResponses[provider] = { success: true, response: (typeof response.response === 'object' && response.response !== null) ? response.response : normalizeResponseText(response.response), model: response.model, parameters: { temperature: response.temperature, max_tokens: response.maxTokens } };
-          successful += 1;
-        } else {
-          cleanResponses[provider] = { success: false, error: response.error || 'Unknown error', model: response.model || 'unknown' };
-          failed += 1;
-        }
-      }
-      return res.json({ success: true, framework: manager.framework, prompt: result.prompt, responses: cleanResponses, summary: { total_providers: Object.keys(result.responses || {}).length, successful, failed }, parameters: { temperature, max_tokens, template }, ...(logs ? { debug: logs } : {}) });
-    } catch (error) {
-      return res.status(500).json({ error: error.message, framework: manager.framework });
-    }
-  });
-
   app.get('/history', async (req, res) => {
     if (!supportsSessionMemory(manager)) return res.status(400).json({ error: 'Session memory not supported by this manager' });
     const { provider = 'openai', session_id = 'default', sessionId = null } = req.query;

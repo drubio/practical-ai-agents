@@ -1,6 +1,6 @@
-# LLM application to chat with multiple LLMs
+# Agent application to chat with multiple LLMs
 
-This chapter provides a cross-framework (LangChain, LlamaIndex), dual-language (Python, JavaScript) application to interact with multiple LLMs (GPT, Claude, Gemini, Grok)
+This chapter provides a cross-framework (LangChain, LlamaIndex), dual-language (Python, JavaScript) agent application to interact with multiple LLMs (GPT, Claude, Gemini, Grok)
 
 It can be run in two forms:
 - In **command line** mode, with output sent to a console.
@@ -10,11 +10,11 @@ It can be run in two forms:
 ```
 chapter_4/
 ├── langchain/
-│   ├── llm_app.py
-│   └── llm_app.js
+│   ├── agent_app.py
+│   └── agent_app.js
 ├── llamaindex/
-│   ├── llm_app.py
-│   └── llm_app.js
+│   ├── agent_app.py
+│   └── agent_app.js
 ├── utils.py
 ├── utils.js
 ├── web.py
@@ -36,8 +36,8 @@ You choose what framework to run by choosing the script language and framework s
 ------------------------------------------------------------------------------------
 | Framework       | Python                          | JavaScript                   |
 |-----------------|---------------------------------|------------------------------|
-| **LangChain**   | `langchain/llm_app.py`          | `langchain/llm_app.js`       |
-| **LlamaIndex**  | `llamaindex/llm_app.py`         | `llamaindex/llm_app.js`      |
+| **LangChain**   | `langchain/agent_app.py`          | `langchain/agent_app.js`       |
+| **LlamaIndex**  | `llamaindex/agent_app.py`         | `llamaindex/agent_app.js`      |
 ------------------------------------------------------------------------------------
 
 The following files are **shared** for both LangChain and LlamaIndex implementations:
@@ -66,15 +66,15 @@ Run in either:
 * [Command Line Mode]
 ### ❯ Example (Python)
 ```bash
-python langchain/llm_app.py
-python llamaindex/llm_app.py
+python langchain/agent_app.py
+python llamaindex/agent_app.py
 ```
 
 ### ❯ Example (JavaScript)
 
 ```bash
-node langchain/llm_app.js
-node llamaindex/llm_app.js
+node langchain/agent_app.js
+node llamaindex/agent_app.js
 ```
 
 ### ❯ Sample Session
@@ -104,15 +104,15 @@ AGI is a type of AI that can perform...
 ### ❯ Example (Python)
 
 ```bash
-python langchain/llm_app.py web
-python llamaindex/llm_app.py web
+python langchain/agent_app.py web
+python llamaindex/agent_app.py web
 ```
 
 ### ❯ Example (JavaScript)
 
 ```bash
-node langchain/llm_app.js web
-node llamaindex/llm_app.js web
+node langchain/agent_app.js web
+node llamaindex/agent_app.js web
 ```
 
 ### ❯ Endpoints
