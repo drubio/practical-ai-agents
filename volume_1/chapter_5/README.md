@@ -1,6 +1,6 @@
-# LLM application with memory and persistent chat for multiple LLMs
+# Agent application with memory and persistent chat for multiple LLMs
 
--This chapter extends Chapter 4's LLM application with:
+-This chapter extends Chapter 4's Agent application with:
 
 1. **Memory and persistence**
 2. **Memory, persistence and structured output parsing**
@@ -12,15 +12,15 @@ Both variations are available across **LangChain** and **LlamaIndex**, in **Pyth
 ```text
 chapter_5/
 ├── langchain/
-│   ├── llm_memory_persist.py
-│   ├── llm_memory_persist.js
-│   ├── llm_structured_output.py
-│   └── llm_structured_output.js
+│   ├── agent_memory_persist.py
+│   ├── agent_memory_persist.js
+│   ├── agent_structured_output.py
+│   └── agent_structured_output.js
 ├── llamaindex/
-│   ├── llm_memory_persist.py
-│   ├── llm_memory_persist.js
-│   ├── llm_structured_output.py
-│   └── llm_structured_output.js
+│   ├── agent_memory_persist.py
+│   ├── agent_memory_persist.js
+│   ├── agent_structured_output.py
+│   └── agent_structured_output.js
 └── README.md
 ```
 
@@ -28,8 +28,8 @@ chapter_5/
 
 | Framework | Memory and Persistence(Python) | Memory and Persistence memory (JavaScript) | Structured Output (Python) | Structured Output (JavaScript) |
 |---|---|---|---|---|
-| **LangChain** | `langchain/llm_memory_persist.py` | `langchain/llm_memory_persist.js` | `langchain/llm_structured_output.py` | `langchain/llm_structured_output.js` |
-| **LlamaIndex** | `llamaindex/llm_memory_persist.py` | `llamaindex/llm_memory_persist.js` | `llamaindex/llm_structured_output.py` | `llamaindex/llm_structured_output.js` |
+| **LangChain** | `langchain/agent_memory_persist.py` | `langchain/agent_memory_persist.js` | `langchain/agent_structured_output.py` | `langchain/agent_structured_output.js` |
+| **LlamaIndex** | `llamaindex/agent_memory_persist.py` | `llamaindex/agent_memory_persist.js` | `llamaindex/agent_structured_output.py` | `llamaindex/agent_structured_output.js` |
 
 ## Dependencies and environment
 
@@ -52,26 +52,26 @@ Run commands from `volume_1/chapter_5`.
 #### Python
 
 ```bash
-python langchain/llm_memory_persist.py
-python langchain/llm_structured_output.py
-python llamaindex/llm_memory_persist.py
-python llamaindex/llm_structured_output.py
+python langchain/agent_memory_persist.py
+python langchain/agent_structured_output.py
+python llamaindex/agent_memory_persist.py
+python llamaindex/agent_structured_output.py
 ```
 
 #### JavaScript
 
 ```bash
-node langchain/llm_memory_persist.js
-node langchain/llm_structured_output.js
-node llamaindex/llm_memory_persist.js
-node llamaindex/llm_structured_output.js
+node langchain/agent_memory_persist.js
+node langchain/agent_structured_output.js
+node llamaindex/agent_memory_persist.js
+node llamaindex/agent_structured_output.js
 ```
 
 ### Web API mode
 
 ```bash
-python langchain/llm_memory_persist.py web
-node llamaindex/llm_structured_output.js web
+python langchain/agent_memory_persist.py web
+node llamaindex/agent_structured_output.js web
 ```
 
 ## Incremental learning goal
@@ -81,12 +81,12 @@ node llamaindex/llm_structured_output.js web
 
 ## Memory-aware endpoints
 
-In addition to base Chapter 4 endpoints (`/`, `/providers`, `/query`, `/query-all`, `/health`), memory-capable managers expose:
+In addition to base Chapter 4 endpoints (`/`, `/providers`, `/query`, `/health`), memory-capable managers expose:
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/history?provider=<name>&session_id=<id>` | Get stored turns for a provider/session |
-| POST | `/reset-memory` | Clear memory by provider/session or clear all |
+| GET | `/history?session_id=<id>` | Get stored turns for a session |
+| POST | `/reset-memory` | Clear memory by session or clear all |
 
 ### Query with session context
 
@@ -105,7 +105,7 @@ curl -X POST http://localhost:8000/query \
 ### Read session history
 
 ```bash
-curl "http://localhost:8000/history?provider=openai&session_id=default"
+curl "http://localhost:8000/history?session_id=default"
 ```
 
 ### Reset memory
@@ -113,7 +113,7 @@ curl "http://localhost:8000/history?provider=openai&session_id=default"
 ```bash
 curl -X POST http://localhost:8000/reset-memory \
   -H "Content-Type: application/json" \
-  -d '{"provider": "openai", "session_id": "default"}'
+  -d '{"session_id": "default"}'
 ```
 
 To clear all sessions use no parameters:
@@ -126,6 +126,6 @@ curl -X POST http://localhost:8000/reset-memory \
 
 ## Notes
 
-- Session memory is isolated by `provider` + `session_id`.
+- Session memory is isolated by `session_id`.
 - Persistent sessions are stored under each framework's `sessions/` directory.
 - Structured variants return parsed JSON in `response` and keep a short `raw_answer`/`rawAnswer` field.

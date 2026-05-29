@@ -1,6 +1,5 @@
 """LLM Memory Gateway - LangChain with persistent session memory."""
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -20,53 +19,25 @@ from agent_app import LangChainLLMManager as Chapter4LangChainManager
 from utils import get_default_model, interactive_cli
 
 
-def _migrate_js_session_file(file_path: Path, provider: str, session_id: str) -> None:
-    """Convert the legacy JS nested store into the Python FileChatMessageHistory format."""
-
-    if not file_path.exists():
-        return
-
-    raw = file_path.read_text(encoding="utf-8").strip()
-    if not raw:
-        return
-
-    payload = json.loads(raw)
-    if isinstance(payload, list):
-        return
-
-    if not isinstance(payload, dict):
-        raise ValueError(f"Unsupported session history format in {file_path}")
-
-    session_key = f"{provider}__{session_id}"
-    messages = payload.get(provider, {}).get(session_key, {}).get("messages")
-    if not isinstance(messages, list):
-        raise ValueError(f"Unsupported session history format in {file_path}")
-
-    file_path.write_text(json.dumps(messages, ensure_ascii=True), encoding="utf-8")
-
-
 class LangChainLLMManager(Chapter4LangChainManager):
     """Chapter 5 manager with file-backed memory as the default mode."""
 
     def __init__(self, memory_enabled: bool = True):
         self.memory_enabled = memory_enabled
         self.chains: Dict[Tuple[str, str], RunnableWithMessageHistory] = {}
-        self.histories: Dict[Tuple[str, str], FileChatMessageHistory] = {}
+        self.histories: Dict[str, FileChatMessageHistory] = {}
         super().__init__()
         self.framework = "LangChain Memory+Persistence"
 
-    def _session_file_path(self, provider: str, session_id: str) -> Path:
+    def _session_file_path(self, session_id: str) -> Path:
         sessions_dir = Path(__file__).resolve().parent / "sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
-        return sessions_dir / f"{provider}__{session_id}.json"
+        return sessions_dir / f"{session_id}.json"
 
-    def _get_history(self, provider: str, session_id: str) -> FileChatMessageHistory:
-        key = (provider, session_id)
-        if key not in self.histories:
-            file_path = self._session_file_path(provider, session_id)
-            _migrate_js_session_file(file_path, provider, session_id)
-            self.histories[key] = FileChatMessageHistory(file_path=str(file_path))
-        return self.histories[key]
+    def _get_history(self, session_id: str) -> FileChatMessageHistory:
+        if session_id not in self.histories:
+            self.histories[session_id] = FileChatMessageHistory(file_path=str(self._session_file_path(session_id)))
+        return self.histories[session_id]
 
     def _test_provider(self, provider: str):
         if self.memory_enabled:
@@ -86,7 +57,7 @@ class LangChainLLMManager(Chapter4LangChainManager):
             )
             self.chains[key] = RunnableWithMessageHistory(
                 prompt | client,
-                get_session_history=lambda _: self._get_history(provider, session_id),
+                get_session_history=lambda _: self._get_history(session_id),
                 input_messages_key="input",
                 history_messages_key="history",
             )
@@ -184,7 +155,7 @@ class LangChainLLMManager(Chapter4LangChainManager):
             }
 
     def get_history(self, provider: str, session_id: str) -> Dict:
-        messages = self._get_history(provider, session_id).messages
+        messages = self._get_history(session_id).messages
         turns = []
         for msg in messages:
             if not hasattr(msg, "content"):
@@ -210,23 +181,13 @@ class LangChainLLMManager(Chapter4LangChainManager):
 
     def reset_memory(self, provider: str = None, session_id: str = None) -> Dict:
         removed = []
-        if provider and session_id:
-            key = (provider, session_id)
-            self.chains.pop(key, None)
-            self.histories.pop(key, None)
-            removed.append(key)
-        elif provider:
-            for key in list(self.histories.keys()):
-                if key[0] == provider:
-                    self.chains.pop(key, None)
-                    self.histories.pop(key, None)
-                    removed.append(key)
-        elif session_id:
-            for key in list(self.histories.keys()):
+
+        if session_id:
+            self.histories.pop(session_id, None)
+            for key in list(self.chains.keys()):
                 if key[1] == session_id:
                     self.chains.pop(key, None)
-                    self.histories.pop(key, None)
-                    removed.append(key)
+            removed.append(session_id)
         else:
             self.chains.clear()
             self.histories.clear()
@@ -236,9 +197,8 @@ class LangChainLLMManager(Chapter4LangChainManager):
             for path in (Path(__file__).resolve().parent / "sessions").glob("*.json"):
                 path.unlink(missing_ok=True)
         else:
-            for key in removed:
-                if isinstance(key, tuple):
-                    self._session_file_path(*key).unlink(missing_ok=True)
+            for session in removed:
+                self._session_file_path(session).unlink(missing_ok=True)
 
         return {"status": "cleared", "removed_sessions": removed}
 

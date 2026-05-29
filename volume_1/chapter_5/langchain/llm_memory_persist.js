@@ -15,7 +15,7 @@ import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function migratePythonSessionFile(filePath, provider, sessionId) {
+async function migratePythonSessionFile(filePath, sessionId) {
     try {
         const raw = await fs.promises.readFile(filePath, 'utf8');
         if (!raw.trim()) return;
@@ -23,10 +23,9 @@ async function migratePythonSessionFile(filePath, provider, sessionId) {
         const payload = JSON.parse(raw);
         if (!Array.isArray(payload)) return;
 
-        const sessionKey = `${provider}__${sessionId}`;
         await fs.promises.writeFile(filePath, JSON.stringify({
-            [provider]: {
-                [sessionKey]: {
+            '': {
+                [sessionId]: {
                     messages: payload,
                 },
             },
@@ -49,19 +48,18 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         return `${provider}::${sessionId}`;
     }
 
-    _sessionFilePath(provider, sessionId) {
+    _sessionFilePath(sessionId) {
         const sessionsDir = path.join(__dirname, 'sessions');
         fs.mkdirSync(sessionsDir, { recursive: true });
-        return path.join(sessionsDir, `${provider}__${sessionId}.json`);
+        return path.join(sessionsDir, `${sessionId}.json`);
     }
 
-    _getHistory(provider, sessionId) {
-        const key = this._historyKey(provider, sessionId);
-        if (!this.histories.has(key)) {
-            const filePath = this._sessionFilePath(provider, sessionId);
-            this.histories.set(key, new FileSystemChatMessageHistory({ sessionId: `${provider}__${sessionId}`, userId: provider, filePath }));
+    _getHistory(sessionId) {
+        if (!this.histories.has(sessionId)) {
+            const filePath = this._sessionFilePath(sessionId);
+            this.histories.set(sessionId, new FileSystemChatMessageHistory({ sessionId, filePath }));
         }
-        return this.histories.get(key);
+        return this.histories.get(sessionId);
     }
 
     _getChain(provider, sessionId, temperature, maxTokens) {
@@ -74,7 +72,7 @@ class LangChainLLMManager extends Chapter4LangChainManager {
             ]);
             const chain = new RunnableWithMessageHistory({
                 runnable: prompt.pipe(client),
-                getMessageHistory: () => this._getHistory(provider, sessionId),
+                getMessageHistory: () => this._getHistory(sessionId),
                 inputMessagesKey: 'input',
                 historyMessagesKey: 'history',
             });
@@ -125,7 +123,7 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         const model = getDefaultModel(resolvedProvider);
 
         try {
-            await migratePythonSessionFile(this._sessionFilePath(resolvedProvider, sessionId), resolvedProvider, sessionId);
+            await migratePythonSessionFile(this._sessionFilePath(sessionId), sessionId);
             const chain = this._getChain(resolvedProvider, sessionId, temperature, maxTokens);
             const result = await chain.invoke({ input: prompt }, { configurable: { sessionId } });
             const responseText = this._extractText(resolvedProvider, result);
@@ -166,8 +164,8 @@ class LangChainLLMManager extends Chapter4LangChainManager {
     }
 
     async getHistory(provider, sessionId = 'default') {
-        await migratePythonSessionFile(this._sessionFilePath(provider, sessionId), provider, sessionId);
-        const history = this._getHistory(provider, sessionId);
+        await migratePythonSessionFile(this._sessionFilePath(sessionId), sessionId);
+        const history = this._getHistory(sessionId);
         const messages = await history.getMessages();
         const turns = messages.map((message) => {
             const additionalKwargs = message?.additional_kwargs ?? message?.additionalKwargs ?? {};
@@ -184,33 +182,19 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         return { provider, sessionId, turns, count: turns.length };
     }
 
-    resetMemory(provider = null, sessionId = null) {
+    async resetMemory(provider = null, sessionId = null) {
         const removedSessions = [];
 
-        if (provider && sessionId) {
-            const key = this._historyKey(provider, sessionId);
-            this.chains.delete(key);
-            this.histories.delete(key);
-            removedSessions.push([provider, sessionId]);
-        } else if (provider) {
-            for (const key of Array.from(this.histories.keys())) {
-                const [p, s] = key.split('::');
-                if (p === provider) {
-                    this.chains.delete(key);
-                    this.histories.delete(key);
-                    removedSessions.push([p, s]);
-                }
+        if (sessionId) {
+            const history = this.histories.get(sessionId);
+            if (history) await history.clear();
+            this.histories.delete(sessionId);
+            for (const key of Array.from(this.chains.keys())) {
+                if (key.endsWith(`::${sessionId}`)) this.chains.delete(key);
             }
-        } else if (sessionId) {
-            for (const key of Array.from(this.histories.keys())) {
-                const [p, s] = key.split('::');
-                if (s === sessionId) {
-                    this.chains.delete(key);
-                    this.histories.delete(key);
-                    removedSessions.push([p, s]);
-                }
-            }
+            removedSessions.push(sessionId);
         } else {
+            await Promise.all(Array.from(this.histories.values()).map((history) => history.clearAllSessions()));
             this.chains.clear();
             this.histories.clear();
             removedSessions.push('ALL');
@@ -224,8 +208,8 @@ class LangChainLLMManager extends Chapter4LangChainManager {
                 }
             }
         } else {
-            for (const [p, s] of removedSessions.filter(Array.isArray)) {
-                const file = this._sessionFilePath(p, s);
+            for (const session of removedSessions) {
+                const file = this._sessionFilePath(session);
                 if (fs.existsSync(file)) fs.unlinkSync(file);
             }
         }

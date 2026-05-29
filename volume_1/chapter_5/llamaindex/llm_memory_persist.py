@@ -1,6 +1,5 @@
 """Agent Memory Gateway - LlamaIndex with persistent session memory."""
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -21,81 +20,50 @@ from agent_app import LlamaIndexLLMManager as Chapter4LlamaIndexManager
 from utils import get_default_model, interactive_cli
 
 
-def _migrate_js_session_file(file_path: Path, provider: str, session_id: str) -> None:
-    """Convert JS session payloads into the SimpleChatStore persist format."""
-
-    if not file_path.exists():
-        return
-
-    raw = file_path.read_text(encoding="utf-8").strip()
-    if not raw:
-        return
-
-    payload = json.loads(raw)
-    if isinstance(payload, dict) and isinstance(payload.get("store"), dict):
-        return
-
-    if isinstance(payload, dict) and isinstance(payload.get("messages"), list):
-        messages = payload["messages"]
-    elif isinstance(payload, list):
-        messages = payload
-    else:
-        raise ValueError(f"Unsupported session history format in {file_path}")
-
-    store_key = f"{provider}__{session_id}"
-    file_path.write_text(
-        json.dumps({"store": {store_key: messages}, "class_name": "SimpleChatStore"}),
-        encoding="utf-8",
-    )
-
-
 class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
     """Chapter 5 manager with file-backed memory as the default mode."""
 
     def __init__(self, memory_enabled: bool = True):
         self.memory_enabled = memory_enabled
-        self.memories: Dict[Tuple[str, str], Memory] = {}
+        self.memories: Dict[str, Memory] = {}
         self.chat_engines: Dict[Tuple[str, str], SimpleChatEngine] = {}
-        self.chat_stores: Dict[Tuple[str, str], SimpleChatStore] = {}
+        self.chat_stores: Dict[str, SimpleChatStore] = {}
         super().__init__()
         self.framework = "LlamaIndex Memory+Persistence"
 
-    def _session_file_path(self, provider: str, session_id: str) -> Path:
+    def _session_file_path(self, session_id: str) -> Path:
         sessions_dir = Path(__file__).resolve().parent / "sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
-        return sessions_dir / f"{provider}__{session_id}.json"
+        return sessions_dir / f"{session_id}.json"
 
-    def _session_store_key(self, provider: str, session_id: str) -> str:
-        return f"{provider}__{session_id}"
+    def _session_store_key(self, session_id: str) -> str:
+        return session_id
 
-    def _get_chat_store(self, provider: str, session_id: str) -> SimpleChatStore:
-        key = (provider, session_id)
-        if key in self.chat_stores:
-            return self.chat_stores[key]
+    def _get_chat_store(self, session_id: str) -> SimpleChatStore:
+        if session_id in self.chat_stores:
+            return self.chat_stores[session_id]
 
-        path = self._session_file_path(provider, session_id)
-        _migrate_js_session_file(path, provider, session_id)
+        path = self._session_file_path(session_id)
         chat_store = SimpleChatStore.from_persist_path(str(path)) if path.exists() else SimpleChatStore()
-        self.chat_stores[key] = chat_store
+        self.chat_stores[session_id] = chat_store
         return chat_store
 
-    def _get_memory(self, provider: str, session_id: str) -> Memory:
-        key = (provider, session_id)
-        if key not in self.memories:
-            chat_store = self._get_chat_store(provider, session_id)
-            store_key = self._session_store_key(provider, session_id)
-            self.memories[key] = Memory.from_defaults(
+    def _get_memory(self, session_id: str) -> Memory:
+        if session_id not in self.memories:
+            chat_store = self._get_chat_store(session_id)
+            store_key = self._session_store_key(session_id)
+            self.memories[session_id] = Memory.from_defaults(
                 session_id=store_key,
                 chat_history=list(chat_store.get_messages(store_key)),
             )
-        return self.memories[key]
+        return self.memories[session_id]
 
-    def _persist_memory(self, provider: str, session_id: str):
-        store_key = self._session_store_key(provider, session_id)
-        messages = list(self._get_memory(provider, session_id).get_all())
-        chat_store = self._get_chat_store(provider, session_id)
+    def _persist_memory(self, session_id: str):
+        store_key = self._session_store_key(session_id)
+        messages = list(self._get_memory(session_id).get_all())
+        chat_store = self._get_chat_store(session_id)
         chat_store.set_messages(store_key, messages)
-        chat_store.persist(persist_path=str(self._session_file_path(provider, session_id)))
+        chat_store.persist(persist_path=str(self._session_file_path(session_id)))
 
     def _get_chat_engine(
         self, provider: str, session_id: str, temperature: float, max_tokens: int
@@ -103,7 +71,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
         key = (provider, session_id)
         if key not in self.chat_engines:
             client = self._create_client(provider, temperature=temperature, max_tokens=max_tokens)
-            memory = self._get_memory(provider, session_id)
+            memory = self._get_memory(session_id)
             self.chat_engines[key] = SimpleChatEngine.from_defaults(llm=client, memory=memory)
         return self.chat_engines[key]
 
@@ -146,7 +114,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
             chat_engine = self._get_chat_engine(provider, session_id, temperature, max_tokens)
             result = chat_engine.chat(prompt)
             response_text = getattr(result, "response", None) or self._extract_text(result)
-            self._persist_memory(provider, session_id)
+            self._persist_memory(session_id)
 
             return {
                 "success": True,
@@ -174,7 +142,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
     def get_history(self, provider: str, session_id: str = "default") -> Dict:
         turns = [
             {"role": str(msg.role), "content": msg.content}
-            for msg in self._memory_messages(self._get_memory(provider, session_id))
+            for msg in self._memory_messages(self._get_memory(session_id))
         ]
         return {
             "provider": provider,
@@ -186,26 +154,13 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
     def reset_memory(self, provider: str = None, session_id: str = None) -> Dict:
         removed = []
 
-        if provider and session_id:
-            key = (provider, session_id)
-            self.memories.pop(key, None)
-            self.chat_engines.pop(key, None)
-            self.chat_stores.pop(key, None)
-            removed.append(key)
-        elif provider:
-            for key in list(self.memories.keys()):
-                if key[0] == provider:
-                    self.memories.pop(key, None)
-                    self.chat_engines.pop(key, None)
-                    self.chat_stores.pop(key, None)
-                    removed.append(key)
-        elif session_id:
-            for key in list(self.memories.keys()):
+        if session_id:
+            self.memories.pop(session_id, None)
+            self.chat_stores.pop(session_id, None)
+            for key in list(self.chat_engines.keys()):
                 if key[1] == session_id:
-                    self.memories.pop(key, None)
                     self.chat_engines.pop(key, None)
-                    self.chat_stores.pop(key, None)
-                    removed.append(key)
+            removed.append(session_id)
         else:
             self.memories.clear()
             self.chat_engines.clear()
@@ -216,9 +171,8 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
             for path in (Path(__file__).resolve().parent / "sessions").glob("*.json"):
                 path.unlink(missing_ok=True)
         else:
-            for key in removed:
-                if isinstance(key, tuple):
-                    self._session_file_path(*key).unlink(missing_ok=True)
+            for session in removed:
+                self._session_file_path(session).unlink(missing_ok=True)
 
         return {"status": "cleared", "removed_sessions": removed}
 

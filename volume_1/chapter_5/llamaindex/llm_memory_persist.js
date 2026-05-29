@@ -52,29 +52,6 @@ function normalizePersistedMessages(messages) {
     return messages.map((message) => normalizePersistedMessage(message));
 }
 
-function migratePythonSessionFile(filePath, provider, sessionId) {
-    if (!fs.existsSync(filePath)) return;
-
-    const raw = fs.readFileSync(filePath, 'utf8').trim();
-    if (!raw) return;
-
-    const payload = JSON.parse(raw);
-    if (payload?.store && typeof payload.store === 'object') return;
-
-    const storeKey = `${provider}__${sessionId}`;
-    const messages = Array.isArray(payload?.messages)
-        ? payload.messages
-        : Array.isArray(payload)
-            ? payload
-            : null;
-
-    if (!messages) {
-        throw new Error(`Unsupported session history format in ${filePath}`);
-    }
-
-    fs.writeFileSync(filePath, JSON.stringify(buildPythonStorePayload(storeKey, messages)), 'utf8');
-}
-
 class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     constructor(memoryEnabled = true) {
         super();
@@ -89,42 +66,39 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         return `${provider}::${sessionId}`;
     }
 
-    _sessionStoreKey(provider, sessionId) {
-        return `${provider}__${sessionId}`;
+    _sessionStoreKey(sessionId) {
+        return sessionId;
     }
 
-    _sessionFilePath(provider, sessionId) {
+    _sessionFilePath(sessionId) {
         const sessionsDir = path.join(__dirname, 'sessions');
         fs.mkdirSync(sessionsDir, { recursive: true });
-        return path.join(sessionsDir, `${provider}__${sessionId}.json`);
+        return path.join(sessionsDir, `${sessionId}.json`);
     }
 
-    _getChatStore(provider, sessionId) {
-        const key = this._sessionKey(provider, sessionId);
-        if (this.chatStores.has(key)) {
-            return this.chatStores.get(key);
+    _getChatStore(sessionId) {
+        if (this.chatStores.has(sessionId)) {
+            return this.chatStores.get(sessionId);
         }
 
         const chatStore = new SimpleChatStore();
-        const storeKey = this._sessionStoreKey(provider, sessionId);
-        const filePath = this._sessionFilePath(provider, sessionId);
+        const storeKey = this._sessionStoreKey(sessionId);
+        const filePath = this._sessionFilePath(sessionId);
 
         if (fs.existsSync(filePath)) {
-            migratePythonSessionFile(filePath, provider, sessionId);
             const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
             const messages = payload?.store?.[storeKey];
             chatStore.setMessages(storeKey, Array.isArray(messages) ? normalizePersistedMessages(messages) : []);
         }
 
-        this.chatStores.set(key, chatStore);
+        this.chatStores.set(sessionId, chatStore);
         return chatStore;
     }
 
-    _getMemory(provider, sessionId) {
-        const key = this._sessionKey(provider, sessionId);
-        if (!this.memories.has(key)) {
-            const storeKey = this._sessionStoreKey(provider, sessionId);
-            const chatHistory = [...this._getChatStore(provider, sessionId).getMessages(storeKey)];
+    _getMemory(sessionId) {
+        if (!this.memories.has(sessionId)) {
+            const storeKey = this._sessionStoreKey(sessionId);
+            const chatHistory = [...this._getChatStore(sessionId).getMessages(storeKey)];
 
             // Python parity:
             // Memory.from_defaults(
@@ -133,13 +107,13 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
             // )
             // The JS Memory API does not expose `from_defaults` / `session_id`,
             // so we instantiate with the same chat history payload.
-            this.memories.set(key, new Memory(chatHistory));
+            this.memories.set(sessionId, new Memory(chatHistory));
         }
-        return this.memories.get(key);
+        return this.memories.get(sessionId);
     }
 
-    async _appendToMemory(provider, sessionId, role, content) {
-        const memory = this._getMemory(provider, sessionId);
+    async _appendToMemory(sessionId, role, content) {
+        const memory = this._getMemory(sessionId);
         if (typeof memory.add === 'function') {
             await memory.add({ role, content });
         } else if (typeof memory.put === 'function') {
@@ -147,12 +121,12 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         }
     }
 
-    async _persistMemory(provider, sessionId) {
-        const storeKey = this._sessionStoreKey(provider, sessionId);
-        const messages = await this._getMemory(provider, sessionId).get({ type: 'llamaindex' });
-        const chatStore = this._getChatStore(provider, sessionId);
+    async _persistMemory(sessionId) {
+        const storeKey = this._sessionStoreKey(sessionId);
+        const messages = await this._getMemory(sessionId).get({ type: 'llamaindex' });
+        const chatStore = this._getChatStore(sessionId);
         chatStore.setMessages(storeKey, messages);
-        const filePath = this._sessionFilePath(provider, sessionId);
+        const filePath = this._sessionFilePath(sessionId);
         fs.writeFileSync(filePath, JSON.stringify(buildPythonStorePayload(storeKey, messages)), 'utf8');
     }
 
@@ -160,7 +134,7 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         const key = this._sessionKey(provider, sessionId);
         if (!this.chatEngines.has(key)) {
             const client = this._createClient(provider, temperature, maxTokens);
-            const memory = this._getMemory(provider, sessionId);
+            const memory = this._getMemory(sessionId);
             this.chatEngines.set(key, new SimpleChatEngine({ llm: client, memory }));
         }
         return this.chatEngines.get(key);
@@ -184,7 +158,7 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
             const chatEngine = this._getChatEngine(resolvedProvider, sessionId, temperature, maxTokens);
             const result = await chatEngine.chat({ message: prompt });
             const responseText = result?.response ?? this._extractText(result);
-            await this._persistMemory(resolvedProvider, sessionId);
+            await this._persistMemory(sessionId);
 
             return { success: true, provider: resolvedProvider, model, prompt, response: responseText, temperature, maxTokens, sessionId };
         } catch (error) {
@@ -203,8 +177,8 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     }
 
     getHistory(provider, sessionId = 'default') {
-        const turns = this._getChatStore(provider, sessionId)
-            .getMessages(this._sessionStoreKey(provider, sessionId))
+        const turns = this._getChatStore(sessionId)
+            .getMessages(this._sessionStoreKey(sessionId))
             .map((message) => ({ role: String(message.role), content: message.content }));
         return { provider, sessionId, turns, count: turns.length };
     }
@@ -213,32 +187,13 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
         const removedSessions = [];
         const sessionsDir = path.join(__dirname, 'sessions');
 
-        if (provider && sessionId) {
-            const key = this._sessionKey(provider, sessionId);
-            this.memories.delete(key);
-            this.chatEngines.delete(key);
-            this.chatStores.delete(key);
-            removedSessions.push([provider, sessionId]);
-        } else if (provider) {
-            for (const key of Array.from(this.memories.keys())) {
-                const [p, s] = key.split('::');
-                if (p === provider) {
-                    this.memories.delete(key);
-                    this.chatEngines.delete(key);
-                    this.chatStores.delete(key);
-                    removedSessions.push([p, s]);
-                }
+        if (sessionId) {
+            this.memories.delete(sessionId);
+            this.chatStores.delete(sessionId);
+            for (const key of Array.from(this.chatEngines.keys())) {
+                if (key.endsWith(`::${sessionId}`)) this.chatEngines.delete(key);
             }
-        } else if (sessionId) {
-            for (const key of Array.from(this.memories.keys())) {
-                const [p, s] = key.split('::');
-                if (s === sessionId) {
-                    this.memories.delete(key);
-                    this.chatEngines.delete(key);
-                    this.chatStores.delete(key);
-                    removedSessions.push([p, s]);
-                }
-            }
+            removedSessions.push(sessionId);
         } else {
             this.memories.clear();
             this.chatEngines.clear();
@@ -253,8 +208,8 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
                 }
             }
         } else {
-            for (const [p, s] of removedSessions.filter(Array.isArray)) {
-                const filePath = this._sessionFilePath(p, s);
+            for (const session of removedSessions) {
+                const filePath = this._sessionFilePath(session);
                 if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             }
         }
