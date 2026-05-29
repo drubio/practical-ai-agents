@@ -1,4 +1,4 @@
-"""LLM Memory Structured Gateway - LangChain with structured JSON responses."""
+"""Agent Memory Structured Gateway - LangChain with structured JSON responses."""
 
 import ast
 import os

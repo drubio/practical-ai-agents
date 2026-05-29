@@ -1,5 +1,5 @@
 /**
- * LLM Memory Gateway - LlamaIndex JS with persistent session memory.
+ * Agent Memory Gateway - LlamaIndex JS with persistent session memory.
  */
 
 import fs from 'fs';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { SimpleChatEngine } from '@llamaindex/core/chat-engine';
 import { Memory } from '@llamaindex/core/memory';
 import { SimpleChatStore } from '@llamaindex/core/storage/chat-store';
-import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/llm_app.js';
+import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/agent_app.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);

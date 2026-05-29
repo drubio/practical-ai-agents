@@ -1,5 +1,5 @@
 /**
- * LLM Memory Structured Gateway - LangChain JS with structured JSON responses.
+ * Agent Memory Structured Gateway - LangChain JS with structured JSON responses.
  */
 
 import { LangChainLLMManager as Chapter5LangChainManager } from './llm_memory_persist.js';

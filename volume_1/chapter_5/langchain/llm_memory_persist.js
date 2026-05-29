@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { FileSystemChatMessageHistory } from '@langchain/community/stores/message/file_system';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { RunnableWithMessageHistory } from '@langchain/core/runnables';
-import { LangChainLLMManager as Chapter4LangChainManager } from '../../chapter_4/langchain/llm_app.js';
+import { LangChainLLMManager as Chapter4LangChainManager } from '../../chapter_4/langchain/agent_app.js';
 import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
