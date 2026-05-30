@@ -1,23 +1,22 @@
-# [Essential LLM Applications – Fundamentals, APIs and UIs](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20)
+# [Agent Essentials – Architectures, Frameworks and Applications](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20)
 
-Large Language Models are rapidly transforming how modern software is built. But building reliable applications with LLMs requires more than simply calling an API. This book provides a practical introduction to developing real software powered by modern AI models.
+AI agents are rapidly transforming how modern software is built. But building capable agents requires more than simply calling an LLM API. This book provides a practical introduction to the concepts, architectures and frameworks behind modern AI agents.
 
-You'll begin by exploring the foundations of language models, tracing the evolution from statistical techniques such as n-grams, through neural networks and LSTMs, to the transformer architectures that power today's LLMs. From there, the book moves into hands-on development, showing how to integrate and work with leading AI platforms including **OpenAI**, **Anthropic**, **Google** and **xAI**.
+You'll begin by exploring the evolution of agents and the architectural patterns used to build them. From there, the book covers practical aspects of working with frontier LLMs from **OpenAI**, **Anthropic**, **Google**, **xAI** and **DeepSeek**, including API access, authentication, security practices and cost management.
 
-You'll then build an application that works with an LLM using the **LangChain** and **LlamaIndex** frameworks, exploring how to leverage memory and persistence for conversations, how retrieval techniques work, how tools extend model capabilities, and how to build a UI for interacting with LLM-powered applications.
+You'll then build agent-powered applications using **LangChain** and **LlamaIndex**, exploring memory, persistence, structured outputs, selective memory retrieval with BM25, tool integration through the Wikipedia API, and modern approaches to create UIs for agents.
 
 By the end of the book, you will:
 
-- Understand tokens, probabilities and context windows
-- Explore the evolution from statistical models to transformers
-- Learn about LLM pricing, cost management and API key security
-- Access and use models from **OpenAI**, **Anthropic**, **Google** and **xAI**
-- Build LLM applications with **LangChain** and **LlamaIndex**
-- Add conversational memory and retrieval techniques with BM25
-- Use tool calling with external knowledge sources such as Wikipedia
-- Build chat interfaces capable of interacting with multiple LLM providers
-
+* Understand AI agent architectures and design patterns
+* Learn LLM API fundamentals, security practices and cost control
+* Access models from **OpenAI**, **Anthropic**, **Google**, **xAI** and **DeepSeek**
+* Build agent applications with **LangChain** and **LlamaIndex**
+* Add memory, persistence and structured outputs to agents
+* Implement selective memory retrieval techniques using BM25
+* Extend agent capabilities through external tools and APIs
+* Build interactive agents with modern UIs
 
 ## Support the Work
 
-If you find this useful, please consider [purchasing Essential LLM Applications – Fundamentals, APIs and UIs](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20) and sharing it with others. Your support makes continued writing and open-source work possible.
+If you find this useful, please consider [purchasing Agent Essentials – Architectures, Frameworks and Applications](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20) and sharing it with others. Your support makes continued writing and open-source work possible.

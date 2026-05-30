@@ -1,6 +1,6 @@
 # Language Model evolution
 
-This chapter provides three different implementations of language models to compare their effectiveness on text prediction tasks:
+This appendix provides three different implementations of language models to compare their effectiveness on text prediction tasks:
 
 - **N-gram Model** (`ngram_model.py`)
 - **LSTM Model** (`lstm_model.py`)
@@ -16,7 +16,7 @@ Install the required dependencies in this folder:
 pip install -r requirements.txt
 ```
 
-NOTE: This chapter does **not** use the repository-level shared libraries in `shared/`
+NOTE: This appendix does **not** use the repository-level shared libraries in `shared/`
 
 ## Usage
 
