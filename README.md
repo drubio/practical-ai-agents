@@ -22,7 +22,7 @@ Introduces the foundations of AI agent development, covering agent architectures
 
 ## About the Code
 
-This repository includes companion code and examples for books. Code is organized to match the topics covered in each book. Each folder corresponds to a chapter described in the book.
+This repository includes companion code organized to match the topics covered in each book. Each folder corresponds to a chapter in a book.
 
 You're welcome to explore, modify and adapt the examples for your own projects.
 
