@@ -1,9 +1,7 @@
 # Practical AI Agents
 
 
-This book series is focused on building modern AI agents powered by large language models (LLMs). Covering everything from foundational agent concepts to advanced multi-agent systems, the series explores how modern AI agents are designed, orchestrated and integrated into real-world software systems to work with frontier LLMs from OpenAI, Anthropic, Google, xAI and DeepSeek.
-
-Throughout the series you'll learn specific agent framework approaches on agent architectures, memory and persistence, tool execution, context engineering, Retrieval-Augmented Generation (RAG) and Model Context Protocol (MCP), as well as how to integrate agents with real-time interfaces and deploy them to production environments.
+This book series is focused on building modern AI agents powered by large language models (LLMs) from OpenAI, Anthropic, Google, xAI and DeepSeek.
 
 Written for developers, engineers and technical builders who want to create modern software systems powered by AI agents and LLMs.
 
@@ -37,4 +35,4 @@ This repository root includes two dependency manifests:
 
 ## Support the Work
 
-If you find this useful, please consider [purchasing Book 1](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20) and sharing it with others. Your support makes continued writing and open-source work possible.
+If you find this useful, please consider purchasing [Agent Essentials](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20) and sharing it with others. Your support makes continued writing and open-source work possible.
