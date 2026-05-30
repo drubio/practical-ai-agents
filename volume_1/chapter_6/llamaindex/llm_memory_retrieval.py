@@ -1,4 +1,4 @@
-"""LLM Selective Memory Retrieval - LlamaIndex with BM25."""
+"""Agent Selective Memory Retrieval - LlamaIndex with BM25."""
 
 import os
 import re
@@ -15,7 +15,7 @@ from llama_index.core.llms import ChatMessage
 from llama_index.core.utils import get_tokenizer
 import bm25s
 
-from llm_structured_output import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
+from agent_structured_output import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
 from utils import get_default_model, interactive_cli, parse_structured_json_response
 
 
@@ -135,8 +135,8 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             for score, _, msg in top
         ]
 
-    def _append_to_memory(self, provider: str, session_id: str, role: str, content: str):
-        memory = self._get_memory(provider, session_id)
+    def _append_to_memory(self, session_id: str, role: str, content: str):
+        memory = self._get_memory(session_id)
         chat_message = ChatMessage(role=role, content=content)
 
         if hasattr(memory, "put"):
@@ -169,7 +169,7 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
                 "response": None,
             }
 
-        memory = self._get_memory(provider, session_id) if self.retrieval_memory_enabled else None
+        memory = self._get_memory(session_id) if self.retrieval_memory_enabled else None
         messages = self._memory_messages(memory) if memory else []
         retrieved = self._select_retrieved_messages(topic, messages) if self.retrieval_memory_enabled else []
 
@@ -235,9 +235,9 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             }
 
             if self.retrieval_memory_enabled:
-                self._append_to_memory(provider, session_id, "user", topic)
-                self._append_to_memory(provider, session_id, "assistant", raw_response)
-                self._persist_memory(provider, session_id)
+                self._append_to_memory(session_id, "user", topic)
+                self._append_to_memory(session_id, "assistant", raw_response)
+                self._persist_memory(session_id)
 
             return {
                 "success": True,

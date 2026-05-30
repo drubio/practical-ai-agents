@@ -1,8 +1,8 @@
 /**
- * LLM Selective Memory Retrieval - LangChain JS with BM25.
+ * Agent Selective Memory Retrieval - LangChain JS with BM25.
  */
 
-import { LangChainLLMManager as Chapter5StructuredLangChainManager, STRUCTURED_TEMPLATE } from '../../chapter_5/langchain/llm_structured_output.js';
+import { LangChainLLMManager as Chapter5StructuredLangChainManager, STRUCTURED_TEMPLATE } from '../../chapter_5/langchain/agent_structured_output.js';
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { Document } from '@langchain/core/documents';
 import { BM25Retriever } from '@langchain/community/retrievers/bm25';
@@ -122,7 +122,7 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
 
         let messages = [];
         if (this.retrievalMemoryEnabled) {
-            const history = this._getHistory(resolvedProvider, sessionId);
+            const history = this._getHistory(sessionId);
             messages = await history.getMessages();
         }
 
@@ -196,7 +196,7 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
             };
 
             if (this.retrievalMemoryEnabled) {
-                const history = this._getHistory(resolvedProvider, sessionId);
+                const history = this._getHistory(sessionId);
                 await history.addUserMessage(topic);
                 await history.addAIMessage(rawResponse);
             }

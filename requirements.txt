@@ -19,6 +19,8 @@ llama-index-llms-google-genai==0.8.7
 
 # Ranking function for relevance of documents to a given search query
 rank-bm25==0.2.2
+# For LlamaIndex
+bm25s
 
 # Web 
 fastapi==0.115.6

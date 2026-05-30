@@ -1,4 +1,4 @@
-"""LLM Selective Memory Retrieval - LangChain with BM25."""
+"""Agent Selective Memory Retrieval - LangChain with BM25."""
 
 import os
 import re
@@ -16,7 +16,7 @@ CHAPTER_5_LANGCHAIN = os.path.abspath(os.path.join(os.path.dirname(__file__), ".
 sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CHAPTER_5_LANGCHAIN)
 
-from llm_structured_output import STRUCTURED_TEMPLATE, LangChainLLMManager as Chapter5StructuredManager
+from agent_structured_output import STRUCTURED_TEMPLATE, LangChainLLMManager as Chapter5StructuredManager
 from utils import get_default_model, interactive_cli, parse_structured_json_response
 
 
@@ -138,7 +138,7 @@ class LangChainLLMManager(Chapter5StructuredManager):
                 "response": None,
             }
 
-        messages = self._get_history(provider, session_id).messages if self.retrieval_memory_enabled else []
+        messages = self._get_history(session_id).messages if self.retrieval_memory_enabled else []
         retrieved = self._select_retrieved_messages(topic, messages) if self.retrieval_memory_enabled else []
 
         retrieved_context = "\n".join(f"[{item['role']}] {item['content']}" for item in retrieved)
@@ -210,7 +210,7 @@ class LangChainLLMManager(Chapter5StructuredManager):
             }
 
             if self.retrieval_memory_enabled:
-                history = self._get_history(provider, session_id)
+                history = self._get_history(session_id)
                 history.add_user_message(topic)
                 history.add_ai_message(raw_response)
 

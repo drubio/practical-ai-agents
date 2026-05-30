@@ -1,8 +1,8 @@
 /**
- * LLM Selective Memory Retrieval - LangChain JS with BM25.
+ * Agent Selective Memory Retrieval - LangChain JS with BM25.
  */
 
-import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/llm_structured_output.js';
+import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/agent_structured_output.js';
 import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { getEncoding } from 'js-tiktoken';
 import { BM25 } from 'fast-bm25';
@@ -72,8 +72,8 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         return alignedScores;
     }
 
-    async _getMemoryMessages(provider, sessionId) {
-        const memory = this._getMemory(provider, sessionId);
+    async _getMemoryMessages(sessionId) {
+        const memory = this._getMemory(sessionId);
         const messagePayload = await memory.get({ type: 'llamaindex' });
         return Array.isArray(messagePayload) ? messagePayload : [];
     }
@@ -160,7 +160,7 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         }
 
         const messages = this.retrievalMemoryEnabled
-            ? await this._getMemoryMessages(resolvedProvider, sessionId)
+            ? await this._getMemoryMessages(sessionId)
             : [];
         const retrieved = this.retrievalMemoryEnabled
             ? this._selectRetrievedMessages(topic, messages)
@@ -232,9 +232,9 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
             };
 
             if (this.retrievalMemoryEnabled) {
-                await this._appendToMemory(resolvedProvider, sessionId, 'user', topic);
-                await this._appendToMemory(resolvedProvider, sessionId, 'assistant', rawResponse);
-                await this._persistMemory(resolvedProvider, sessionId);
+                await this._appendToMemory(sessionId, 'user', topic);
+                await this._appendToMemory(sessionId, 'assistant', rawResponse);
+                await this._persistMemory(sessionId);
             }
 
             return {

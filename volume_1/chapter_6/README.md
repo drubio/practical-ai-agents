@@ -1,6 +1,6 @@
-# LLM application with selective memory retrieval using BM25
+# Agent application with selective memory retrieval using BM25
 
-- This chapter upgrades the Chapter 5 memory application from **full-history inclusion** to **retrieval prompt-based inclusion**.
+- This chapter upgrades the Chapter 5 memory agent from **full-history inclusion** to **retrieval prompt-based inclusion**.
 
 It includes:
 - **LangChain** and **LlamaIndex** implementations
@@ -29,11 +29,11 @@ It includes:
 ```text
 chapter_6/
 ├── langchain/
-│   ├── llm_memory_retrieval.py
-│   └── llm_memory_retrieval.js
+│   ├── agent_memory_retrieval.py
+│   └── agent_memory_retrieval.js
 ├── llamaindex/
-│   ├── llm_memory_retrieval.py
-│   └── llm_memory_retrieval.js
+│   ├── agent_memory_retrieval.py
+│   └── agent_memory_retrieval.js
 └── README.md
 ```
 
@@ -41,8 +41,8 @@ chapter_6/
 
 | Framework | Python | JavaScript |
 |---|---|---|
-| LangChain | `langchain/llm_memory_retrieval.py` | `langchain/llm_memory_retrieval.js` |
-| LlamaIndex | `llamaindex/llm_memory_retrieval.py` | `llamaindex/llm_memory_retrieval.js` |
+| LangChain | `langchain/agent_memory_retrieval.py` | `langchain/agent_memory_retrieval.js` |
+| LlamaIndex | `llamaindex/agent_memory_retrieval.py` | `llamaindex/agent_memory_retrieval.js` |
 
 ## Dependencies and environment
 
@@ -50,13 +50,14 @@ Chapter 6 reuses:
 - Chapter 4 provider setup, shared CLI/web utilities, and `.env`
 - Chapter 5 memory/session persistence foundations
 
-Set keys in `volume_1/chapter_4/.env`:
+Set keys in `shared/.env`:
 
 ```env
 OPENAI_API_KEY=your-openai-key
 ANTHROPIC_API_KEY=your-anthropic-key
 GOOGLE_API_KEY=your-google-key
 XAI_API_KEY=your-xai-key
+DEEPSEEK_API_KEY=your-deepseek-key
 ```
 
 ## Usage
@@ -68,24 +69,24 @@ Run from `volume_1/chapter_6`.
 #### Python
 
 ```bash
-python langchain/llm_memory_retrieval.py
-python llamaindex/llm_memory_retrieval.py
+python langchain/agent_memory_retrieval.py
+python llamaindex/agent_memory_retrieval.py
 ```
 
 #### JavaScript
 
 ```bash
-node langchain/llm_memory_retrieval.js
-node llamaindex/llm_memory_retrieval.js
+node langchain/agent_memory_retrieval.js
+node llamaindex/agent_memory_retrieval.js
 ```
 
 ### Web mode
 
 ```bash
-python langchain/llm_memory_retrieval.py web
-python llamaindex/llm_memory_retrieval.py web
-node langchain/llm_memory_retrieval.js web
-node llamaindex/llm_memory_retrieval.js web
+python langchain/agent_memory_retrieval.py web
+python llamaindex/agent_memory_retrieval.py web
+node langchain/agent_memory_retrieval.js web
+node llamaindex/agent_memory_retrieval.js web
 ```
 
 ## Retrieval metadata
