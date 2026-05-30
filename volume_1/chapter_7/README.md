@@ -1,4 +1,4 @@
-# LLM application with tools
+# Agent application with tools
 
 This chapter extends Chapter 6's features with **tool calling**.
 
@@ -18,11 +18,11 @@ Just like earlier chapters, each script can run in:
 ```text
 chapter_7/
 ├── langchain/
-│   ├── llm_tools.py
-│   └── llm_tools.js
+│   ├── agent_tools.py
+│   └── agent_tools.js
 ├── llamaindex/
-│   ├── llm_tools.py
-│   └── llm_tools.js
+│   ├── agent_tools.py
+│   └── agent_tools.js
 ├── tools.py
 ├── tools.js
 ├── requirements.txt
@@ -34,8 +34,8 @@ chapter_7/
 
 | Framework | Python | JavaScript |
 |---|---|---|
-| **LangChain** | `langchain/llm_tools.py` | `langchain/llm_tools.js` |
-| **LlamaIndex** | `llamaindex/llm_tools.py` | `llamaindex/llm_tools.js` |
+| **LangChain** | `langchain/agent_tools.py` | `langchain/agent_tools.js` |
+| **LlamaIndex** | `llamaindex/agent_tools.py` | `llamaindex/agent_tools.js` |
 
 ## Dependencies and environment
 
@@ -78,35 +78,35 @@ Run commands from `volume_1/chapter_7`.
 #### Python
 
 ```bash
-python langchain/llm_tools.py
-python llamaindex/llm_tools.py
+python langchain/agent_tools.py
+python llamaindex/agent_tools.py
 ```
 
 #### JavaScript
 
 ```bash
-node langchain/llm_tools.js
-node llamaindex/llm_tools.js
+node langchain/agent_tools.js
+node llamaindex/agent_tools.js
 ```
 
 ### Web API mode
 
 ```bash
-python langchain/llm_tools.py web
-python llamaindex/llm_tools.py web
-node langchain/llm_tools.js web
-node llamaindex/llm_tools.js web
+python langchain/agent_tools.py web
+python llamaindex/agent_tools.py web
+node langchain/agent_tools.js web
+node llamaindex/agent_tools.js web
 ```
 
 ## Tool orchestration pattern
 
-All Chapter 7 applications follow the same two-step JSON tool loop:
+All Chapter 7 agents follow the same two-step JSON tool loop:
 
 1. Model returns JSON with:
    - `tool_calls`: an array of tool calls, each shaped like `{ "name": "...", "arguments": { ... }, "output": null }`
    - `final_answer`: short draft answer
-2. Application executes tools locally when `tool_calls` entries are present.
-3. Application asks model for a final JSON response that keeps the same `tool_calls` array and fills in each `output`.
+2. Agent executes tools locally when `tool_calls` entries are present.
+3. Agent asks model for a final JSON response that keeps the same `tool_calls` array and fills in each `output`.
 
 ### Expected response shape
 
@@ -140,4 +140,4 @@ Both utility modules expose:
 
 - Tool contracts are intentionally simple and framework-agnostic for easy extension in later chapters.
 - Session memory compatibility and provider handling continue to come from inherited chapter managers.
-- If a model returns non-JSON output, application surface a parsing error with the raw response context.
+- If a model returns non-JSON output, the agent surfaces a parsing error with the raw response context.
