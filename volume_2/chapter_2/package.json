@@ -1,9 +1,0 @@
-{
-  "name": "chapter-2-langchain-agents-js",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "install:root": "npm --prefix ../.. install"
-  },
-  "description": "Uses shared dependencies installed from the repository root package.json"
-}

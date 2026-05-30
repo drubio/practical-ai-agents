@@ -1,1 +1,0 @@
-langchain_mcp_adapters-0.2.1
