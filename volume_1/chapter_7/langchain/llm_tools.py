@@ -94,8 +94,12 @@ class LangChainLLMManager(Chapter6LangChainManager):
             payload["tool_calls"] = []
         return payload, result
 
-    def _build_retrieval_context(self, provider: str, topic: str, session_id: str) -> Tuple[str, Dict[str, object]]:
-        messages: List = self._get_history(provider, session_id).messages if self.retrieval_memory_enabled else []
+    def _load_retrieval_messages(self, session_id: str) -> List:
+        """Load persisted history using Chapter 6's session-only memory contract."""
+        return self._get_history(session_id).messages
+
+    def _build_retrieval_context(self, topic: str, session_id: str) -> Tuple[str, Dict[str, object]]:
+        messages: List = self._load_retrieval_messages(session_id) if self.retrieval_memory_enabled else []
         retrieved = self._select_retrieved_messages(topic, messages) if self.retrieval_memory_enabled else []
 
         retrieved_context = "\n".join(f"[{item['role']}] {item['content']}" for item in retrieved)
@@ -127,8 +131,8 @@ class LangChainLLMManager(Chapter6LangChainManager):
         return retrieval_augmented_topic, retrieval_metadata
 
 
-    def _safe_reset_corrupt_history(self, provider: str, session_id: str) -> None:
-        session_path = self._session_file_path(provider, session_id)
+    def _safe_reset_corrupt_history(self, session_id: str) -> None:
+        session_path = self._session_file_path(session_id)
         if not session_path.exists():
             return
 
@@ -143,8 +147,8 @@ class LangChainLLMManager(Chapter6LangChainManager):
 
         session_path.write_text("[]", encoding="utf-8")
 
-    def _get_history(self, provider: str, session_id: str):
-        history = super()._get_history(provider, session_id)
+    def _get_history(self, session_id: str):
+        history = super()._get_history(session_id)
         try:
             _ = history.messages
             return history
@@ -158,9 +162,9 @@ class LangChainLLMManager(Chapter6LangChainManager):
             if not any(signal in message for signal in known_corruption_signals):
                 raise
 
-            self.histories.pop((provider, session_id), None)
-            self._safe_reset_corrupt_history(provider, session_id)
-            repaired_history = super()._get_history(provider, session_id)
+            self.histories.pop(session_id, None)
+            self._safe_reset_corrupt_history(session_id)
+            repaired_history = super()._get_history(session_id)
             _ = repaired_history.messages
             return repaired_history
 
@@ -195,7 +199,7 @@ class LangChainLLMManager(Chapter6LangChainManager):
             }
 
         model = get_default_model(provider)
-        retrieval_topic, retrieval_metadata = self._build_retrieval_context(provider, topic, session_id)
+        retrieval_topic, retrieval_metadata = self._build_retrieval_context(topic, session_id)
         retrieval_prompt = template.format(topic=retrieval_topic, tools=build_tools_prompt())
 
         try:
@@ -250,7 +254,7 @@ class LangChainLLMManager(Chapter6LangChainManager):
             }
 
             if self.retrieval_memory_enabled:
-                history = self._get_history(provider, session_id)
+                history = self._get_history(session_id)
                 history.add_user_message(topic)
                 history.add_ai_message(raw_response)
 

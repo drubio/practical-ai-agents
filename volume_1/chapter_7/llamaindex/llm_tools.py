@@ -93,9 +93,13 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
             payload["tool_calls"] = []
         return payload, result
 
-    def _build_retrieval_context(self, provider: str, topic: str, session_id: str) -> Tuple[str, Dict[str, object]]:
-        memory = self._get_memory(session_id) if self.retrieval_memory_enabled else None
-        messages = self._memory_messages(memory) if memory else []
+    def _load_retrieval_messages(self, session_id: str) -> List[Dict[str, str]]:
+        """Load persisted history using Chapter 6's session-only memory contract."""
+        memory = self._get_memory(session_id)
+        return self._memory_messages(memory)
+
+    def _build_retrieval_context(self, topic: str, session_id: str) -> Tuple[str, Dict[str, object]]:
+        messages = self._load_retrieval_messages(session_id) if self.retrieval_memory_enabled else []
         retrieved = self._select_retrieved_messages(topic, messages) if self.retrieval_memory_enabled else []
 
         retrieved_context = "\n".join(f"[{item['role']}] {item['content']}" for item in retrieved)
@@ -157,7 +161,7 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
             }
 
         model = get_default_model(provider)
-        retrieval_topic, retrieval_metadata = self._build_retrieval_context(provider, topic, session_id)
+        retrieval_topic, retrieval_metadata = self._build_retrieval_context(topic, session_id)
         retrieval_prompt = template.format(topic=retrieval_topic, tools=build_tools_prompt())
 
         try:

@@ -97,12 +97,15 @@ class LangChainLLMManager extends Chapter6LangChainManager {
         }
     }
 
-    async _buildRetrievalContext(provider, topic, sessionId) {
-        let messages = [];
-        if (this.retrievalMemoryEnabled) {
-            const history = this._getHistory(provider, sessionId);
-            messages = await history.getMessages();
-        }
+    async _loadRetrievalMessages(sessionId) {
+        const history = this._getHistory(sessionId);
+        return history.getMessages();
+    }
+
+    async _buildRetrievalContext(topic, sessionId) {
+        const messages = this.retrievalMemoryEnabled
+            ? await this._loadRetrievalMessages(sessionId)
+            : [];
 
         const retrievedResult = this.retrievalMemoryEnabled ? await this._selectRetrievedMessages(topic, messages) : [];
         const retrieved = Array.isArray(retrievedResult) ? retrievedResult : [];
@@ -190,7 +193,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             };
         }
 
-        const { retrievalAugmentedTopic, retrievalMetadata } = await this._buildRetrievalContext(resolvedProvider, topic, sessionId);
+        const { retrievalAugmentedTopic, retrievalMetadata } = await this._buildRetrievalContext(topic, sessionId);
         const prompt = template.replace('{topic}', retrievalAugmentedTopic).replace('{tools}', buildToolsPrompt());
         const model = getDefaultModel(resolvedProvider);
 
@@ -249,7 +252,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             };
 
             if (this.retrievalMemoryEnabled) {
-                const history = this._getHistory(resolvedProvider, sessionId);
+                const history = this._getHistory(sessionId);
                 await history.addUserMessage(topic);
                 await history.addAIMessage(rawResponse);
             }

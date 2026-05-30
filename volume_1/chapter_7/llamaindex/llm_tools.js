@@ -108,9 +108,13 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
         }
     }
 
-    async _buildRetrievalContext(provider, topic, sessionId) {
+    async _loadRetrievalMessages(sessionId) {
+        return this._getMemoryMessages(sessionId);
+    }
+
+    async _buildRetrievalContext(topic, sessionId) {
         const messages = this.retrievalMemoryEnabled
-            ? await this._getMemoryMessages(provider, sessionId)
+            ? await this._loadRetrievalMessages(sessionId)
             : [];
         const retrieved = this.retrievalMemoryEnabled
             ? this._selectRetrievedMessages(topic, messages)
@@ -200,7 +204,7 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
             };
         }
 
-        const { retrievalAugmentedTopic, retrievalMetadata } = await this._buildRetrievalContext(resolvedProvider, topic, sessionId);
+        const { retrievalAugmentedTopic, retrievalMetadata } = await this._buildRetrievalContext(topic, sessionId);
         const prompt = template.replace('{topic}', retrievalAugmentedTopic).replace('{tools}', buildToolsPrompt());
         const model = getDefaultModel(resolvedProvider);
 
@@ -253,9 +257,9 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
             };
 
             if (this.retrievalMemoryEnabled) {
-                await this._appendToMemory(resolvedProvider, sessionId, 'user', topic);
-                await this._appendToMemory(resolvedProvider, sessionId, 'assistant', rawResponse);
-                await this._persistMemory(resolvedProvider, sessionId);
+                await this._appendToMemory(sessionId, 'user', topic);
+                await this._appendToMemory(sessionId, 'assistant', rawResponse);
+                await this._persistMemory(sessionId);
             }
 
             return {
