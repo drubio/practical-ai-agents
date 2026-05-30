@@ -1,7 +1,11 @@
 # Practical AI Agents
 
 
-This three-part series offers a structured, hands-on approach to building software applications that work with large language models (LLMs). Whether you're a developer, engineer or technical lead, this guide helps you design and implement AI-powered software systems with clarity and practicality.
+This book series is focused on building modern AI agents powered by large language models (LLMs). Covering everything from foundational agent concepts to advanced multi-agent systems, the series explores how modern AI agents are designed, orchestrated and integrated into real-world software systems to work with frontier LLMs from OpenAI, Anthropic, Google, xAI and DeepSeek.
+
+Throughout the series you'll learn specific agent framework approaches on agent architectures, memory and persistence, tool execution, context engineering, Retrieval-Augmented Generation (RAG) and Model Context Protocol (MCP), as well as how to integrate agents with real-time interfaces and deploy them to production environments.
+
+Written for developers, engineers and technical builders who want to create modern software systems powered by AI agents and LLMs.
 
 ---
 
