@@ -11,7 +11,7 @@ Written for developers, engineers and technical builders who want to create mode
 
 ## 📘 Books
 
-### [Agent Essentials – Architectures, Frameworks and Applications](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20) _(Volume 1)_
+### [Agent Essentials – Architectures, Frameworks and Applications](https://www.amazon.com/dp/B0GRG4Y71Q?tag=github-drubio-20)
 
 Introduces the foundations of AI agent development, covering agent architectures, frontier LLM APIs, memory, retrieval, tools and user interfaces through practical examples using:
 
