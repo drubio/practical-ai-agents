@@ -1,8 +1,8 @@
 /**
- * LLM Tools - LangChain JS with Wikipedia.
+ * Agent Tools - LangChain JS with Wikipedia.
  */
 
-import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/llm_memory_retrieval.js';
+import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/agent_memory_retrieval.js';
 import { interactiveCli, getDefaultModel, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
 import { normalizeResponseText } from '../../../shared/utils.mjs';
 import { buildToolsPrompt, runTool } from '../tools.js';

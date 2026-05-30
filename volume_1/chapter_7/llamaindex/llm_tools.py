@@ -1,4 +1,4 @@
-"""LLM Tools - LlamaIndex with Wikipedia."""
+"""Agent Tools - LlamaIndex with Wikipedia."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CHAPTER_6_LLAMAINDEX)
 sys.path.append(CHAPTER_7_ROOT)
 
-from llm_memory_retrieval import LlamaIndexLLMManager as Chapter6LlamaIndexManager
+from agent_memory_retrieval import LlamaIndexLLMManager as Chapter6LlamaIndexManager
 from tools import build_tools_prompt, run_tool
 from utils import get_default_model, interactive_cli
 

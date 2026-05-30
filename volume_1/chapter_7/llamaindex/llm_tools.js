@@ -1,8 +1,8 @@
 /**
- * LLM Tools - LlamaIndex JS with Wikipedia.
+ * Agent Tools - LlamaIndex JS with Wikipedia.
  */
 
-import { LlamaIndexLLMManager as Chapter6LlamaIndexManager } from '../../chapter_6/llamaindex/llm_memory_retrieval.js';
+import { LlamaIndexLLMManager as Chapter6LlamaIndexManager } from '../../chapter_6/llamaindex/agent_memory_retrieval.js';
 import { interactiveCli, getDefaultModel } from '../../chapter_4/utils.js';
 import { normalizeResponseText } from '../../../shared/utils.mjs';
 import { buildToolsPrompt, runTool } from '../tools.js';

@@ -1,4 +1,4 @@
-"""LLM Tools - LangChain with Wikipedia."""
+"""Agent Tools - LangChain with Wikipedia."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ sys.path.append(CHAPTER_4_ROOT)
 sys.path.append(CHAPTER_6_LANGCHAIN)
 sys.path.append(CHAPTER_7_ROOT)
 
-from llm_memory_retrieval import LangChainLLMManager as Chapter6LangChainManager
+from agent_memory_retrieval import LangChainLLMManager as Chapter6LangChainManager
 from tools import build_tools_prompt, run_tool
 from utils import get_default_model, interactive_cli
 
