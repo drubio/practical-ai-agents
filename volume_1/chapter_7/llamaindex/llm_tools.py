@@ -94,7 +94,7 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
         return payload, result
 
     def _build_retrieval_context(self, provider: str, topic: str, session_id: str) -> Tuple[str, Dict[str, object]]:
-        memory = self._get_memory(provider, session_id) if self.retrieval_memory_enabled else None
+        memory = self._get_memory(session_id) if self.retrieval_memory_enabled else None
         messages = self._memory_messages(memory) if memory else []
         retrieved = self._select_retrieved_messages(topic, messages) if self.retrieval_memory_enabled else []
 
@@ -206,9 +206,9 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
             }
 
             if self.retrieval_memory_enabled:
-                self._append_to_memory(provider, session_id, "user", topic)
-                self._append_to_memory(provider, session_id, "assistant", raw_response)
-                self._persist_memory(provider, session_id)
+                self._append_to_memory(session_id, "user", topic)
+                self._append_to_memory(session_id, "assistant", raw_response)
+                self._persist_memory(session_id)
 
             return {
                 "success": True,
