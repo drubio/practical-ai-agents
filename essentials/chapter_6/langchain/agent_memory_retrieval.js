@@ -3,7 +3,7 @@
  */
 
 import { LangChainLLMManager as Chapter5StructuredLangChainManager, STRUCTURED_TEMPLATE } from '../../chapter_5/langchain/agent_structured_output.js';
-import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
+import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
 import { Document } from '@langchain/core/documents';
 import { BM25Retriever } from '@langchain/community/retrievers/bm25';
 import { getEncoding } from 'js-tiktoken';
@@ -234,7 +234,7 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
 async function main() {
     const args = process.argv.slice(2);
     if (args.length > 0 && args[0] === 'web') {
-        const { runWebServer } = await import('../../chapter_4/web.js');
+        const { runWebServer } = await import('../../../shared/essentials/web.mjs');
         await runWebServer(() => new LangChainLLMManager(true));
     } else {
         const manager = new LangChainLLMManager(true);

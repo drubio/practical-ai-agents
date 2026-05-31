@@ -5,18 +5,16 @@ import sys
 from pathlib import Path
 from typing import Dict, Tuple
 
-CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
-CHAPTER_4_LANGCHAIN = os.path.join(CHAPTER_4_ROOT, "langchain")
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-sys.path.append(CHAPTER_4_ROOT)
-sys.path.append(CHAPTER_4_LANGCHAIN)
+sys.path.append(REPO_ROOT)
 
 from langchain_community.chat_message_histories import FileChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
-from agent_app import LangChainLLMManager as Chapter4LangChainManager
-from utils import get_default_model, interactive_cli
+from essentials.chapter_4.langchain.agent_app import LangChainLLMManager as Chapter4LangChainManager
+from shared.essentials.utils import get_default_model, interactive_cli
 
 
 class LangChainLLMManager(Chapter4LangChainManager):
@@ -205,7 +203,7 @@ class LangChainLLMManager(Chapter4LangChainManager):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "web":
-        from web import run_web_server
+        from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LangChainLLMManager(memory_enabled=True))
     else:

@@ -8,17 +8,13 @@ import re
 import sys
 from typing import Dict, List, Optional, Tuple
 
-CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
-CHAPTER_6_LANGCHAIN = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_6", "langchain"))
-CHAPTER_7_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-sys.path.append(CHAPTER_4_ROOT)
-sys.path.append(CHAPTER_6_LANGCHAIN)
-sys.path.append(CHAPTER_7_ROOT)
+sys.path.append(REPO_ROOT)
 
-from agent_memory_retrieval import LangChainLLMManager as Chapter6LangChainManager
-from tools import build_tools_prompt, run_tool
-from utils import get_default_model, interactive_cli
+from essentials.chapter_6.langchain.agent_memory_retrieval import LangChainLLMManager as Chapter6LangChainManager
+from essentials.chapter_7.tools import build_tools_prompt, run_tool
+from shared.essentials.utils import get_default_model, interactive_cli
 
 TOOLS_TEMPLATE = """
 You are a helpful assistant with access to external tools.
@@ -289,7 +285,7 @@ class LangChainLLMManager(Chapter6LangChainManager):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "web":
-        from web import run_web_server
+        from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LangChainLLMManager(memory_enabled=True))
     else:

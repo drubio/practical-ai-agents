@@ -2,7 +2,7 @@
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 from typing import Dict, Optional
 from langchain_anthropic import ChatAnthropic
@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from utils import BaseLLMManager, get_api_key, get_default_model, interactive_cli
+from shared.essentials.utils import BaseLLMManager, get_api_key, get_default_model, interactive_cli
 
 
 class LangChainLLMManager(BaseLLMManager):
@@ -132,10 +132,10 @@ class LangChainLLMManager(BaseLLMManager):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "web":
         try:
-            from web import run_web_server
+            from shared.essentials.web import run_web_server
             run_web_server(LangChainLLMManager)
         except ImportError:
-            print("Error: web.py not found or FastAPI not installed.")
+            print("Error: shared web API not found or FastAPI not installed.")
             print("Install FastAPI: pip install fastapi uvicorn")
             sys.exit(1)
     else:

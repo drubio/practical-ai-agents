@@ -11,7 +11,7 @@ import { mapChatMessagesToStoredMessages } from '@langchain/core/messages';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { RunnableWithMessageHistory } from '@langchain/core/runnables';
 import { LangChainLLMManager as Chapter4LangChainManager } from '../../chapter_4/langchain/agent_app.js';
-import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
+import { getDefaultModel, interactiveCli } from '../../../shared/essentials/utils.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -246,7 +246,7 @@ class LangChainLLMManager extends Chapter4LangChainManager {
 async function main() {
     const args = process.argv.slice(2);
     if (args.length > 0 && args[0] === 'web') {
-        const { runWebServer } = await import('../../chapter_4/web.js');
+        const { runWebServer } = await import('../../../shared/essentials/web.mjs');
         await runWebServer(() => new LangChainLLMManager(true));
     } else {
         const manager = new LangChainLLMManager(true);

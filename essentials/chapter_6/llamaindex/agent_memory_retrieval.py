@@ -5,18 +5,16 @@ import re
 import sys
 from typing import Dict, List, Optional
 
-CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
-CHAPTER_5_LLAMAINDEX = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_5", "llamaindex"))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-sys.path.append(CHAPTER_4_ROOT)
-sys.path.append(CHAPTER_5_LLAMAINDEX)
+sys.path.append(REPO_ROOT)
 
 from llama_index.core.llms import ChatMessage
 from llama_index.core.utils import get_tokenizer
 import bm25s
 
-from agent_structured_output import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
-from utils import get_default_model, interactive_cli, parse_structured_json_response
+from essentials.chapter_5.llamaindex.agent_structured_output import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
+from shared.essentials.utils import get_default_model, interactive_cli, parse_structured_json_response
 
 
 class LlamaIndexLLMManager(Chapter5StructuredManager):
@@ -266,7 +264,7 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "web":
-        from web import run_web_server
+        from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LlamaIndexLLMManager(memory_enabled=True))
     else:

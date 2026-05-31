@@ -4,7 +4,7 @@ import os
 import sys
 from typing import Dict, Optional
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 from llama_index.core.llms import ChatMessage
 from llama_index.llms.anthropic import Anthropic
@@ -12,7 +12,7 @@ from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.llms.openai import OpenAI
 from llama_index.llms.openai_like import OpenAILike
 
-from utils import BaseLLMManager, get_api_key, get_default_model, interactive_cli
+from shared.essentials.utils import BaseLLMManager, get_api_key, get_default_model, interactive_cli
 
 
 class LlamaIndexLLMManager(BaseLLMManager):
@@ -143,11 +143,11 @@ class LlamaIndexLLMManager(BaseLLMManager):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "web":
         try:
-            from web import run_web_server
+            from shared.essentials.web import run_web_server
 
             run_web_server(LlamaIndexLLMManager)
         except ImportError:
-            print("Error: web.py not found or FastAPI not installed.")
+            print("Error: shared web API not found or FastAPI not installed.")
             print("Install FastAPI: pip install fastapi uvicorn")
             sys.exit(1)
     else:

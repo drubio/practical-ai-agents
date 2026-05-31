@@ -1,26 +1,50 @@
-"""web.py - Clean web interface for LLM testers
-Now supports optional memory endpoints and session-based tracking.
-"""
+"""Essentials-book web API helpers built on shared web primitives."""
 
 from __future__ import annotations
 
-import os
-import sys
 from typing import Optional, Union
 
-from fastapi import Body, HTTPException
+from fastapi import Body, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-if REPO_ROOT not in sys.path:
-    sys.path.append(REPO_ROOT)
+from shared.utils import (
+    get_all_providers,
+    get_default_model_details,
+    normalize_response_text,
+    parse_structured_json_response,
+    sort_providers_by_display_order,
+)
+
+
+class SharedQueryRequest(BaseModel):
+    topic: str = Field(..., description="Prompt or question")
+    provider: Optional[Union[str, int]] = None
+    template: str = "{topic}"
+    max_tokens: int = 1000
+    temperature: float = 0.7
+    session_id: Optional[str] = "default"
+    sessionId: Optional[str] = None
+
+
+class SharedQueryAllRequest(BaseModel):
+    topic: str
+    template: str = "{topic}"
+    max_tokens: int = 1000
+    temperature: float = 0.7
+    session_id: Optional[str] = "default"
+    sessionId: Optional[str] = None
+
+
+class SharedResetMemoryRequest(BaseModel):
+    provider: Optional[Union[str, int]] = None
+    session_id: Optional[str] = None
+    sessionId: Optional[str] = None
+
 
 from shared.web import (
-    SharedQueryAllRequest,
-    SharedQueryRequest,
-    SharedResetMemoryRequest,
     build_manager,
-    iter_text_chunks,
-    normalize_response_text,
     resolve_session_id,
     result_is_success,
     run_manager_in_thread,
@@ -31,15 +55,6 @@ from shared.web import (
     supports_memory_retrieval,
     supports_session_memory,
     to_sse_line,
-)
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from utils import (
-    get_all_providers,
-    get_default_model_details,
-    parse_structured_json_response,
-    sort_providers_by_display_order,
 )
 
 
@@ -61,7 +76,7 @@ def _extract_answer_text(response_obj, raw_response):
     return normalize_response_text(raw_response)
 
 
-def _recover_structured_parse_error(result: dict) -> dict:
+def recover_structured_parse_error(result: dict) -> dict:
     if not isinstance(result, dict):
         return result
 
@@ -91,13 +106,13 @@ def _recover_structured_parse_error(result: dict) -> dict:
     return {**result, "success": True, "error": None, "response": recovered_response, "raw_answer": _extract_answer_text(recovered_response, raw_response)}
 
 
-def _provider_selection_map(manager):
+def provider_selection_map(manager):
     available = manager.get_available_providers()
     sorted_providers = sort_providers_by_display_order(available)
     return {str(index): provider for index, provider in enumerate(sorted_providers, start=1)}
 
 
-def _provider_payload(provider: str, manager) -> dict:
+def provider_payload(provider: str, manager) -> dict:
     details = get_default_model_details(provider)
     return {
         "name": provider,
@@ -110,11 +125,11 @@ def _provider_payload(provider: str, manager) -> dict:
     }
 
 
-def _normalize_provider_input(manager, provider: Optional[Union[str, int]]):
+def normalize_provider_input(manager, provider: Optional[Union[str, int]]):
     if provider is None:
         return None
 
-    provider_map = _provider_selection_map(manager)
+    provider_map = provider_selection_map(manager)
     available = {name.lower() for name in manager.get_available_providers()}
     configured = {name.lower() for name in get_all_providers()}
 
@@ -133,23 +148,23 @@ def _normalize_provider_input(manager, provider: Optional[Union[str, int]]):
     return candidate
 
 
-def _result_value(result: dict, *keys, default=None):
+def result_value(result: dict, *keys, default=None):
     for key in keys:
         if isinstance(result, dict) and key in result and result.get(key) is not None:
             return result.get(key)
     return default
 
 
-def _is_corrupt_history_error(exc: Exception) -> bool:
+def is_corrupt_history_error(exc: Exception) -> bool:
     message = str(exc)
     return any(signal in message for signal in ("string indices must be integers", "Expecting value", "JSON"))
 
 
-def _ask_question_with_recovery(manager, args: dict, session_id: Optional[str]):
+def ask_question_with_recovery(manager, args: dict, session_id: Optional[str]):
     try:
         return manager.ask_question(**args)
     except Exception as exc:
-        if not supports_session_memory(manager) or not _is_corrupt_history_error(exc):
+        if not supports_session_memory(manager) or not is_corrupt_history_error(exc):
             raise
         provider = args.get("provider")
         try:
@@ -157,6 +172,62 @@ def _ask_question_with_recovery(manager, args: dict, session_id: Optional[str]):
         except Exception:
             raise exc
         return manager.ask_question(**args)
+
+
+def build_query_args(manager, request: SharedQueryRequest) -> tuple[dict, str]:
+    effective_session_id = resolve_session_id(request.sessionId, request.session_id)
+    args = {
+        "topic": request.topic,
+        "provider": normalize_provider_input(manager, request.provider),
+        "template": request.template,
+        "max_tokens": request.max_tokens,
+        "temperature": request.temperature,
+    }
+    if supports_session_memory(manager):
+        args["session_id"] = effective_session_id
+    return args, effective_session_id
+
+
+async def execute_manager_query(manager, args: dict, session_id: Optional[str]) -> dict:
+    return recover_structured_parse_error(
+        await run_manager_in_thread(lambda: ask_question_with_recovery(manager, args, session_id))
+    )
+
+
+def query_error_message(result: dict) -> str:
+    if not isinstance(result, dict):
+        return "Manager returned a non-dict response"
+    return result.get("error", "Query failed")
+
+
+def serialize_query_response(manager, request: SharedQueryRequest, result: dict, session_id: str) -> dict:
+    raw_response = result.get("response")
+    content = raw_response if isinstance(raw_response, (dict, list)) else normalize_response_text(raw_response)
+    return {
+        "success": True,
+        "framework": manager.framework,
+        "provider": result_value(result, "provider", default="unknown"),
+        "model": result_value(result, "model", default=""),
+        "response": content,
+        "parameters": {
+            "temperature": result_value(result, "temperature"),
+            "max_tokens": result_value(result, "max_tokens", "maxTokens"),
+            "template": request.template,
+        },
+        "prompt": result_value(result, "prompt", default=request.template.format(topic=request.topic)),
+        "session_id": result_value(result, "session_id", "sessionId", default=session_id),
+    }
+
+
+def serialize_done_event(result: dict, raw_response, session_id: str) -> dict:
+    return {
+        "type": "done",
+        "provider": result_value(result, "provider"),
+        "model": result_value(result, "model"),
+        "response": raw_response if isinstance(raw_response, dict) else None,
+        "token_usage": result_value(result, "token_usage", "tokenUsage"),
+        "session_id": result_value(result, "session_id", "sessionId", default=session_id),
+    }
 
 
 def create_web_api(manager_class):
@@ -170,7 +241,7 @@ def create_web_api(manager_class):
         return {
             "framework": manager.framework,
             "available_providers": available,
-            "available_provider_details": [_provider_payload(provider, manager) for provider in available],
+            "available_provider_details": [provider_payload(provider, manager) for provider in available],
             "total_available": len(available),
             "initialization_status": manager.initialization_messages,
             "status": "healthy" if available else "no_providers",
@@ -179,7 +250,7 @@ def create_web_api(manager_class):
     @app.get('/providers')
     async def get_providers():
         providers = manager.get_available_providers()
-        return {"framework": manager.framework, "providers": [_provider_payload(provider, manager) for provider in providers], "count": len(providers)}
+        return {"framework": manager.framework, "providers": [provider_payload(provider, manager) for provider in providers], "count": len(providers)}
 
     @app.get('/capabilities')
     async def get_capabilities():
@@ -188,18 +259,13 @@ def create_web_api(manager_class):
     @app.post('/query')
     async def query_single(request: SharedQueryRequest):
         try:
-            args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
-            effective_session_id = resolve_session_id(request.sessionId, request.session_id)
-            if supports_session_memory(manager):
-                args["session_id"] = effective_session_id
-            result = _recover_structured_parse_error(await run_manager_in_thread(lambda: _ask_question_with_recovery(manager, args, effective_session_id)))
+            args, effective_session_id = build_query_args(manager, request)
+            result = await execute_manager_query(manager, args, effective_session_id)
             if not isinstance(result, dict):
-                raise HTTPException(status_code=500, detail="Manager returned a non-dict response")
+                raise HTTPException(status_code=500, detail=query_error_message(result))
             if not result_is_success(result):
-                raise HTTPException(status_code=400, detail=result.get('error', 'Query failed'))
-            raw_response = result.get('response')
-            content = raw_response if isinstance(raw_response, (dict, list)) else normalize_response_text(raw_response)
-            return {"success": True, "framework": manager.framework, "provider": _result_value(result, 'provider', default='unknown'), "model": _result_value(result, 'model', default=''), "response": content, "parameters": {"temperature": _result_value(result, 'temperature'), "max_tokens": _result_value(result, 'max_tokens', 'maxTokens'), "template": request.template}, "prompt": _result_value(result, 'prompt', default=request.template.format(topic=request.topic)), "session_id": _result_value(result, 'session_id', 'sessionId', default=effective_session_id)}
+                raise HTTPException(status_code=400, detail=query_error_message(result))
+            return serialize_query_response(manager, request, result, effective_session_id)
         except HTTPException:
             raise
         except Exception as exc:
@@ -209,21 +275,15 @@ def create_web_api(manager_class):
     async def query_stream(request: SharedQueryRequest):
         async def stream_events():
             try:
-                args = {"topic": request.topic, "provider": _normalize_provider_input(manager, request.provider), "template": request.template, "max_tokens": request.max_tokens, "temperature": request.temperature}
-                effective_session_id = resolve_session_id(request.sessionId, request.session_id)
-                if supports_session_memory(manager):
-                    args["session_id"] = effective_session_id
-                result = _recover_structured_parse_error(await run_manager_in_thread(lambda: _ask_question_with_recovery(manager, args, effective_session_id)))
-                if not isinstance(result, dict):
-                    yield to_sse_line({"type": "error", "error": "Manager returned a non-dict response"})
-                    return
-                if not result_is_success(result):
-                    yield to_sse_line({"type": "error", "error": result.get('error', 'Query failed')})
+                args, effective_session_id = build_query_args(manager, request)
+                result = await execute_manager_query(manager, args, effective_session_id)
+                if not isinstance(result, dict) or not result_is_success(result):
+                    yield to_sse_line({"type": "error", "error": query_error_message(result)})
                     return
                 raw_response = result.get('response')
                 async for event in stream_text_sse(normalize_response_text(raw_response), delay_seconds=0.03):
                     yield event
-                yield to_sse_line({"type": "done", "provider": _result_value(result, 'provider'), "model": _result_value(result, 'model'), "response": raw_response if isinstance(raw_response, dict) else None, "token_usage": _result_value(result, 'token_usage', 'tokenUsage'), "session_id": _result_value(result, 'session_id', 'sessionId', default=effective_session_id)})
+                yield to_sse_line(serialize_done_event(result, raw_response, effective_session_id))
             except Exception as exc:
                 yield to_sse_line({"type": "error", "error": str(exc)})
         return StreamingResponse(stream_events(), media_type='text/event-stream')
@@ -254,12 +314,3 @@ def run_web_server(manager_class, host: str = '0.0.0.0', port: int = 8000):
     except Exception:
         framework_name = 'Unknown'
     run_uvicorn_app(app, framework_name, host=host, port=port)
-
-
-def main():
-    print('Universal LLM Web API')
-    print('Run using `run_web_server(manager_class)`')
-
-
-if __name__ == '__main__':
-    main()

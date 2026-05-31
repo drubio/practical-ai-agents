@@ -11,7 +11,7 @@ import {
     getDefaultModel,
     BaseLLMManager,
     interactiveCli,
-} from '../utils.js';
+} from '../../../shared/essentials/utils.mjs';
 
 const GOOGLE_GEMINI_FALLBACK_CONTEXT_WINDOW = 1_000_000;
 const GOOGLE_GEMINI_FALLBACK_MODELS = new Set([
@@ -173,10 +173,10 @@ async function main() {
 
     if (args.length > 0 && args[0] === 'web') {
         try {
-            const { runWebServer } = await import('../web.js');
+            const { runWebServer } = await import('../../../shared/essentials/web.mjs');
             await runWebServer(LlamaIndexLLMManager);
         } catch (error) {
-            console.error('Error: web.js not found or Express not installed.');
+            console.error('Error: shared web API not found or Express not installed.');
             console.error('Install Express: npm install express cors');
             process.exit(1);
         }

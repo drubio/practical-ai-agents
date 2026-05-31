@@ -33,12 +33,13 @@ chapter_5/
 
 ## Dependencies and environment
 
-Chapter 5 reuses Chapter 4 and shared components:
-- `chapter_4/utils.py` / `chapter_4/utils.js`
-- `chapter_4/web.py` / `chapter_4/web.js`
+Chapter 5 reuses Chapter 4 framework managers plus centralized shared components:
+- `chapter_4/langchain/agent_app.py` / `chapter_4/langchain/agent_app.js`
+- `chapter_4/llamaindex/agent_app.py` / `chapter_4/llamaindex/agent_app.js`
 - `shared/llm_models.py` / `shared/llm_models.mjs`
-- `shared/utils.py` / `shared/utils.mjs`
-- `shared/web.py` / `shared/web.mjs`
+- `shared/utils.py` / `shared/utils.mjs` and `shared/web.py` / `shared/web.mjs`
+- `shared/essentials/utils.py` / `shared/essentials/utils.mjs`
+- `shared/essentials/web.py` / `shared/essentials/web.mjs`
 
 Ensure you install the dependencies for your language of choice located in the root level folder—requirements.txt or package.json—in addition to declaring LLM API keys in the shared/.env file. See the shared/ folder README.md for additional details.
 

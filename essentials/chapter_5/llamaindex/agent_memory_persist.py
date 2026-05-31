@@ -5,19 +5,17 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
-CHAPTER_4_LLAMAINDEX = os.path.join(CHAPTER_4_ROOT, "llamaindex")
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-sys.path.append(CHAPTER_4_ROOT)
-sys.path.append(CHAPTER_4_LLAMAINDEX)
+sys.path.append(REPO_ROOT)
 
 from llama_index.core.chat_engine import SimpleChatEngine
 from llama_index.core.llms import ChatMessage
 from llama_index.core.memory import Memory
 from llama_index.core.storage.chat_store import SimpleChatStore
 
-from agent_app import LlamaIndexLLMManager as Chapter4LlamaIndexManager
-from utils import get_default_model, interactive_cli
+from essentials.chapter_4.llamaindex.agent_app import LlamaIndexLLMManager as Chapter4LlamaIndexManager
+from shared.essentials.utils import get_default_model, interactive_cli
 
 
 class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
@@ -179,7 +177,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "web":
-        from web import run_web_server
+        from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LlamaIndexLLMManager(memory_enabled=True))
     else:

@@ -5,14 +5,12 @@ import os
 import sys
 from typing import Dict, Optional
 
-CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-sys.path.append(CHAPTER_4_ROOT)
-sys.path.append(CURRENT_DIR)
+sys.path.append(REPO_ROOT)
 
-from agent_memory_persist import LlamaIndexLLMManager as Chapter5LlamaIndexManager
-from utils import interactive_cli, parse_structured_json_response
+from essentials.chapter_5.llamaindex.agent_memory_persist import LlamaIndexLLMManager as Chapter5LlamaIndexManager
+from shared.essentials.utils import interactive_cli, parse_structured_json_response
 
 
 STRUCTURED_TEMPLATE = """
@@ -173,7 +171,7 @@ class LlamaIndexLLMManager(Chapter5LlamaIndexManager):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "web":
-        from web import run_web_server
+        from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LlamaIndexLLMManager(memory_enabled=True))
     else:

@@ -47,7 +47,7 @@ chapter_6/
 ## Dependencies and environment
 
 Chapter 6 reuses:
-- Chapter 4 provider setup, shared CLI/web utilities, and `.env`
+- Chapter 4 provider setup plus centralized shared CLI/web utilities and `.env`
 - Chapter 5 memory/session persistence foundations
 
 Set keys in `shared/.env`:

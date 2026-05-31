@@ -3,8 +3,7 @@
  */
 
 import { LlamaIndexLLMManager as Chapter6LlamaIndexManager } from '../../chapter_6/llamaindex/agent_memory_retrieval.js';
-import { interactiveCli, getDefaultModel } from '../../chapter_4/utils.js';
-import { normalizeResponseText } from '../../../shared/utils.mjs';
+import { interactiveCli, getDefaultModel, normalizeResponseText } from '../../../shared/essentials/utils.mjs';
 import { buildToolsPrompt, runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
@@ -292,7 +291,7 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
 async function main() {
     const args = process.argv.slice(2);
     if (args.length > 0 && args[0] === 'web') {
-        const { runWebServer } = await import('../../chapter_4/web.js');
+        const { runWebServer } = await import('../../../shared/essentials/web.mjs');
         await runWebServer(() => new LlamaIndexLLMManager(true));
     } else {
         const manager = new LlamaIndexLLMManager(true);

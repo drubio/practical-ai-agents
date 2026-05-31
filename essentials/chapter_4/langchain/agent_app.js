@@ -12,7 +12,7 @@ import {
     getDefaultModel,
     BaseLLMManager,
     interactiveCli,
-} from '../utils.js';
+} from '../../../shared/essentials/utils.mjs';
 
 class LangChainLLMManager extends BaseLLMManager {
     constructor() {
@@ -140,10 +140,10 @@ async function main() {
 
     if (args.length > 0 && args[0] === 'web') {
         try {
-            const { runWebServer } = await import('../web.js');
+            const { runWebServer } = await import('../../../shared/essentials/web.mjs');
             await runWebServer(LangChainLLMManager);
         } catch (error) {
-            console.error('Error: web.js not found or Express not installed.');
+            console.error('Error: shared web API not found or Express not installed.');
             console.error('Install Express: npm install express cors');
             process.exit(1);
         }

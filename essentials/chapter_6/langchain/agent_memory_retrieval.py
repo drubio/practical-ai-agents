@@ -10,14 +10,12 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_community.retrievers import BM25Retriever
 
-CHAPTER_4_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_4"))
-CHAPTER_5_LANGCHAIN = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "chapter_5", "langchain"))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-sys.path.append(CHAPTER_4_ROOT)
-sys.path.append(CHAPTER_5_LANGCHAIN)
+sys.path.append(REPO_ROOT)
 
-from agent_structured_output import STRUCTURED_TEMPLATE, LangChainLLMManager as Chapter5StructuredManager
-from utils import get_default_model, interactive_cli, parse_structured_json_response
+from essentials.chapter_5.langchain.agent_structured_output import STRUCTURED_TEMPLATE, LangChainLLMManager as Chapter5StructuredManager
+from shared.essentials.utils import get_default_model, interactive_cli, parse_structured_json_response
 
 
 class LangChainLLMManager(Chapter5StructuredManager):
@@ -245,7 +243,7 @@ class LangChainLLMManager(Chapter5StructuredManager):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "web":
-        from web import run_web_server
+        from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LangChainLLMManager(memory_enabled=True))
     else:

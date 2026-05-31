@@ -1,38 +1,32 @@
-"""Common utilities and configurations shared across all frameworks."""
+"""Essentials-book utility helpers built on top of repository shared utilities."""
 
 from __future__ import annotations
-
-from pathlib import Path
-import sys
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.append(str(REPO_ROOT))
 
 from typing import Dict, List
 
 from shared.utils import (
-    display_provider_response,
     format_filename,
-    format_provider_summary,
     get_all_provider_names,
+    get_default_model,
+    get_non_empty_input,
+    normalize_response_text,
+    parse_structured_json_response,
+    save_response_to_file,
+    display_provider_response,
+    format_provider_summary,
     get_all_providers,
     get_api_key,
-    get_default_model,
     get_default_model_details,
     get_display_name,
-    get_non_empty_input,
     get_user_choice,
     get_user_parameters,
-    parse_structured_json_response,
     print_initialization_status,
-    save_response_to_file,
     sort_providers_by_display_order,
 )
 
 
-class BaseLLMManager:
-    """Base class for LLM framework managers - handles all generic logic."""
+class EssentialsLLMManager:
+    """Base class for Essentials LLM managers with provider initialization."""
 
     def __init__(self, framework_name: str):
         self.framework = framework_name
@@ -59,11 +53,34 @@ class BaseLLMManager:
     def display_initialization_status(self) -> None:
         print_initialization_status(self.framework, self.initialization_messages)
 
-    def ask_question(self, topic: str, provider: str = None, template: str = "{topic}", max_tokens: int = 1000, temperature: float = 0.7) -> Dict:
+    def ask_question(
+        self,
+        topic: str,
+        provider: str = None,
+        template: str = "{topic}",
+        max_tokens: int = 1000,
+        temperature: float = 0.7,
+    ) -> Dict:
         raise NotImplementedError("Subclasses must implement ask_question")
 
 
-def interactive_cli(manager: BaseLLMManager):
+def manager_supports_interactive_memory(manager: EssentialsLLMManager) -> bool:
+    full_memory_supported = (
+        getattr(manager, "memory_enabled", False) is True
+        and hasattr(manager, "ask_question")
+        and hasattr(manager, "get_history")
+        and hasattr(manager, "reset_memory")
+    )
+    retrieval_memory_supported = (
+        getattr(manager, "retrieval_memory_enabled", False) is True
+        and hasattr(manager, "ask_question")
+        and hasattr(manager, "get_history")
+        and hasattr(manager, "reset_memory")
+    )
+    return full_memory_supported or retrieval_memory_supported
+
+
+def interactive_cli(manager: EssentialsLLMManager):
     print("=" * 60)
     print(f"Agent Application - {manager.framework} Framework")
     print("=" * 60)
@@ -81,10 +98,7 @@ def interactive_cli(manager: BaseLLMManager):
     for provider in available_providers:
         print(f"- {format_provider_summary(provider)}")
 
-    full_memory_supported = getattr(manager, "memory_enabled", False) is True and hasattr(manager, "ask_question") and hasattr(manager, "get_history") and hasattr(manager, "reset_memory")
-    retrieval_memory_supported = getattr(manager, "retrieval_memory_enabled", False) is True and hasattr(manager, "ask_question") and hasattr(manager, "get_history") and hasattr(manager, "reset_memory")
-    memory_supported = full_memory_supported or retrieval_memory_supported
-
+    memory_supported = manager_supports_interactive_memory(manager)
 
     choice_idx = get_user_choice([get_display_name(p) for p in available_providers], "Select a provider:")
     provider = available_providers[choice_idx]
@@ -137,3 +151,7 @@ def interactive_cli(manager: BaseLLMManager):
             display_provider_response(provider, manager.ask_question(**kwargs), manager.framework)
 
     print(f"\nThank you for using the {manager.framework} Agent Application!")
+
+
+# Backwards-compatible alias for chapter code that imports BaseLLMManager.
+BaseLLMManager = EssentialsLLMManager

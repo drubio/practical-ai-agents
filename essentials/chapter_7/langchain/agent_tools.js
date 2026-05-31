@@ -3,8 +3,7 @@
  */
 
 import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/agent_memory_retrieval.js';
-import { interactiveCli, getDefaultModel, parseStructuredJsonResponse } from '../../chapter_4/utils.js';
-import { normalizeResponseText } from '../../../shared/utils.mjs';
+import { interactiveCli, getDefaultModel, normalizeResponseText, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
 import { buildToolsPrompt, runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
@@ -290,7 +289,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
 async function main() {
     const args = process.argv.slice(2);
     if (args.length > 0 && args[0] === 'web') {
-        const { runWebServer } = await import('../../chapter_4/web.js');
+        const { runWebServer } = await import('../../../shared/essentials/web.mjs');
         await runWebServer(() => new LangChainLLMManager(true));
     } else {
         const manager = new LangChainLLMManager(true);

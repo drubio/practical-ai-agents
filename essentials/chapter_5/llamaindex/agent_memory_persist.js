@@ -10,7 +10,7 @@ import { SimpleChatEngine } from '@llamaindex/core/chat-engine';
 import { Memory } from '@llamaindex/core/memory';
 import { SimpleChatStore } from '@llamaindex/core/storage/chat-store';
 import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/agent_app.js';
-import { getDefaultModel, interactiveCli } from '../../chapter_4/utils.js';
+import { getDefaultModel, interactiveCli } from '../../../shared/essentials/utils.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -221,7 +221,7 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
 async function main() {
     const args = process.argv.slice(2);
     if (args.length > 0 && args[0] === 'web') {
-        const { runWebServer } = await import('../../chapter_4/web.js');
+        const { runWebServer } = await import('../../../shared/essentials/web.mjs');
         await runWebServer(() => new LlamaIndexLLMManager(true));
     } else {
         const manager = new LlamaIndexLLMManager(true);
