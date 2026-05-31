@@ -163,14 +163,7 @@ def get_identifier_mappings() -> dict[str, ModelConfig]:
             provider="deepseek",
             model="deepseek-v4-pro",
             tier="advanced",
-            strengths=("deep-analysis", "social", "long-form"),
-        ),
-        "deepseek_4_pro": ModelConfig(
-            name="deepseek_4_pro",
-            provider="deepseek",
-            model="deepseek-v4-pro",
-            tier="standard",
-            strengths=("social", "trends", "analysis"),
+            strengths=("deep-analysis", "reasoning", "long-form"),
         ),
         "deepseek_4_flash": ModelConfig(
             name="deepseek_4_flash",
@@ -263,10 +256,10 @@ def _infer_provider(prompt_l: str, selected_tools: Iterable[str]) -> str:
         return "google"
     if any(token in prompt_l for token in {"grok", "xai"}):
         return "xai"
-    if any(token in prompt_l for token in social_markers):
-        return "xai"
     if any(token in prompt_l for token in {"deepseek"}):
         return "deepseek"
+    if any(token in prompt_l for token in social_markers):
+        return "xai"
 
     calculator_is_primary = "calculator" in tools and len(tools) <= 2
     if any(token in prompt_l for token in coding_markers) or calculator_is_primary:
@@ -307,6 +300,9 @@ def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_ide
         "anthropic": {"advanced": "anthropic_claude_opus_4_6", "standard": "anthropic_claude_sonnet_4_6", "lite": "anthropic_claude_haiku_4_5"},
         "google": {"advanced": "google_genai_gemini_3_1_pro", "standard": "google_genai_gemini_3_flash", "lite": "google_genai_gemini_3_1_flash_lite"},
         "xai": {"advanced": "xai_grok_4", "standard": "xai_grok_3", "lite": "xai_grok_3_mini"},
+        # DeepSeek currently exposes two model IDs. Route both advanced and
+        # standard requests to Pro rather than duplicating the same model in the
+        # registry under two tiers.
         "deepseek": {"advanced": "deepseek_4_pro", "standard": "deepseek_4_pro", "lite": "deepseek_4_flash"},
     }
 

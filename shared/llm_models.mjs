@@ -76,8 +76,7 @@ export function getIdentifierMappings() {
     xai_grok_4: { name: "xai_grok_4", provider: "xai", model: "grok-4", tier: "advanced", strengths: ["deep-analysis", "social", "long-form"] },
     xai_grok_3: { name: "xai_grok_3", provider: "xai", model: "grok-3", tier: "standard", strengths: ["social", "trends", "analysis"] },
     xai_grok_3_mini: { name: "xai_grok_3_mini", provider: "xai", model: "grok-3-mini", tier: "lite", strengths: ["social", "fast", "cost-efficient"] },
-    deepseek_4_pro: { name: "deepseek_4_pro", provider: "deepseek", model: "deepseek-v4-pro", tier: "advanced", strengths: ["deep-analysis", "social", "long-form"] },
-    deepseek_4_pro: { name: "deepseek_4_pro", provider: "deepseek", model: "deepseek-v4-pro", tier: "standard", strengths: ["social", "trends", "analysis"] },
+    deepseek_4_pro: { name: "deepseek_4_pro", provider: "deepseek", model: "deepseek-v4-pro", tier: "advanced", strengths: ["deep-analysis", "reasoning", "long-form"] },
     deepseek_4_flash: { name: "deepseek_4_flash", provider: "deepseek", model: "deepseek-v4-flash", tier: "lite", strengths: ["social", "fast", "cost-efficient"] },    
   };
 }
@@ -177,6 +176,9 @@ export function routeModelForPrompt(prompt, selectedTools, modelIdentifiers = AL
     anthropic: { advanced: "anthropic_claude_opus_4_6", standard: "anthropic_claude_sonnet_4_6", lite: "anthropic_claude_haiku_4_5" },
     google: { advanced: "google_genai_gemini_3_1_pro", standard: "google_genai_gemini_3_flash", lite: "google_genai_gemini_3_1_flash_lite" },
     xai: { advanced: "xai_grok_4", standard: "xai_grok_3", lite: "xai_grok_3_mini" },
+    // DeepSeek currently exposes two model IDs. Route both advanced and
+    // standard requests to Pro rather than duplicating the same model in the
+    // registry under two tiers.
     deepseek: { advanced: "deepseek_4_pro", standard: "deepseek_4_pro", lite: "deepseek_4_flash" },    
   };
   const mappings = getIdentifierMappings();
