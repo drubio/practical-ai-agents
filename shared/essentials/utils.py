@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence
 
 from shared.utils import (
     format_filename,
     get_all_provider_names,
-    get_default_model,
+    get_default_model as _base_get_default_model,
     get_non_empty_input,
     normalize_response_text,
     parse_structured_json_response,
@@ -23,6 +25,100 @@ from shared.utils import (
     print_initialization_status,
     sort_providers_by_display_order,
 )
+from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
+
+
+_SELECTED_MODEL_IDENTIFIER: ContextVar[Optional[str]] = ContextVar("essentials_selected_model_identifier", default=None)
+
+
+def get_default_model(provider: str) -> str:
+    """Return the active model for a provider, honoring per-query overrides."""
+    selected_identifier = _SELECTED_MODEL_IDENTIFIER.get()
+    if selected_identifier:
+        config = get_identifier_mappings().get(selected_identifier)
+        if config and config.provider == provider:
+            return config.model
+    return _base_get_default_model(provider)
+
+
+def get_model_identifier_config(model_identifier: Optional[str]):
+    if model_identifier is None:
+        return None
+    return get_identifier_mappings().get(str(model_identifier).strip())
+
+
+def model_identifiers_for_providers(providers: Iterable[str] | None = None) -> List[str]:
+    provider_set = set(providers) if providers is not None else None
+    mappings = get_identifier_mappings()
+    return [identifier for identifier in ALL_MODEL_IDENTIFIERS if identifier in mappings and (provider_set is None or mappings[identifier].provider in provider_set)]
+
+
+MODEL_PROVIDER_PREFIXES = (
+    ("google_genai_", "Google"),
+    ("anthropic_", "Anthropic"),
+    ("openai_", "OpenAI"),
+    ("xai_", "xAI"),
+    ("deepseek_", "DeepSeek"),
+)
+
+
+def _provider_and_model_name(model_identifier: str) -> tuple[str, str]:
+    for prefix, provider_name in MODEL_PROVIDER_PREFIXES:
+        if model_identifier.startswith(prefix):
+            return provider_name, model_identifier[len(prefix):]
+    provider_name, _, model_name = model_identifier.partition("_")
+    return (provider_name.title() if provider_name else "Other"), (model_name or model_identifier)
+
+
+def compact_model_selection_lines(model_identifiers: Sequence[str]) -> List[str]:
+    lines: List[str] = []
+    current_provider: Optional[str] = None
+    current_options: List[str] = []
+
+    def flush_current() -> None:
+        nonlocal current_options
+        if current_provider and current_options:
+            lines.append(f"{current_provider}: " + " | ".join(current_options))
+        current_options = []
+
+    for index, model_identifier in enumerate(model_identifiers, start=1):
+        provider_name, model_name = _provider_and_model_name(model_identifier)
+        if provider_name != current_provider or len(current_options) == 3:
+            flush_current()
+            current_provider = provider_name
+        default_suffix = " [default]" if index == 1 else ""
+        current_options.append(f"{index}. {model_name}{default_suffix}")
+    flush_current()
+    return lines
+
+
+@contextmanager
+def selected_model_context(model_identifier: Optional[str]) -> Iterator[None]:
+    token = _SELECTED_MODEL_IDENTIFIER.set(model_identifier)
+    try:
+        yield
+    finally:
+        _SELECTED_MODEL_IDENTIFIER.reset(token)
+
+
+def _model_option_label(model_identifier: str) -> str:
+    config = get_identifier_mappings()[model_identifier]
+    return f"{config.model} ({config.tier}; {model_identifier})"
+
+
+def select_model_identifier(model_identifiers: Sequence[str], prompt: str = "Select a model:") -> str:
+    choice_idx = get_user_choice([_model_option_label(identifier) for identifier in model_identifiers], prompt)
+    return model_identifiers[choice_idx]
+
+
+def select_provider_model_identifier(providers: Sequence[str]) -> str:
+    provider_idx = get_user_choice(
+        [f"{get_display_name(provider)} ({len(model_identifiers_for_providers([provider]))} models)" for provider in providers],
+        "Select a provider:",
+    )
+    provider = providers[provider_idx]
+    provider_models = model_identifiers_for_providers([provider])
+    return select_model_identifier(provider_models, f"Select a {get_display_name(provider)} model:")
 
 
 class EssentialsLLMManager:
@@ -80,7 +176,7 @@ def manager_supports_interactive_memory(manager: EssentialsLLMManager) -> bool:
     return full_memory_supported or retrieval_memory_supported
 
 
-def interactive_cli(manager: EssentialsLLMManager):
+def interactive_cli(manager: EssentialsLLMManager, model_identifier: Optional[str] = None):
     print("=" * 60)
     print(f"Agent Application - {manager.framework} Framework")
     print("=" * 60)
@@ -94,22 +190,33 @@ def interactive_cli(manager: EssentialsLLMManager):
     temperature, max_tokens = get_user_parameters()
     print(f"\nUsing temperature: {temperature}, max tokens: {max_tokens}")
     available_providers = sort_providers_by_display_order(available_providers)
-    print("\nAvailable providers:")
-    for provider in available_providers:
-        print(f"- {format_provider_summary(provider)}")
+    #print("\nAvailable providers:")
+    #for provider_name in available_providers:
+    #    print(f"- {format_provider_summary(provider_name)}")
+
+    available_model_identifiers = model_identifiers_for_providers(available_providers)
+    if not available_model_identifiers:
+        print("No models available for initialized providers.")
+        return
 
     memory_supported = manager_supports_interactive_memory(manager)
 
-    choice_idx = get_user_choice([get_display_name(p) for p in available_providers], "Select a provider:")
-    provider = available_providers[choice_idx]
+    if model_identifier:
+        if model_identifier not in available_model_identifiers:
+            print(f"Model identifier '{model_identifier}' is not available for initialized providers.")
+            return
+    else:
+        model_identifier = select_provider_model_identifier(available_providers)
+    model_config = get_identifier_mappings()[model_identifier]
+    provider = model_config.provider
     selected_provider_details = get_default_model_details(provider)
     print(
-        "\nUsing provider: "
+        "\nUsing model: "
         f"{selected_provider_details['display_name']} "
-        f"(provider: {selected_provider_details['canonical_provider']}, "
-        f"default model: {selected_provider_details['default_model']} / "
-        f"{selected_provider_details['default_model_identifier']} / "
-        f"{selected_provider_details['default_model_tier']})"
+        f"(provider: {model_config.provider}, "
+        f"model: {model_config.model} / "
+        f"{model_config.name} / "
+        f"{model_config.tier})"
     )
     session_id = "default"
     if memory_supported:
@@ -148,7 +255,9 @@ def interactive_cli(manager: EssentialsLLMManager):
             kwargs = {"topic": user_input, "provider": provider, "temperature": temperature, "max_tokens": max_tokens}
             if memory_supported:
                 kwargs["session_id"] = session_id
-            display_provider_response(provider, manager.ask_question(**kwargs), manager.framework)
+            with selected_model_context(model_identifier):
+                response = manager.ask_question(**kwargs)
+            display_provider_response(provider, response, manager.framework)
 
     print(f"\nThank you for using the {manager.framework} Agent Application!")
 

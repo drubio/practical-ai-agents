@@ -14,7 +14,6 @@ import {
 } from '../../lib/response-normalizer';
 
 type ChatRole = 'assistant' | 'user' | 'system';
-type QueryMode = 'single' | 'all';
 type ResponseMode = 'stream' | 'standard';
 type APIStatus = 'online' | 'offline' | 'checking';
 
@@ -74,7 +73,6 @@ type ProcessedResponse = {
 };
 
 type APISettings = {
-  queryMode: QueryMode;
   selectedProvider: string;
   temperature: number;
   maxTokens: number;
@@ -229,7 +227,6 @@ const useAPISettings = () => {
     hasCoagent: false
   });
   const [settings, setSettings] = useState<APISettings>({
-    queryMode: 'single',
     selectedProvider: 'openai',
     temperature: 0.7,
     maxTokens: 1000,
@@ -344,18 +341,18 @@ const useAPISettings = () => {
 
 // Shared API call logic
 const callAPI = async (message: string, settings: APISettings, options: CallAPIOptions = {}): Promise<ProcessedResponse> => {
-  const endpoint = settings.queryMode === 'single' ? '/query' : '/query-all';
+  const endpoint = '/query';
   const payload = {
     topic: message,
     temperature: settings.temperature,
     max_tokens: settings.maxTokens,
     template: '{topic}',
     session_id: settings.sessionId,
-    ...(settings.queryMode === 'single' && { provider: settings.selectedProvider })
+    ...({ provider: settings.selectedProvider })
   };
 
-  const wantsStreaming = settings.responseMode === 'stream' && settings.queryMode === 'single';
-  if (wantsStreaming && settings.queryMode === 'single') {
+  const wantsStreaming = settings.responseMode === 'stream';
+  if (wantsStreaming) {
     try {
       const response = await fetch(`${GATEWAY_API_BASE}/query-stream`, {
         method: 'POST',
@@ -423,7 +420,7 @@ const callAPI = async (message: string, settings: APISettings, options: CallAPIO
     throw new Error(extractApiErrorMessage(data, response.status));
   }
 
-  return processApiResponse(data, settings.queryMode);
+  return processApiResponse(data);
 };
 
 
@@ -833,47 +830,19 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
     
     <div className="p-4 space-y-4 overflow-y-auto">
       <div>
-        <label className="block text-sm font-medium mb-2">Query Mode</label>
-        <div className="space-y-2">
-          <label className="flex items-center">
-            <input
-              type="radio"
-              value="single"
-              checked={settings.queryMode === 'single'}
-              onChange={(e) => onSettingsChange({ ...settings, queryMode: e.target.value as QueryMode })}
-              className="text-blue-600"
-            />
-            <span className="ml-2 text-sm">Single Provider</span>
-          </label>
-          <label className="flex items-center">
-            <input
-              type="radio"
-              value="all"
-              checked={settings.queryMode === 'all'}
-              onChange={(e) => onSettingsChange({ ...settings, queryMode: e.target.value as QueryMode })}
-              className="text-blue-600"
-            />
-            <span className="ml-2 text-sm">All Providers</span>
-          </label>
-        </div>
+        <label className="block text-sm font-medium mb-2">Provider</label>
+        <select
+          value={settings.selectedProvider}
+          onChange={(e) => onSettingsChange({ ...settings, selectedProvider: e.target.value })}
+          className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+          disabled={apiStatus !== 'online'}
+        >
+          {providers.map((p) => (
+            <option key={p.name} value={p.name}>{formatProviderChoiceLabel(p)}</option>
+          ))}
+        </select>
+        {selectedProviderModel && <p className="mt-1 text-xs text-gray-500">Default model: {selectedProviderModel}</p>}
       </div>
-
-      {settings.queryMode === 'single' && (
-        <div>
-          <label className="block text-sm font-medium mb-2">Provider</label>
-          <select
-            value={settings.selectedProvider}
-            onChange={(e) => onSettingsChange({ ...settings, selectedProvider: e.target.value })}
-            className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
-            disabled={apiStatus !== 'online'}
-          >
-            {providers.map((p) => (
-              <option key={p.name} value={p.name}>{formatProviderChoiceLabel(p)}</option>
-            ))}
-          </select>
-          {selectedProviderModel && <p className="mt-1 text-xs text-gray-500">Default model: {selectedProviderModel}</p>}
-        </div>
-      )}
 
       {/* Session ID - only show if backend supports memory */}
       {apiCapabilities.hasMemory && (
@@ -890,8 +859,8 @@ const SettingsSidebar = ({ isOpen, onClose, settings, onSettingsChange, provider
             Used for conversation memory
           </p>
           
-          {/* History and Reset buttons - only show for single provider mode */}
-          {settings.queryMode === 'single' && apiCapabilities.hasHistory && (
+          {/* History and Reset buttons */}
+          {apiCapabilities.hasHistory && (
             <div className="flex space-x-2 mt-2">
               <button
                 onClick={() => handleHistoryButtonClick('show')}
@@ -988,7 +957,7 @@ const FrameworkHeader = ({ title, color, settings, providers, onSettingsClick, a
         <div>
           <h1 className="text-lg font-semibold">{title}</h1>
           <div className="text-xs opacity-75">
-            Mode: {settings.queryMode} | Provider: {settings.selectedProvider} | Model: {selectedProviderDetails?.default_model || 'n/a'} |{' '}
+            Provider: {settings.selectedProvider} | Model: {selectedProviderDetails?.default_model || 'n/a'} |{' '}
             {apiCapabilities.hasMemory && `Session: ${settings.sessionId} | `}
             Mode: {settings.responseMode} | Temp: {settings.temperature} | Max Tokens: {settings.maxTokens}
           </div>
@@ -1042,7 +1011,6 @@ export {
 
 export type {
   ChatRole,
-  QueryMode,
   ResponseMode,
   APIStatus,
   Provider,

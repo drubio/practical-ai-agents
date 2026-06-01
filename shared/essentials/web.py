@@ -16,11 +16,15 @@ from shared.utils import (
     parse_structured_json_response,
     sort_providers_by_display_order,
 )
+from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
+from shared.essentials.utils import selected_model_context
 
 
 class SharedQueryRequest(BaseModel):
     topic: str = Field(..., description="Prompt or question")
     provider: Optional[Union[str, int]] = None
+    model_identifier: Optional[Union[str, int]] = None
+    modelIdentifier: Optional[Union[str, int]] = None
     template: str = "{topic}"
     max_tokens: int = 1000
     temperature: float = 0.7
@@ -112,8 +116,53 @@ def provider_selection_map(manager):
     return {str(index): provider for index, provider in enumerate(sorted_providers, start=1)}
 
 
+def available_model_identifiers(manager) -> list[str]:
+    mappings = get_identifier_mappings()
+    available_providers = set(manager.get_available_providers())
+    return [
+        identifier
+        for identifier in ALL_MODEL_IDENTIFIERS
+        if identifier in mappings and mappings[identifier].provider in available_providers
+    ]
+
+
+def model_payload(model_identifier: str, manager, idx: int | None = None) -> dict:
+    config = get_identifier_mappings()[model_identifier]
+    if idx is None:
+        try:
+            idx = available_model_identifiers(manager).index(model_identifier) + 1
+        except ValueError:
+            idx = ALL_MODEL_IDENTIFIERS.index(model_identifier) + 1 if model_identifier in ALL_MODEL_IDENTIFIERS else 0
+    canonical_name = f"{config.provider}:{config.model}"
+    return {
+        "id": str(idx),
+        "name": canonical_name,
+        "display_name": f"{config.provider.capitalize()} ({model_identifier})",
+        "provider": config.provider,
+        "default_model": config.model,
+        "model": config.model,
+        "model_identifier": model_identifier,
+        "default_model_identifier": model_identifier,
+        "model_tier": config.tier,
+        "default_model_tier": config.tier,
+        "strengths": list(config.strengths),
+        "status": manager.initialization_messages.get(config.provider, "Unknown"),
+        "framework": getattr(manager, "framework", "unknown"),
+    }
+
+
+def model_payloads(manager) -> list[dict]:
+    return [model_payload(identifier, manager, idx) for idx, identifier in enumerate(available_model_identifiers(manager), start=1)]
+
+
+def model_identifiers_for_provider(provider: str) -> list[str]:
+    mappings = get_identifier_mappings()
+    return [identifier for identifier in ALL_MODEL_IDENTIFIERS if identifier in mappings and mappings[identifier].provider == provider]
+
+
 def provider_payload(provider: str, manager) -> dict:
     details = get_default_model_details(provider)
+    model_identifiers = model_identifiers_for_provider(provider)
     return {
         "name": provider,
         "display_name": details["display_name"],
@@ -121,6 +170,8 @@ def provider_payload(provider: str, manager) -> dict:
         "default_model": details["default_model"],
         "default_model_identifier": details["default_model_identifier"],
         "default_model_tier": details["default_model_tier"],
+        "models": [model_payload(identifier, manager) for identifier in model_identifiers],
+        "model_identifiers": model_identifiers,
         "status": manager.initialization_messages.get(provider, "Unknown"),
     }
 
@@ -146,6 +197,34 @@ def normalize_provider_input(manager, provider: Optional[Union[str, int]]):
     if lowered in available or lowered in configured:
         return lowered
     return candidate
+
+
+
+def normalize_model_identifier_input(manager, model_identifier: Optional[Union[str, int]]):
+    if model_identifier is None:
+        return None
+    mappings = get_identifier_mappings()
+    model_payload_list = model_payloads(manager)
+    model_map = {payload["id"]: payload["model_identifier"] for payload in model_payload_list}
+    canonical_map = {payload["name"].lower(): payload["model_identifier"] for payload in model_payload_list}
+
+    if isinstance(model_identifier, int):
+        return model_map.get(str(model_identifier))
+
+    candidate = str(model_identifier).strip()
+    if not candidate:
+        return None
+    if candidate in model_map:
+        return model_map[candidate]
+    if candidate in mappings:
+        return candidate
+    lowered = candidate.lower()
+    if lowered in canonical_map:
+        return canonical_map[lowered]
+    for identifier, config in mappings.items():
+        if identifier.lower() == lowered or config.model.lower() == lowered:
+            return identifier
+    return None
 
 
 def result_value(result: dict, *keys, default=None):
@@ -174,24 +253,35 @@ def ask_question_with_recovery(manager, args: dict, session_id: Optional[str]):
         return manager.ask_question(**args)
 
 
-def build_query_args(manager, request: SharedQueryRequest) -> tuple[dict, str]:
+def build_query_args(manager, request: SharedQueryRequest) -> tuple[dict, str, Optional[str]]:
     effective_session_id = resolve_session_id(request.sessionId, request.session_id)
+    requested_model_identifier = request.modelIdentifier if request.modelIdentifier is not None else request.model_identifier
+    model_identifier = normalize_model_identifier_input(manager, requested_model_identifier)
+    provider_input = request.provider
+    if model_identifier is None:
+        model_identifier = normalize_model_identifier_input(manager, provider_input)
+    if model_identifier:
+        provider = get_identifier_mappings()[model_identifier].provider
+    else:
+        provider = normalize_provider_input(manager, provider_input)
     args = {
         "topic": request.topic,
-        "provider": normalize_provider_input(manager, request.provider),
+        "provider": provider,
         "template": request.template,
         "max_tokens": request.max_tokens,
         "temperature": request.temperature,
     }
     if supports_session_memory(manager):
         args["session_id"] = effective_session_id
-    return args, effective_session_id
+    return args, effective_session_id, model_identifier
 
 
-async def execute_manager_query(manager, args: dict, session_id: Optional[str]) -> dict:
-    return recover_structured_parse_error(
-        await run_manager_in_thread(lambda: ask_question_with_recovery(manager, args, session_id))
-    )
+async def execute_manager_query(manager, args: dict, session_id: Optional[str], model_identifier: Optional[str] = None) -> dict:
+    def run_query():
+        with selected_model_context(model_identifier):
+            return ask_question_with_recovery(manager, args, session_id)
+
+    return recover_structured_parse_error(await run_manager_in_thread(run_query))
 
 
 def query_error_message(result: dict) -> str:
@@ -200,14 +290,17 @@ def query_error_message(result: dict) -> str:
     return result.get("error", "Query failed")
 
 
-def serialize_query_response(manager, request: SharedQueryRequest, result: dict, session_id: str) -> dict:
+def serialize_query_response(manager, request: SharedQueryRequest, result: dict, session_id: str, model_identifier: Optional[str] = None) -> dict:
     raw_response = result.get("response")
     content = raw_response if isinstance(raw_response, (dict, list)) else normalize_response_text(raw_response)
     return {
         "success": True,
         "framework": manager.framework,
+        "topic": request.topic,
+        "selected_provider": request.provider or model_identifier,
         "provider": result_value(result, "provider", default="unknown"),
         "model": result_value(result, "model", default=""),
+        "model_identifier": model_identifier,
         "response": content,
         "parameters": {
             "temperature": result_value(result, "temperature"),
@@ -224,6 +317,7 @@ def serialize_done_event(result: dict, raw_response, session_id: str) -> dict:
         "type": "done",
         "provider": result_value(result, "provider"),
         "model": result_value(result, "model"),
+        "model_identifier": result_value(result, "model_identifier"),
         "response": raw_response if isinstance(raw_response, dict) else None,
         "token_usage": result_value(result, "token_usage", "tokenUsage"),
         "session_id": result_value(result, "session_id", "sessionId", default=session_id),
@@ -242,7 +336,9 @@ def create_web_api(manager_class):
             "framework": manager.framework,
             "available_providers": available,
             "available_provider_details": [provider_payload(provider, manager) for provider in available],
+            "available_model_details": model_payloads(manager),
             "total_available": len(available),
+            "total_models_available": len(model_payloads(manager)),
             "initialization_status": manager.initialization_messages,
             "status": "healthy" if available else "no_providers",
         }
@@ -250,7 +346,19 @@ def create_web_api(manager_class):
     @app.get('/providers')
     async def get_providers():
         providers = manager.get_available_providers()
-        return {"framework": manager.framework, "providers": [provider_payload(provider, manager) for provider in providers], "count": len(providers)}
+        models = model_payloads(manager)
+        active = models[0]["name"] if models else None
+        return {
+            "framework": manager.framework,
+            "providers": models,
+            "provider_groups": [provider_payload(provider, manager) for provider in providers],
+            "available_providers": providers,
+            "models": models,
+            "count": len(models),
+            "provider_count": len(providers),
+            "model_count": len(models),
+            "active_provider": active,
+        }
 
     @app.get('/capabilities')
     async def get_capabilities():
@@ -259,13 +367,15 @@ def create_web_api(manager_class):
     @app.post('/query')
     async def query_single(request: SharedQueryRequest):
         try:
-            args, effective_session_id = build_query_args(manager, request)
-            result = await execute_manager_query(manager, args, effective_session_id)
+            args, effective_session_id, model_identifier = build_query_args(manager, request)
+            result = await execute_manager_query(manager, args, effective_session_id, model_identifier)
+            if isinstance(result, dict) and model_identifier:
+                result["model_identifier"] = model_identifier
             if not isinstance(result, dict):
                 raise HTTPException(status_code=500, detail=query_error_message(result))
             if not result_is_success(result):
                 raise HTTPException(status_code=400, detail=query_error_message(result))
-            return serialize_query_response(manager, request, result, effective_session_id)
+            return serialize_query_response(manager, request, result, effective_session_id, model_identifier)
         except HTTPException:
             raise
         except Exception as exc:
@@ -275,8 +385,10 @@ def create_web_api(manager_class):
     async def query_stream(request: SharedQueryRequest):
         async def stream_events():
             try:
-                args, effective_session_id = build_query_args(manager, request)
-                result = await execute_manager_query(manager, args, effective_session_id)
+                args, effective_session_id, model_identifier = build_query_args(manager, request)
+                result = await execute_manager_query(manager, args, effective_session_id, model_identifier)
+                if isinstance(result, dict) and model_identifier:
+                    result["model_identifier"] = model_identifier
                 if not isinstance(result, dict) or not result_is_success(result):
                     yield to_sse_line({"type": "error", "error": query_error_message(result)})
                     return

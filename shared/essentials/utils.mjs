@@ -1,7 +1,9 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import {
   formatFilename,
   getAllProviderNames,
-  getDefaultModel,
+  getDefaultModel as baseGetDefaultModel,
   getNonEmptyInput,
   normalizeResponseText,
   parseStructuredJsonResponse,
@@ -18,6 +20,7 @@ import {
   getUserParameters,
   sortProvidersByDisplayOrder,
 } from "../utils.mjs";
+import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../llm_models.mjs";
 
 export {
   displayProviderResponse,
@@ -26,7 +29,6 @@ export {
   getAllProviderNames,
   getAllProviders,
   getApiKey,
-  getDefaultModel,
   getDefaultModelDetails,
   getDisplayName,
   getNonEmptyInput,
@@ -37,6 +39,89 @@ export {
   saveResponseToFile,
   sortProvidersByDisplayOrder,
 };
+
+
+const selectedModelStorage = new AsyncLocalStorage();
+
+export function getDefaultModel(provider) {
+  const selectedIdentifier = selectedModelStorage.getStore() || null;
+  if (selectedIdentifier) {
+    const config = getIdentifierMappings()[selectedIdentifier];
+    if (config?.provider === provider) return config.model;
+  }
+  return baseGetDefaultModel(provider);
+}
+
+export function withSelectedModelIdentifier(modelIdentifier, fn) {
+  return selectedModelStorage.run(modelIdentifier || null, fn);
+}
+
+export function getModelIdentifierConfig(modelIdentifier) {
+  if (modelIdentifier === null || typeof modelIdentifier === "undefined") return null;
+  return getIdentifierMappings()[String(modelIdentifier).trim()] || null;
+}
+
+export function modelIdentifiersForProviders(providers = null) {
+  const providerSet = providers ? new Set(providers) : null;
+  const mappings = getIdentifierMappings();
+  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && (!providerSet || providerSet.has(mappings[identifier].provider)));
+}
+
+const MODEL_PROVIDER_PREFIXES = [
+  ["google_genai_", "Google"],
+  ["anthropic_", "Anthropic"],
+  ["openai_", "OpenAI"],
+  ["xai_", "xAI"],
+  ["deepseek_", "DeepSeek"],
+];
+
+function providerAndModelName(modelIdentifier) {
+  for (const [prefix, providerName] of MODEL_PROVIDER_PREFIXES) {
+    if (modelIdentifier.startsWith(prefix)) return [providerName, modelIdentifier.slice(prefix.length)];
+  }
+  const [providerName, ...modelParts] = modelIdentifier.split("_");
+  return [providerName ? providerName.charAt(0).toUpperCase() + providerName.slice(1) : "Other", modelParts.join("_") || modelIdentifier];
+}
+
+export function compactModelSelectionLines(modelIdentifiers) {
+  const lines = [];
+  let currentProvider = null;
+  let currentOptions = [];
+  const flushCurrent = () => {
+    if (currentProvider && currentOptions.length > 0) lines.push(`${currentProvider}: ${currentOptions.join(" | ")}`);
+    currentOptions = [];
+  };
+  modelIdentifiers.forEach((modelIdentifier, index) => {
+    const [providerName, modelName] = providerAndModelName(modelIdentifier);
+    if (providerName !== currentProvider || currentOptions.length === 3) {
+      flushCurrent();
+      currentProvider = providerName;
+    }
+    currentOptions.push(`${index + 1}. ${modelName}${index === 0 ? " [default]" : ""}`);
+  });
+  flushCurrent();
+  return lines;
+}
+
+function modelOptionLabel(modelIdentifier) {
+  const config = getIdentifierMappings()[modelIdentifier];
+  return `${config.model} (${config.tier}; ${modelIdentifier})`;
+}
+
+export async function selectModelIdentifier(modelIdentifiers, ask, prompt = "Select a model:") {
+  const choiceIdx = await getUserChoice(modelIdentifiers.map((identifier) => modelOptionLabel(identifier)), prompt, ask);
+  return modelIdentifiers[choiceIdx];
+}
+
+export async function selectProviderModelIdentifier(providers, ask) {
+  const providerIdx = await getUserChoice(
+    providers.map((provider) => `${getDisplayName(provider)} (${modelIdentifiersForProviders([provider]).length} models)`),
+    "Select a provider:",
+    ask,
+  );
+  const provider = providers[providerIdx];
+  return selectModelIdentifier(modelIdentifiersForProviders([provider]), ask, `Select a ${getDisplayName(provider)} model:`);
+}
 
 export class EssentialsLLMManager {
   constructor(frameworkName) {
@@ -90,7 +175,7 @@ export function managerSupportsInteractiveMemory(manager) {
   return fullMemorySupported || retrievalMemorySupported;
 }
 
-export async function interactiveCli(manager) {
+export async function interactiveCli(manager, modelIdentifier = null) {
   const ask = getSharedAsk();
   try {
     console.log("=".repeat(60));
@@ -107,23 +192,37 @@ export async function interactiveCli(manager) {
     const { temperature, maxTokens } = await getUserParameters(ask);
     console.log(`\nUsing temperature: ${temperature}, max tokens: ${maxTokens}`);
     availableProviders = sortProvidersByDisplayOrder(availableProviders);
-    console.log("\nAvailable providers:");
-    for (const provider of availableProviders) {
-      console.log(`- ${formatProviderSummary(provider)}`);
+    //console.log("\nAvailable providers:");
+    //for (const providerName of availableProviders) {
+    //  console.log(`- ${formatProviderSummary(providerName)}`);
+    //}
+
+    const availableModelIdentifiers = modelIdentifiersForProviders(availableProviders);
+    if (availableModelIdentifiers.length === 0) {
+      console.log("No models available for initialized providers.");
+      return;
     }
 
     const memorySupported = managerSupportsInteractiveMemory(manager);
 
-    const choiceIdx = await getUserChoice(availableProviders.map((provider) => getDisplayName(provider)), "Select a provider:", ask);
-    const provider = availableProviders[choiceIdx];
+    if (modelIdentifier) {
+      if (!availableModelIdentifiers.includes(modelIdentifier)) {
+        console.log(`Model identifier '${modelIdentifier}' is not available for initialized providers.`);
+        return;
+      }
+    } else {
+      modelIdentifier = await selectProviderModelIdentifier(availableProviders, ask);
+    }
+    const modelConfig = getIdentifierMappings()[modelIdentifier];
+    const provider = modelConfig.provider;
     const selectedProviderDetails = getDefaultModelDetails(provider);
     console.log(
-      "\nUsing provider: "
+      "\nUsing model: "
       + `${selectedProviderDetails.displayName} `
-      + `(provider: ${selectedProviderDetails.canonicalProvider}, `
-      + `default model: ${selectedProviderDetails.defaultModel} / `
-      + `${selectedProviderDetails.defaultModelIdentifier} / `
-      + `${selectedProviderDetails.defaultModelTier})`,
+      + `(provider: ${modelConfig.provider}, `
+      + `model: ${modelConfig.model} / `
+      + `${modelConfig.name} / `
+      + `${modelConfig.tier})`,
     );
     let sessionId = "default";
     if (memorySupported) {
@@ -165,9 +264,9 @@ export async function interactiveCli(manager) {
           console.log("⚠️ This manager does not support memory reset.");
         }
       } else {
-        const response = memorySupported
-          ? await manager.askQuestion(userInput, provider, "{topic}", maxTokens, temperature, sessionId)
-          : await manager.askQuestion(userInput, provider, "{topic}", maxTokens, temperature);
+        const response = await withSelectedModelIdentifier(modelIdentifier, async () => (memorySupported
+          ? manager.askQuestion(userInput, provider, "{topic}", maxTokens, temperature, sessionId)
+          : manager.askQuestion(userInput, provider, "{topic}", maxTokens, temperature)));
         displayProviderResponse(provider, response, manager.framework);
       }
     }

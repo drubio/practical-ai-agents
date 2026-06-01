@@ -5,6 +5,8 @@ import {
   parseStructuredJsonResponse,
   sortProvidersByDisplayOrder,
 } from "../utils.mjs";
+import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../llm_models.mjs";
+import { withSelectedModelIdentifier } from "./utils.mjs";
 import {
   buildManager,
   captureConsoleOutputAsync,
@@ -62,6 +64,46 @@ export function providerSelectionMap(manager) {
   return Object.fromEntries(sortedProviders.map((provider, index) => [String(index + 1), provider]));
 }
 
+export function availableModelIdentifiers(manager) {
+  const mappings = getIdentifierMappings();
+  const availableProviders = new Set(manager.getAvailableProviders());
+  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && availableProviders.has(mappings[identifier].provider));
+}
+
+export function modelPayload(modelIdentifier, manager, idx = null) {
+  const config = getIdentifierMappings()[modelIdentifier];
+  let resolvedIdx = idx;
+  if (resolvedIdx === null || typeof resolvedIdx === "undefined") {
+    const availableIndex = availableModelIdentifiers(manager).indexOf(modelIdentifier);
+    resolvedIdx = availableIndex >= 0 ? availableIndex + 1 : ALL_MODEL_IDENTIFIERS.indexOf(modelIdentifier) + 1;
+  }
+  const canonicalName = `${config.provider}:${config.model}`;
+  return {
+    id: String(resolvedIdx),
+    name: canonicalName,
+    display_name: `${config.provider.charAt(0).toUpperCase()}${config.provider.slice(1)} (${modelIdentifier})`,
+    provider: config.provider,
+    default_model: config.model,
+    model: config.model,
+    model_identifier: modelIdentifier,
+    default_model_identifier: modelIdentifier,
+    model_tier: config.tier,
+    default_model_tier: config.tier,
+    strengths: [...(config.strengths || [])],
+    status: manager.initializationMessages[config.provider] || "Unknown",
+    framework: manager.framework || "unknown",
+  };
+}
+
+export function modelPayloads(manager) {
+  return availableModelIdentifiers(manager).map((identifier, index) => modelPayload(identifier, manager, index + 1));
+}
+
+export function modelIdentifiersForProvider(provider) {
+  const mappings = getIdentifierMappings();
+  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && mappings[identifier].provider === provider);
+}
+
 export function normalizeProviderInput(manager, provider) {
   if (provider === null || typeof provider === "undefined") return null;
   const providerMap = providerSelectionMap(manager);
@@ -76,8 +118,28 @@ export function normalizeProviderInput(manager, provider) {
   return candidate;
 }
 
+export function normalizeModelIdentifierInput(manager, modelIdentifier) {
+  if (modelIdentifier === null || typeof modelIdentifier === "undefined") return null;
+  const mappings = getIdentifierMappings();
+  const payloads = modelPayloads(manager);
+  const modelMap = Object.fromEntries(payloads.map((payload) => [payload.id, payload.model_identifier]));
+  const canonicalMap = Object.fromEntries(payloads.map((payload) => [payload.name.toLowerCase(), payload.model_identifier]));
+  if (typeof modelIdentifier === "number") return modelMap[String(modelIdentifier)] ?? null;
+  const candidate = String(modelIdentifier).trim();
+  if (!candidate) return null;
+  if (candidate in modelMap) return modelMap[candidate];
+  if (candidate in mappings) return candidate;
+  const lowered = candidate.toLowerCase();
+  if (lowered in canonicalMap) return canonicalMap[lowered];
+  return Object.keys(mappings).find((identifier) => {
+    const config = mappings[identifier];
+    return identifier.toLowerCase() === lowered || config.model.toLowerCase() === lowered;
+  }) || null;
+}
+
 export function buildProviderPayload(provider, manager) {
   const details = getDefaultModelDetails(provider);
+  const modelIdentifiers = modelIdentifiersForProvider(provider);
   return {
     name: provider,
     display_name: details.displayName,
@@ -85,6 +147,8 @@ export function buildProviderPayload(provider, manager) {
     default_model: details.defaultModel,
     default_model_identifier: details.defaultModelIdentifier,
     default_model_tier: details.defaultModelTier,
+    models: modelIdentifiers.map((identifier) => modelPayload(identifier, manager)),
+    model_identifiers: modelIdentifiers,
     status: manager.initializationMessages[provider] || "Unknown",
   };
 }
@@ -100,6 +164,8 @@ export function buildQueryPayload(manager, body = {}) {
   const {
     topic,
     provider = null,
+    model_identifier = null,
+    modelIdentifier = null,
     template = "{topic}",
     max_tokens = 1000,
     temperature = 0.7,
@@ -107,9 +173,15 @@ export function buildQueryPayload(manager, body = {}) {
     sessionId = null,
   } = body;
   const effectiveSessionId = resolveSessionId(sessionId, session_id);
+  let selectedModelIdentifier = normalizeModelIdentifierInput(manager, modelIdentifier ?? model_identifier);
+  if (!selectedModelIdentifier) selectedModelIdentifier = normalizeModelIdentifierInput(manager, provider);
+  const resolvedProvider = selectedModelIdentifier
+    ? getIdentifierMappings()[selectedModelIdentifier].provider
+    : normalizeProviderInput(manager, provider);
   return {
     topic,
-    provider: normalizeProviderInput(manager, provider),
+    provider: resolvedProvider,
+    modelIdentifier: selectedModelIdentifier,
     template,
     maxTokens: max_tokens,
     temperature,
@@ -118,9 +190,9 @@ export function buildQueryPayload(manager, body = {}) {
 }
 
 export async function executeManagerQuery(manager, queryPayload) {
-  const { topic, provider, template, maxTokens, temperature, sessionId } = queryPayload;
+  const { topic, provider, template, maxTokens, temperature, sessionId, modelIdentifier } = queryPayload;
   return captureConsoleOutputAsync(async () => recoverStructuredParseError(
-    await askQuestionWithSession(manager, topic, provider, template, maxTokens, temperature, sessionId),
+    await withSelectedModelIdentifier(modelIdentifier, async () => askQuestionWithSession(manager, topic, provider, template, maxTokens, temperature, sessionId)),
   ));
 }
 
@@ -136,8 +208,11 @@ export function serializeQueryResponse(manager, queryPayload, result, logs = "")
   return {
     success: true,
     framework: manager.framework,
+    topic: queryPayload.topic,
+    selected_provider: queryPayload.modelIdentifier || queryPayload.provider,
     provider: result.provider,
     model: result.model,
+    model_identifier: queryPayload.modelIdentifier || result.modelIdentifier || result.model_identifier || null,
     response: (typeof result.response === "object" && result.response !== null) ? result.response : normalizeResponseText(result.response),
     parameters: {
       temperature: result.temperature,
@@ -155,6 +230,7 @@ export function serializeDoneEvent(result, sessionId) {
     type: "done",
     provider: result.provider,
     model: result.model,
+    model_identifier: result.modelIdentifier ?? result.model_identifier ?? null,
     response: (typeof result.response === "object" && result.response !== null) ? result.response : null,
     token_usage: result.tokenUsage ?? result.token_usage ?? null,
     session_id: result.sessionId ?? sessionId,
@@ -180,14 +256,27 @@ export function createWebApi(managerClassOrFactory) {
       framework: manager.framework,
       available_providers: available,
       available_provider_details: available.map((provider) => buildProviderPayload(provider, manager)),
+      available_model_details: modelPayloads(manager),
       total_available: available.length,
+      total_models_available: modelPayloads(manager).length,
       initialization_status: manager.initializationMessages,
       status: available.length > 0 ? "healthy" : "no_providers",
     });
   });
   app.get("/providers", (_, res) => {
     const available = manager.getAvailableProviders();
-    res.json({ framework: manager.framework, providers: available.map((provider) => buildProviderPayload(provider, manager)), count: available.length });
+    const models = modelPayloads(manager);
+    res.json({
+      framework: manager.framework,
+      providers: models,
+      provider_groups: available.map((provider) => buildProviderPayload(provider, manager)),
+      available_providers: available,
+      models,
+      count: models.length,
+      provider_count: available.length,
+      model_count: models.length,
+      active_provider: models[0]?.name ?? null,
+    });
   });
   app.get("/capabilities", (_, res) => {
     res.json({ framework: manager.framework, streaming: true, memory: supportsMemory(manager), memory_retrieval: supportsMemoryRetrieval(manager), coagent: supportsCoagent(manager) });
@@ -198,6 +287,7 @@ export function createWebApi(managerClassOrFactory) {
       const queryPayload = buildQueryPayload(manager, req.body);
       if (!queryPayload.topic) return res.status(400).json({ error: "Topic is required" });
       const { result, logs } = await executeManagerQuery(manager, queryPayload);
+      if (result && queryPayload.modelIdentifier) result.modelIdentifier = queryPayload.modelIdentifier;
       if (!resultIsSuccess(result)) return res.status(400).json(queryErrorPayload(result, logs));
       return res.json(serializeQueryResponse(manager, queryPayload, result, logs));
     } catch (error) {
@@ -213,6 +303,7 @@ export function createWebApi(managerClassOrFactory) {
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
+      if (result && queryPayload.modelIdentifier) result.modelIdentifier = queryPayload.modelIdentifier;
       if (!resultIsSuccess(result)) {
         res.write(toSseLine({ type: "error", error: result?.error || "Query failed" }));
         return res.end();

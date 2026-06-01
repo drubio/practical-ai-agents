@@ -411,57 +411,24 @@ const getContentFromResponseObject = (response: any, rawAnswer?: unknown, fallba
   return fallback;
 };
 
-export const processApiResponse = (data: any, queryMode: string): ProcessedResponse => {
-  if (queryMode === 'single') {
-    if (data.success) {
-      if (typeof data.response === 'string') {
-        const structured = parseJsonText(data.response);
-        return {
-          content: (structured?.answer || structured?.summary || structured?.distilled || data.response),
-          details: buildDetails(structured, data)
-        };
-      }
-
-      if (typeof data.response === 'object' && data.response !== null) {
-        return {
-          content: getContentFromResponseObject(data.response, data.raw_answer, 'No response content available'),
-          details: buildDetails(data.response, data)
-        };
-      }
-
-      return { content: data.raw_answer || 'No response available', details: buildDetails(undefined, data) };
-    }
-
-    return { content: `Error: ${extractApiErrorMessage(data)}` };
-  }
-
+export const processApiResponse = (data: any): ProcessedResponse => {
   if (data.success) {
-    let content = `Results from ${data.summary?.total_providers || Object.keys(data.responses).length} providers:\n\n`;
-
-    for (const [provider, response] of Object.entries(data.responses)) {
-      const providerResponse = response as any;
-      content += `**${provider}**\n`;
-      if (providerResponse.model) {
-        content += `- Model: ${providerResponse.model}\n`;
-      }
-      content += `- Response: `;
-
-      if (providerResponse.success) {
-        if (typeof providerResponse.response === 'string') {
-          content += providerResponse.response;
-        } else if (typeof providerResponse.response === 'object' && providerResponse.response !== null) {
-          content += getContentFromResponseObject(providerResponse.response, providerResponse.raw_answer);
-        } else {
-          content += providerResponse.raw_answer || 'No response available';
-        }
-      } else {
-        content += `Error: ${providerResponse.error}`;
-      }
-
-      content += '\n\n';
+    if (typeof data.response === 'string') {
+      const structured = parseJsonText(data.response);
+      return {
+        content: (structured?.answer || structured?.summary || structured?.distilled || data.response),
+        details: buildDetails(structured, data)
+      };
     }
 
-    return { content };
+    if (typeof data.response === 'object' && data.response !== null) {
+      return {
+        content: getContentFromResponseObject(data.response, data.raw_answer, 'No response content available'),
+        details: buildDetails(data.response, data)
+      };
+    }
+
+    return { content: data.raw_answer || 'No response available', details: buildDetails(undefined, data) };
   }
 
   return { content: `Error: ${extractApiErrorMessage(data)}` };
