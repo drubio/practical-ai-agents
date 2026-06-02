@@ -4,11 +4,13 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
 import {
+  ALL_MODEL_IDENTIFIERS,
   getAllProviders,
   getApiKey,
   getDefaultModelConfig,
   getDefaultModelName,
   getDisplayName,
+  getIdentifierMappings,
   sortProvidersByDisplayOrder,
 } from "./llm_models.mjs";
 
@@ -231,4 +233,66 @@ export function formatFilename(question, framework) {
 export function saveResponseToFile(response, filename) {
   writeFileSync(filename, JSON.stringify(response, null, 2));
   console.log(`Response saved to ${filename}`);
+}
+
+export const MODEL_PROVIDER_PREFIXES = [
+  ["google_genai_", "Google"],
+  ["anthropic_", "Anthropic"],
+  ["openai_", "OpenAI"],
+  ["xai_", "xAI"],
+  ["deepseek_", "DeepSeek"],
+];
+
+export function providerAndModelName(modelIdentifier) {
+  for (const [prefix, providerName] of MODEL_PROVIDER_PREFIXES) {
+    if (modelIdentifier.startsWith(prefix)) return [providerName, modelIdentifier.slice(prefix.length)];
+  }
+  const [providerName, ...modelParts] = modelIdentifier.split("_");
+  return [providerName ? providerName.charAt(0).toUpperCase() + providerName.slice(1) : "Other", modelParts.join("_") || modelIdentifier];
+}
+
+export function compactModelSelectionLines(modelIdentifiers) {
+  const lines = [];
+  let currentProvider = null;
+  let currentOptions = [];
+  const flushCurrent = () => {
+    if (currentProvider && currentOptions.length > 0) lines.push(`${currentProvider}: ${currentOptions.join(" | ")}`);
+    currentOptions = [];
+  };
+  modelIdentifiers.forEach((modelIdentifier, index) => {
+    const [providerName, modelName] = providerAndModelName(modelIdentifier);
+    if (providerName !== currentProvider || currentOptions.length === 3) {
+      flushCurrent();
+      currentProvider = providerName;
+    }
+    currentOptions.push(`${index + 1}. ${modelName}${index === 0 ? " [default]" : ""}`);
+  });
+  flushCurrent();
+  return lines;
+}
+
+export function modelIdentifiersForProviders(providers = null) {
+  const providerSet = providers ? new Set(providers) : null;
+  const mappings = getIdentifierMappings();
+  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && (!providerSet || providerSet.has(mappings[identifier].provider)));
+}
+
+export function modelOptionLabel(modelIdentifier) {
+  const config = getIdentifierMappings()[modelIdentifier];
+  return `${config.model} (${config.tier}; ${modelIdentifier})`;
+}
+
+export async function selectModelIdentifier(modelIdentifiers, ask, prompt = "Select a model:") {
+  const choiceIdx = await getUserChoice(modelIdentifiers.map((identifier) => modelOptionLabel(identifier)), prompt, ask);
+  return modelIdentifiers[choiceIdx];
+}
+
+export async function selectProviderModelIdentifier(providers, ask) {
+  const providerIdx = await getUserChoice(
+    providers.map((provider) => `${getDisplayName(provider)} (${modelIdentifiersForProviders([provider]).length} models)`),
+    "Select a provider:",
+    ask,
+  );
+  const provider = providers[providerIdx];
+  return selectModelIdentifier(modelIdentifiersForProviders([provider]), ask, `Select a ${getDisplayName(provider)} model:`);
 }

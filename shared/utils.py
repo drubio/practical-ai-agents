@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from dotenv import load_dotenv
 
@@ -306,3 +306,80 @@ def get_non_empty_input(prompt: str) -> str:
 def format_filename(question: str, framework: str) -> str:
     safe_question = question[:20].replace(" ", "_").replace("?", "").replace("!", "")
     return f"llm_responses_{framework}_{safe_question}.json"
+
+MODEL_PROVIDER_PREFIXES = (
+    ("google_genai_", "Google"),
+    ("anthropic_", "Anthropic"),
+    ("openai_", "OpenAI"),
+    ("xai_", "xAI"),
+    ("deepseek_", "DeepSeek"),
+)
+
+
+def provider_and_model_name(model_identifier: str) -> tuple[str, str]:
+    """Return display-friendly provider/model names for a configured model identifier."""
+    for prefix, provider_name in MODEL_PROVIDER_PREFIXES:
+        if model_identifier.startswith(prefix):
+            return provider_name, model_identifier[len(prefix) :]
+    provider_name, _, model_name = model_identifier.partition("_")
+    return (provider_name.title() if provider_name else "Other"), (model_name or model_identifier)
+
+
+def compact_model_selection_lines(model_identifiers: Sequence[str]) -> list[str]:
+    """Format model identifiers into compact provider-grouped CLI selection lines."""
+    lines: list[str] = []
+    current_provider: Optional[str] = None
+    current_options: list[str] = []
+
+    def flush_current() -> None:
+        nonlocal current_options
+        if current_provider and current_options:
+            lines.append(f"{current_provider}: " + " | ".join(current_options))
+        current_options = []
+
+    for index, model_identifier in enumerate(model_identifiers, start=1):
+        provider_name, model_name = provider_and_model_name(model_identifier)
+        if provider_name != current_provider or len(current_options) == 3:
+            flush_current()
+            current_provider = provider_name
+        default_suffix = " [default]" if index == 1 else ""
+        current_options.append(f"{index}. {model_name}{default_suffix}")
+    flush_current()
+    return lines
+
+
+def model_identifiers_for_providers(providers: Iterable[str] | None = None) -> list[str]:
+    """Return configured model identifiers, optionally filtered to provider names."""
+    from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
+
+    provider_set = set(providers) if providers is not None else None
+    mappings = get_identifier_mappings()
+    return [
+        identifier
+        for identifier in ALL_MODEL_IDENTIFIERS
+        if identifier in mappings and (provider_set is None or mappings[identifier].provider in provider_set)
+    ]
+
+
+def model_option_label(model_identifier: str) -> str:
+    """Return a detailed CLI label for a configured model identifier."""
+    from shared.llm_models import get_identifier_mappings
+
+    config = get_identifier_mappings()[model_identifier]
+    return f"{config.model} ({config.tier}; {model_identifier})"
+
+
+def select_model_identifier(model_identifiers: Sequence[str], prompt: str = "Select a model:") -> str:
+    """Prompt for one model identifier from a list using the shared choice helper."""
+    choice_idx = get_user_choice([model_option_label(identifier) for identifier in model_identifiers], prompt)
+    return model_identifiers[choice_idx]
+
+
+def select_provider_model_identifier(providers: Sequence[str]) -> str:
+    """Prompt for a provider, then prompt for a model identifier under that provider."""
+    provider_idx = get_user_choice(
+        [f"{get_display_name(provider)} ({len(model_identifiers_for_providers([provider]))} models)" for provider in providers],
+        "Select a provider:",
+    )
+    provider = providers[provider_idx]
+    return select_model_identifier(model_identifiers_for_providers([provider]), f"Select a {get_display_name(provider)} model:")

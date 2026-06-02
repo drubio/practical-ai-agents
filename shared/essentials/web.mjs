@@ -1,16 +1,21 @@
 import {
-  getAllProviders,
-  getDefaultModelDetails,
   normalizeResponseText,
   parseStructuredJsonResponse,
-  sortProvidersByDisplayOrder,
 } from "../utils.mjs";
-import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../llm_models.mjs";
+import { getIdentifierMappings } from "../llm_models.mjs";
 import { withSelectedModelIdentifier } from "./utils.mjs";
 import {
+  availableModelIdentifiers,
   buildManager,
   captureConsoleOutputAsync,
   createExpressApp,
+  modelIdentifiersForProvider,
+  modelPayload,
+  modelPayloads,
+  normalizeModelIdentifierInput,
+  normalizeProviderInput,
+  providerPayload as buildProviderPayload,
+  providerSelectionMap,
   resolveSessionId,
   resultIsSuccess,
   streamTextSse,
@@ -20,6 +25,17 @@ import {
   supportsSessionMemory,
   toSseLine,
 } from "../web.mjs";
+
+export {
+  availableModelIdentifiers,
+  buildProviderPayload,
+  modelIdentifiersForProvider,
+  modelPayload,
+  modelPayloads,
+  normalizeModelIdentifierInput,
+  normalizeProviderInput,
+  providerSelectionMap,
+};
 
 export function parseStructuredRawResponse(rawResponse) {
   if (typeof rawResponse === "undefined" || rawResponse === null) return null;
@@ -57,100 +73,6 @@ export function recoverStructuredParseError(result) {
   const normalized = normalizeResponseText(rawResponse);
   const recoveredResponse = parsedResponse || { answer: normalized, distilled: normalized, metadata: { confidence: "low", notes: errorMessage } };
   return { ...result, success: true, error: null, response: recoveredResponse, rawAnswer: extractAnswerText(recoveredResponse, rawResponse) };
-}
-
-export function providerSelectionMap(manager) {
-  const sortedProviders = sortProvidersByDisplayOrder(manager.getAvailableProviders());
-  return Object.fromEntries(sortedProviders.map((provider, index) => [String(index + 1), provider]));
-}
-
-export function availableModelIdentifiers(manager) {
-  const mappings = getIdentifierMappings();
-  const availableProviders = new Set(manager.getAvailableProviders());
-  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && availableProviders.has(mappings[identifier].provider));
-}
-
-export function modelPayload(modelIdentifier, manager, idx = null) {
-  const config = getIdentifierMappings()[modelIdentifier];
-  let resolvedIdx = idx;
-  if (resolvedIdx === null || typeof resolvedIdx === "undefined") {
-    const availableIndex = availableModelIdentifiers(manager).indexOf(modelIdentifier);
-    resolvedIdx = availableIndex >= 0 ? availableIndex + 1 : ALL_MODEL_IDENTIFIERS.indexOf(modelIdentifier) + 1;
-  }
-  const canonicalName = `${config.provider}:${config.model}`;
-  return {
-    id: String(resolvedIdx),
-    name: canonicalName,
-    display_name: `${config.provider.charAt(0).toUpperCase()}${config.provider.slice(1)} (${modelIdentifier})`,
-    provider: config.provider,
-    default_model: config.model,
-    model: config.model,
-    model_identifier: modelIdentifier,
-    default_model_identifier: modelIdentifier,
-    model_tier: config.tier,
-    default_model_tier: config.tier,
-    strengths: [...(config.strengths || [])],
-    status: manager.initializationMessages[config.provider] || "Unknown",
-    framework: manager.framework || "unknown",
-  };
-}
-
-export function modelPayloads(manager) {
-  return availableModelIdentifiers(manager).map((identifier, index) => modelPayload(identifier, manager, index + 1));
-}
-
-export function modelIdentifiersForProvider(provider) {
-  const mappings = getIdentifierMappings();
-  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && mappings[identifier].provider === provider);
-}
-
-export function normalizeProviderInput(manager, provider) {
-  if (provider === null || typeof provider === "undefined") return null;
-  const providerMap = providerSelectionMap(manager);
-  const available = new Set(manager.getAvailableProviders().map((p) => String(p).toLowerCase()));
-  const configured = new Set(getAllProviders().map((p) => String(p).toLowerCase()));
-  if (typeof provider === "number") return providerMap[String(provider)] ?? null;
-  const candidate = String(provider).trim();
-  if (!candidate) return null;
-  if (candidate in providerMap) return providerMap[candidate];
-  const lowered = candidate.toLowerCase();
-  if (available.has(lowered) || configured.has(lowered)) return lowered;
-  return candidate;
-}
-
-export function normalizeModelIdentifierInput(manager, modelIdentifier) {
-  if (modelIdentifier === null || typeof modelIdentifier === "undefined") return null;
-  const mappings = getIdentifierMappings();
-  const payloads = modelPayloads(manager);
-  const modelMap = Object.fromEntries(payloads.map((payload) => [payload.id, payload.model_identifier]));
-  const canonicalMap = Object.fromEntries(payloads.map((payload) => [payload.name.toLowerCase(), payload.model_identifier]));
-  if (typeof modelIdentifier === "number") return modelMap[String(modelIdentifier)] ?? null;
-  const candidate = String(modelIdentifier).trim();
-  if (!candidate) return null;
-  if (candidate in modelMap) return modelMap[candidate];
-  if (candidate in mappings) return candidate;
-  const lowered = candidate.toLowerCase();
-  if (lowered in canonicalMap) return canonicalMap[lowered];
-  return Object.keys(mappings).find((identifier) => {
-    const config = mappings[identifier];
-    return identifier.toLowerCase() === lowered || config.model.toLowerCase() === lowered;
-  }) || null;
-}
-
-export function buildProviderPayload(provider, manager) {
-  const details = getDefaultModelDetails(provider);
-  const modelIdentifiers = modelIdentifiersForProvider(provider);
-  return {
-    name: provider,
-    display_name: details.displayName,
-    provider: details.canonicalProvider,
-    default_model: details.defaultModel,
-    default_model_identifier: details.defaultModelIdentifier,
-    default_model_tier: details.defaultModelTier,
-    models: modelIdentifiers.map((identifier) => modelPayload(identifier, manager)),
-    model_identifiers: modelIdentifiers,
-    status: manager.initializationMessages[provider] || "Unknown",
-  };
 }
 
 export async function askQuestionWithSession(manager, topic, provider, template, maxTokens, temperature, sessionId) {

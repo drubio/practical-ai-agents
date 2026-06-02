@@ -22,6 +22,10 @@ from shared.utils import (
     get_display_name,
     get_user_choice,
     get_user_parameters,
+    model_identifiers_for_providers,
+    select_model_identifier,
+    select_provider_model_identifier,
+    compact_model_selection_lines,
     print_initialization_status,
     sort_providers_by_display_order,
 )
@@ -47,50 +51,6 @@ def get_model_identifier_config(model_identifier: Optional[str]):
     return get_identifier_mappings().get(str(model_identifier).strip())
 
 
-def model_identifiers_for_providers(providers: Iterable[str] | None = None) -> List[str]:
-    provider_set = set(providers) if providers is not None else None
-    mappings = get_identifier_mappings()
-    return [identifier for identifier in ALL_MODEL_IDENTIFIERS if identifier in mappings and (provider_set is None or mappings[identifier].provider in provider_set)]
-
-
-MODEL_PROVIDER_PREFIXES = (
-    ("google_genai_", "Google"),
-    ("anthropic_", "Anthropic"),
-    ("openai_", "OpenAI"),
-    ("xai_", "xAI"),
-    ("deepseek_", "DeepSeek"),
-)
-
-
-def _provider_and_model_name(model_identifier: str) -> tuple[str, str]:
-    for prefix, provider_name in MODEL_PROVIDER_PREFIXES:
-        if model_identifier.startswith(prefix):
-            return provider_name, model_identifier[len(prefix):]
-    provider_name, _, model_name = model_identifier.partition("_")
-    return (provider_name.title() if provider_name else "Other"), (model_name or model_identifier)
-
-
-def compact_model_selection_lines(model_identifiers: Sequence[str]) -> List[str]:
-    lines: List[str] = []
-    current_provider: Optional[str] = None
-    current_options: List[str] = []
-
-    def flush_current() -> None:
-        nonlocal current_options
-        if current_provider and current_options:
-            lines.append(f"{current_provider}: " + " | ".join(current_options))
-        current_options = []
-
-    for index, model_identifier in enumerate(model_identifiers, start=1):
-        provider_name, model_name = _provider_and_model_name(model_identifier)
-        if provider_name != current_provider or len(current_options) == 3:
-            flush_current()
-            current_provider = provider_name
-        default_suffix = " [default]" if index == 1 else ""
-        current_options.append(f"{index}. {model_name}{default_suffix}")
-    flush_current()
-    return lines
-
 
 @contextmanager
 def selected_model_context(model_identifier: Optional[str]) -> Iterator[None]:
@@ -100,25 +60,6 @@ def selected_model_context(model_identifier: Optional[str]) -> Iterator[None]:
     finally:
         _SELECTED_MODEL_IDENTIFIER.reset(token)
 
-
-def _model_option_label(model_identifier: str) -> str:
-    config = get_identifier_mappings()[model_identifier]
-    return f"{config.model} ({config.tier}; {model_identifier})"
-
-
-def select_model_identifier(model_identifiers: Sequence[str], prompt: str = "Select a model:") -> str:
-    choice_idx = get_user_choice([_model_option_label(identifier) for identifier in model_identifiers], prompt)
-    return model_identifiers[choice_idx]
-
-
-def select_provider_model_identifier(providers: Sequence[str]) -> str:
-    provider_idx = get_user_choice(
-        [f"{get_display_name(provider)} ({len(model_identifiers_for_providers([provider]))} models)" for provider in providers],
-        "Select a provider:",
-    )
-    provider = providers[provider_idx]
-    provider_models = model_identifiers_for_providers([provider])
-    return select_model_identifier(provider_models, f"Select a {get_display_name(provider)} model:")
 
 
 class EssentialsLLMManager:
@@ -176,6 +117,30 @@ def manager_supports_interactive_memory(manager: EssentialsLLMManager) -> bool:
     return full_memory_supported or retrieval_memory_supported
 
 
+
+def interactive_basic_question_loop(
+    manager,
+    provider: Optional[str] = None,
+    model_identifier: Optional[str] = None,
+    *,
+    ask_question=None,
+    prompt: str = "\nAsk a question (or 'exit'): ",
+) -> None:
+    """Run the shared minimal question/exit loop used by non-memory CLIs."""
+    while True:
+        user_input = input(prompt).strip()
+        if user_input.lower() in ["exit", "quit"]:
+            print("Exiting.")
+            break
+        if not user_input:
+            print("Input cannot be empty. Please try again.")
+            continue
+        with selected_model_context(model_identifier):
+            response = ask_question(user_input) if ask_question else manager.ask_question(topic=user_input, provider=provider)
+        if not getattr(manager, "prints_own_output", False):
+            display_provider_response(provider or getattr(manager, "provider", "unknown"), response, manager.framework)
+
+
 def interactive_cli(manager: EssentialsLLMManager, model_identifier: Optional[str] = None):
     print("=" * 60)
     print(f"Agent Application - {manager.framework} Framework")
@@ -227,6 +192,21 @@ def interactive_cli(manager: EssentialsLLMManager, model_identifier: Optional[st
     print("\n" + "=" * 50)
     print(f"{manager.framework.upper()} INTERACTIVE MODE - {get_display_name(provider).upper()}")
     print("=" * 50)
+    if not memory_supported:
+        interactive_basic_question_loop(
+            manager,
+            provider=provider,
+            model_identifier=model_identifier,
+            ask_question=lambda user_input: manager.ask_question(
+                topic=user_input,
+                provider=provider,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ),
+        )
+        print(f"\nThank you for using the {manager.framework} Agent Application!")
+        return
+
     while True:
         user_input = input("\nAsk a question (or 'history', 'clear', 'exit'): " if memory_supported else "\nAsk a question (or 'exit'): ").strip()
         if user_input.lower() in ["exit", "quit"]:

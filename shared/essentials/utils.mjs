@@ -18,9 +18,13 @@ import {
   getSharedAsk,
   getUserChoice,
   getUserParameters,
+  modelIdentifiersForProviders,
+  selectModelIdentifier,
+  selectProviderModelIdentifier,
+  compactModelSelectionLines,
   sortProvidersByDisplayOrder,
 } from "../utils.mjs";
-import { ALL_MODEL_IDENTIFIERS, getIdentifierMappings } from "../llm_models.mjs";
+import { getIdentifierMappings } from "../llm_models.mjs";
 
 export {
   displayProviderResponse,
@@ -34,6 +38,10 @@ export {
   getNonEmptyInput,
   getUserChoice,
   getUserParameters,
+  modelIdentifiersForProviders,
+  selectModelIdentifier,
+  selectProviderModelIdentifier,
+  compactModelSelectionLines,
   normalizeResponseText,
   parseStructuredJsonResponse,
   saveResponseToFile,
@@ -59,68 +67,6 @@ export function withSelectedModelIdentifier(modelIdentifier, fn) {
 export function getModelIdentifierConfig(modelIdentifier) {
   if (modelIdentifier === null || typeof modelIdentifier === "undefined") return null;
   return getIdentifierMappings()[String(modelIdentifier).trim()] || null;
-}
-
-export function modelIdentifiersForProviders(providers = null) {
-  const providerSet = providers ? new Set(providers) : null;
-  const mappings = getIdentifierMappings();
-  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && (!providerSet || providerSet.has(mappings[identifier].provider)));
-}
-
-const MODEL_PROVIDER_PREFIXES = [
-  ["google_genai_", "Google"],
-  ["anthropic_", "Anthropic"],
-  ["openai_", "OpenAI"],
-  ["xai_", "xAI"],
-  ["deepseek_", "DeepSeek"],
-];
-
-function providerAndModelName(modelIdentifier) {
-  for (const [prefix, providerName] of MODEL_PROVIDER_PREFIXES) {
-    if (modelIdentifier.startsWith(prefix)) return [providerName, modelIdentifier.slice(prefix.length)];
-  }
-  const [providerName, ...modelParts] = modelIdentifier.split("_");
-  return [providerName ? providerName.charAt(0).toUpperCase() + providerName.slice(1) : "Other", modelParts.join("_") || modelIdentifier];
-}
-
-export function compactModelSelectionLines(modelIdentifiers) {
-  const lines = [];
-  let currentProvider = null;
-  let currentOptions = [];
-  const flushCurrent = () => {
-    if (currentProvider && currentOptions.length > 0) lines.push(`${currentProvider}: ${currentOptions.join(" | ")}`);
-    currentOptions = [];
-  };
-  modelIdentifiers.forEach((modelIdentifier, index) => {
-    const [providerName, modelName] = providerAndModelName(modelIdentifier);
-    if (providerName !== currentProvider || currentOptions.length === 3) {
-      flushCurrent();
-      currentProvider = providerName;
-    }
-    currentOptions.push(`${index + 1}. ${modelName}${index === 0 ? " [default]" : ""}`);
-  });
-  flushCurrent();
-  return lines;
-}
-
-function modelOptionLabel(modelIdentifier) {
-  const config = getIdentifierMappings()[modelIdentifier];
-  return `${config.model} (${config.tier}; ${modelIdentifier})`;
-}
-
-export async function selectModelIdentifier(modelIdentifiers, ask, prompt = "Select a model:") {
-  const choiceIdx = await getUserChoice(modelIdentifiers.map((identifier) => modelOptionLabel(identifier)), prompt, ask);
-  return modelIdentifiers[choiceIdx];
-}
-
-export async function selectProviderModelIdentifier(providers, ask) {
-  const providerIdx = await getUserChoice(
-    providers.map((provider) => `${getDisplayName(provider)} (${modelIdentifiersForProviders([provider]).length} models)`),
-    "Select a provider:",
-    ask,
-  );
-  const provider = providers[providerIdx];
-  return selectModelIdentifier(modelIdentifiersForProviders([provider]), ask, `Select a ${getDisplayName(provider)} model:`);
 }
 
 export class EssentialsLLMManager {
@@ -173,6 +119,24 @@ export function managerSupportsInteractiveMemory(manager) {
     && typeof manager.getHistory === "function"
     && typeof manager.resetMemory === "function";
   return fullMemorySupported || retrievalMemorySupported;
+}
+
+
+export async function interactiveBasicQuestionLoop(manager, { provider = null, modelIdentifier = null, askQuestion = null, prompt = "\nAsk a question (or 'exit'): " } = {}) {
+  const ask = getSharedAsk();
+  while (true) {
+    const userInput = (await ask(prompt)).trim();
+    if (["exit", "quit"].includes(userInput.toLowerCase())) {
+      console.log("Exiting.");
+      break;
+    }
+    if (!userInput) {
+      console.log("Input cannot be empty. Please try again.");
+      continue;
+    }
+    const response = await withSelectedModelIdentifier(modelIdentifier, async () => (askQuestion ? askQuestion(userInput) : manager.askQuestion(userInput, provider)));
+    if (!manager.printsOwnOutput) displayProviderResponse(provider || manager.provider || "unknown", response, manager.framework);
+  }
 }
 
 export async function interactiveCli(manager, modelIdentifier = null) {
@@ -233,6 +197,16 @@ export async function interactiveCli(manager, modelIdentifier = null) {
     console.log(`\n${"=".repeat(50)}`);
     console.log(`${manager.framework.toUpperCase()} INTERACTIVE MODE - ${getDisplayName(provider).toUpperCase()}`);
     console.log("=".repeat(50));
+
+    if (!memorySupported) {
+      await interactiveBasicQuestionLoop(manager, {
+        provider,
+        modelIdentifier,
+        askQuestion: (userInput) => manager.askQuestion(userInput, provider, "{topic}", maxTokens, temperature),
+      });
+      console.log(`\nThank you for using the ${manager.framework} Agent Application!`);
+      return;
+    }
 
     while (true) {
       const prompt = memorySupported ? "\nAsk a question (or 'history', 'clear', 'exit'): " : "\nAsk a question (or 'exit'): ";

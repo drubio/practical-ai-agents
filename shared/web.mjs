@@ -1,5 +1,12 @@
 import express from "express";
 import cors from "cors";
+import {
+  ALL_MODEL_IDENTIFIERS,
+  getAllProviders,
+  getIdentifierMappings,
+  sortProvidersByDisplayOrder,
+} from "./llm_models.mjs";
+import { getDefaultModelDetails } from "./utils.mjs";
 
 function extractPythonStyleContent(payload) {
   const marker = "content=";
@@ -161,4 +168,124 @@ export async function* streamTextSse(text, chunkSize = 28, delayMs = 0, eventTyp
   for await (const part of iterTextChunks(text, chunkSize, delayMs)) {
     if (part) yield toSseLine({ type: eventType, content: part });
   }
+}
+
+
+function callManagerMethod(manager, snakeName, camelName, defaultValue = null) {
+  const method = manager?.[snakeName] || manager?.[camelName];
+  return typeof method === "function" ? method.call(manager) : defaultValue;
+}
+
+function managerAttr(manager, snakeName, camelName, defaultValue = null) {
+  return manager?.[snakeName] ?? manager?.[camelName] ?? defaultValue;
+}
+
+export function managerAvailableProviders(manager) {
+  const providers = callManagerMethod(manager, "get_available_providers", "getAvailableProviders", null);
+  if (providers !== null && typeof providers !== "undefined") return Array.from(providers || []);
+  return manager?.provider ? [manager.provider] : [];
+}
+
+export function managerInitializationMessages(manager) {
+  return { ...(managerAttr(manager, "initialization_messages", "initializationMessages", {}) || {}) };
+}
+
+export function providerSelectionMap(manager) {
+  const available = managerAvailableProviders(manager);
+  const sortedProviders = sortProvidersByDisplayOrder(available);
+  return Object.fromEntries(sortedProviders.map((provider, index) => [String(index + 1), provider]));
+}
+
+export function availableModelIdentifiers(manager, { requireAvailableProvider = true } = {}) {
+  const mappings = getIdentifierMappings();
+  const availableProviders = new Set(managerAvailableProviders(manager));
+  if (availableProviders.size === 0 && !requireAvailableProvider) {
+    return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier]);
+  }
+  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && availableProviders.has(mappings[identifier].provider));
+}
+
+export function modelIdentifiersForProvider(provider) {
+  const mappings = getIdentifierMappings();
+  return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && mappings[identifier].provider === provider);
+}
+
+export function modelPayload(modelIdentifier, manager, idx = null, { requireAvailableProvider = true, defaultStatus = "Unknown" } = {}) {
+  const config = getIdentifierMappings()[modelIdentifier];
+  let payloadId = idx;
+  if (payloadId === null || typeof payloadId === "undefined") {
+    const availableIds = availableModelIdentifiers(manager, { requireAvailableProvider });
+    const availableIndex = availableIds.indexOf(modelIdentifier);
+    payloadId = availableIndex >= 0 ? availableIndex + 1 : ALL_MODEL_IDENTIFIERS.indexOf(modelIdentifier) + 1;
+  }
+  const status = managerInitializationMessages(manager)[config.provider] || defaultStatus;
+  return {
+    id: String(payloadId),
+    name: `${config.provider}:${config.model}`,
+    display_name: `${config.provider.charAt(0).toUpperCase() + config.provider.slice(1)} (${modelIdentifier})`,
+    provider: config.provider,
+    default_model: config.model,
+    model: config.model,
+    model_identifier: modelIdentifier,
+    default_model_identifier: modelIdentifier,
+    model_tier: config.tier,
+    default_model_tier: config.tier,
+    strengths: Array.from(config.strengths || []),
+    status,
+    framework: String(manager?.framework ?? "unknown"),
+  };
+}
+
+export function modelPayloads(manager, { requireAvailableProvider = true, defaultStatus = "Unknown" } = {}) {
+  return availableModelIdentifiers(manager, { requireAvailableProvider })
+    .map((identifier, index) => modelPayload(identifier, manager, index + 1, { requireAvailableProvider, defaultStatus }));
+}
+
+export function providerPayload(provider, manager, { requireAvailableProvider = true, defaultStatus = "Unknown" } = {}) {
+  const details = getDefaultModelDetails(provider);
+  const modelIdentifiers = modelIdentifiersForProvider(provider);
+  return {
+    name: provider,
+    display_name: details.displayName,
+    provider: details.canonicalProvider,
+    default_model: details.defaultModel,
+    default_model_identifier: details.defaultModelIdentifier,
+    default_model_tier: details.defaultModelTier,
+    models: modelIdentifiers.map((identifier) => modelPayload(identifier, manager, null, { requireAvailableProvider, defaultStatus })),
+    model_identifiers: modelIdentifiers,
+    status: managerInitializationMessages(manager)[provider] || defaultStatus,
+  };
+}
+
+export function normalizeProviderInput(manager, provider) {
+  if (provider === null || typeof provider === "undefined") return null;
+  const providerMap = providerSelectionMap(manager);
+  const available = new Set(managerAvailableProviders(manager).map((p) => String(p).toLowerCase()));
+  const configured = new Set(getAllProviders().map((p) => String(p).toLowerCase()));
+  if (typeof provider === "number") return providerMap[String(provider)] ?? null;
+  const candidate = String(provider).trim();
+  if (!candidate) return null;
+  if (candidate in providerMap) return providerMap[candidate];
+  const lowered = candidate.toLowerCase();
+  if (available.has(lowered) || configured.has(lowered)) return lowered;
+  return candidate;
+}
+
+export function normalizeModelIdentifierInput(manager, modelIdentifier, { requireAvailableProvider = true } = {}) {
+  if (modelIdentifier === null || typeof modelIdentifier === "undefined") return null;
+  const mappings = getIdentifierMappings();
+  const payloads = modelPayloads(manager, { requireAvailableProvider });
+  const modelMap = Object.fromEntries(payloads.map((payload) => [payload.id, payload.model_identifier]));
+  const canonicalMap = Object.fromEntries(payloads.map((payload) => [payload.name.toLowerCase(), payload.model_identifier]));
+  if (typeof modelIdentifier === "number") return modelMap[String(modelIdentifier)] ?? null;
+  const candidate = String(modelIdentifier).trim();
+  if (!candidate) return null;
+  if (candidate in modelMap) return modelMap[candidate];
+  if (candidate in mappings) return candidate;
+  const lowered = candidate.toLowerCase();
+  if (lowered in canonicalMap) return canonicalMap[lowered];
+  return Object.keys(mappings).find((identifier) => {
+    const config = mappings[identifier];
+    return identifier.toLowerCase() === lowered || config.model.toLowerCase() === lowered;
+  }) || null;
 }

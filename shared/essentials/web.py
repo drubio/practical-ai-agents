@@ -10,13 +10,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from shared.utils import (
-    get_all_providers,
-    get_default_model_details,
     normalize_response_text,
     parse_structured_json_response,
-    sort_providers_by_display_order,
 )
-from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
+from shared.llm_models import get_identifier_mappings
 from shared.essentials.utils import selected_model_context
 
 
@@ -48,8 +45,16 @@ class SharedResetMemoryRequest(BaseModel):
 
 
 from shared.web import (
+    available_model_identifiers,
     build_manager,
     resolve_session_id,
+    model_payload,
+    model_payloads,
+    model_identifiers_for_provider,
+    normalize_model_identifier_input,
+    normalize_provider_input,
+    provider_payload,
+    provider_selection_map,
     result_is_success,
     run_manager_in_thread,
     run_uvicorn_app,
@@ -109,122 +114,6 @@ def recover_structured_parse_error(result: dict) -> dict:
 
     return {**result, "success": True, "error": None, "response": recovered_response, "raw_answer": _extract_answer_text(recovered_response, raw_response)}
 
-
-def provider_selection_map(manager):
-    available = manager.get_available_providers()
-    sorted_providers = sort_providers_by_display_order(available)
-    return {str(index): provider for index, provider in enumerate(sorted_providers, start=1)}
-
-
-def available_model_identifiers(manager) -> list[str]:
-    mappings = get_identifier_mappings()
-    available_providers = set(manager.get_available_providers())
-    return [
-        identifier
-        for identifier in ALL_MODEL_IDENTIFIERS
-        if identifier in mappings and mappings[identifier].provider in available_providers
-    ]
-
-
-def model_payload(model_identifier: str, manager, idx: int | None = None) -> dict:
-    config = get_identifier_mappings()[model_identifier]
-    if idx is None:
-        try:
-            idx = available_model_identifiers(manager).index(model_identifier) + 1
-        except ValueError:
-            idx = ALL_MODEL_IDENTIFIERS.index(model_identifier) + 1 if model_identifier in ALL_MODEL_IDENTIFIERS else 0
-    canonical_name = f"{config.provider}:{config.model}"
-    return {
-        "id": str(idx),
-        "name": canonical_name,
-        "display_name": f"{config.provider.capitalize()} ({model_identifier})",
-        "provider": config.provider,
-        "default_model": config.model,
-        "model": config.model,
-        "model_identifier": model_identifier,
-        "default_model_identifier": model_identifier,
-        "model_tier": config.tier,
-        "default_model_tier": config.tier,
-        "strengths": list(config.strengths),
-        "status": manager.initialization_messages.get(config.provider, "Unknown"),
-        "framework": getattr(manager, "framework", "unknown"),
-    }
-
-
-def model_payloads(manager) -> list[dict]:
-    return [model_payload(identifier, manager, idx) for idx, identifier in enumerate(available_model_identifiers(manager), start=1)]
-
-
-def model_identifiers_for_provider(provider: str) -> list[str]:
-    mappings = get_identifier_mappings()
-    return [identifier for identifier in ALL_MODEL_IDENTIFIERS if identifier in mappings and mappings[identifier].provider == provider]
-
-
-def provider_payload(provider: str, manager) -> dict:
-    details = get_default_model_details(provider)
-    model_identifiers = model_identifiers_for_provider(provider)
-    return {
-        "name": provider,
-        "display_name": details["display_name"],
-        "provider": details["canonical_provider"],
-        "default_model": details["default_model"],
-        "default_model_identifier": details["default_model_identifier"],
-        "default_model_tier": details["default_model_tier"],
-        "models": [model_payload(identifier, manager) for identifier in model_identifiers],
-        "model_identifiers": model_identifiers,
-        "status": manager.initialization_messages.get(provider, "Unknown"),
-    }
-
-
-def normalize_provider_input(manager, provider: Optional[Union[str, int]]):
-    if provider is None:
-        return None
-
-    provider_map = provider_selection_map(manager)
-    available = {name.lower() for name in manager.get_available_providers()}
-    configured = {name.lower() for name in get_all_providers()}
-
-    if isinstance(provider, int):
-        return provider_map.get(str(provider))
-
-    candidate = str(provider).strip()
-    if not candidate:
-        return None
-    if candidate in provider_map:
-        return provider_map[candidate]
-
-    lowered = candidate.lower()
-    if lowered in available or lowered in configured:
-        return lowered
-    return candidate
-
-
-
-def normalize_model_identifier_input(manager, model_identifier: Optional[Union[str, int]]):
-    if model_identifier is None:
-        return None
-    mappings = get_identifier_mappings()
-    model_payload_list = model_payloads(manager)
-    model_map = {payload["id"]: payload["model_identifier"] for payload in model_payload_list}
-    canonical_map = {payload["name"].lower(): payload["model_identifier"] for payload in model_payload_list}
-
-    if isinstance(model_identifier, int):
-        return model_map.get(str(model_identifier))
-
-    candidate = str(model_identifier).strip()
-    if not candidate:
-        return None
-    if candidate in model_map:
-        return model_map[candidate]
-    if candidate in mappings:
-        return candidate
-    lowered = candidate.lower()
-    if lowered in canonical_map:
-        return canonical_map[lowered]
-    for identifier, config in mappings.items():
-        if identifier.lower() == lowered or config.model.lower() == lowered:
-            return identifier
-    return None
 
 
 def result_value(result: dict, *keys, default=None):
