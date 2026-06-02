@@ -222,7 +222,7 @@ def available_model_identifiers(manager: Any, *, require_available_provider: boo
 
     mappings = get_identifier_mappings()
     available_providers = set(manager_available_providers(manager))
-    if not available_providers and not require_available_provider:
+    if not require_available_provider:
         return [identifier for identifier in ALL_MODEL_IDENTIFIERS if identifier in mappings]
     return [
         identifier

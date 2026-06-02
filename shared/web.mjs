@@ -199,7 +199,7 @@ export function providerSelectionMap(manager) {
 export function availableModelIdentifiers(manager, { requireAvailableProvider = true } = {}) {
   const mappings = getIdentifierMappings();
   const availableProviders = new Set(managerAvailableProviders(manager));
-  if (availableProviders.size === 0 && !requireAvailableProvider) {
+  if (!requireAvailableProvider) {
     return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier]);
   }
   return ALL_MODEL_IDENTIFIERS.filter((identifier) => mappings[identifier] && availableProviders.has(mappings[identifier].provider));
