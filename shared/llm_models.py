@@ -62,6 +62,17 @@ PROVIDER_API_KEY_ENV_VARS = {
     "deepseek": ("DEEPSEEK_API_KEY",),
 }
 
+UNSUPPORTED_MODEL_PARAMETERS = {
+    "openai_gpt_5_4_pro": ("temperature", "top_p"),
+    "openai_gpt_5_mini": ("temperature")
+}
+
+TEMPERATURE_UNSUPPORTED_MODEL_IDENTIFIERS = {
+    identifier
+    for identifier, parameters in UNSUPPORTED_MODEL_PARAMETERS.items()
+    if "temperature" in parameters
+}
+
 
 def get_identifier_mappings() -> dict[str, ModelConfig]:
     """Return all configured models keyed by reusable model identifier."""
@@ -178,6 +189,19 @@ def get_model_config(selected_model: str) -> ModelConfig:
         return get_identifier_mappings()[selected_model]
     except KeyError as exc:
         raise ValueError(f"Unknown model identifier '{selected_model}'") from exc
+
+
+def get_unsupported_model_parameters(selection: str | ModelConfig) -> tuple[str, ...]:
+    """Return request parameters that must be omitted for the configured model."""
+    config = (
+        selection if isinstance(selection, ModelConfig) else resolve_model_config(selection)
+    )
+    return UNSUPPORTED_MODEL_PARAMETERS.get(config.name, ())
+
+
+def model_supports_temperature(selection: str | ModelConfig) -> bool:
+    """Return whether the configured model accepts a temperature parameter."""
+    return "temperature" not in get_unsupported_model_parameters(selection)
 
 
 def get_models_for_provider(provider: str) -> list[ModelConfig]:

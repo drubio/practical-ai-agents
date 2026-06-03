@@ -50,6 +50,17 @@ export const PROVIDER_API_KEY_ENV_VARS = {
   deepseek: ["DEEPSEEK_API_KEY"],
 };
 
+export const UNSUPPORTED_MODEL_PARAMETERS = {
+  openai_gpt_5_4_pro: ["temperature", "top_p"],
+  openai_gpt_5_mini: ["temperature"],
+};
+
+export const TEMPERATURE_UNSUPPORTED_MODEL_IDENTIFIERS = new Set(
+  Object.entries(UNSUPPORTED_MODEL_PARAMETERS)
+    .filter(([, parameters]) => parameters.includes("temperature"))
+    .map(([identifier]) => identifier),
+);
+
 export function getIdentifierMappings() {
   return {
     openai_gpt_5_4_pro: { name: "openai_gpt_5_4_pro", provider: "openai", model: "gpt-5.4-pro", tier: "advanced", strengths: ["precision", "analysis", "long-form"] },
@@ -73,6 +84,15 @@ export function getModelConfig(selectedModel) {
   const config = getIdentifierMappings()[selectedModel];
   if (!config) throw new Error(`Unknown model identifier '${selectedModel}'`);
   return config;
+}
+
+export function getUnsupportedModelParameters(selection) {
+  const config = typeof selection === "string" ? resolveModelConfig(selection) : selection;
+  return UNSUPPORTED_MODEL_PARAMETERS[config.name] ?? [];
+}
+
+export function modelSupportsTemperature(selection) {
+  return !getUnsupportedModelParameters(selection).includes("temperature");
 }
 
 export function getModelsForProvider(provider) {

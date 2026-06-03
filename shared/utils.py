@@ -17,7 +17,9 @@ from shared.llm_models import (
     get_api_key,
     get_display_name,
     get_model_config,
+    get_unsupported_model_parameters,
     get_provider_model_identifier,
+    model_supports_temperature,
     resolve_model_config,
     resolve_model_identifier,
     sort_providers_by_display_order,
@@ -287,6 +289,11 @@ def get_selected_model_details(selected_model: str) -> Dict[str, str]:
     }
 
 
+def _temperature_kwargs(config, temperature: float) -> Dict[str, float]:
+    """Return a temperature kwarg only for models that accept it."""
+    return {"temperature": temperature} if model_supports_temperature(config) else {}
+
+
 def create_langchain_model(
     selected_model: str,
     *,
@@ -301,25 +308,26 @@ def create_langchain_model(
     config = resolve_model_config(selected_model)
     provider = config.provider
     model_name = config.model
+    temperature_kwargs = _temperature_kwargs(config, temperature)
     if provider == "anthropic":
         return ChatAnthropic(
             api_key=get_api_key(provider),
             model=model_name,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     if provider == "openai":
         return ChatOpenAI(
             api_key=get_api_key(provider),
             model=model_name,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     if provider == "google":
         return ChatGoogleGenerativeAI(
             api_key=get_api_key(provider),
             model=model_name,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     if provider == "xai":
@@ -327,7 +335,7 @@ def create_langchain_model(
             api_key=get_api_key(provider),
             base_url=os.getenv("XAI_API_BASE", "https://api.x.ai/v1"),
             model=model_name,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     if provider == "deepseek":
@@ -335,10 +343,25 @@ def create_langchain_model(
             api_key=get_api_key(provider),
             base_url=os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com"),
             model=model_name,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     raise ValueError(f"Unsupported provider: {provider}")
+
+
+def _requires_openai_responses_api(model_name: str) -> bool:
+    """Return whether LlamaIndex must use OpenAI's Responses API wrapper."""
+    return bool(re.fullmatch(r"gpt-5(?:[.-]\d+)?-pro(?:-.+)?", model_name))
+
+
+def _llamaindex_openai_additional_kwargs(config) -> Optional[Dict[str, Any]]:
+    """Return OpenAI kwargs that force LlamaIndex to omit unsupported params."""
+    unsupported_parameters = get_unsupported_model_parameters(config)
+    if not unsupported_parameters:
+        return None
+    from openai import NOT_GIVEN
+
+    return {parameter: NOT_GIVEN for parameter in unsupported_parameters}
 
 
 def create_llamaindex_model(
@@ -350,31 +373,41 @@ def create_llamaindex_model(
     """Create a provider-specific LlamaIndex LLM from a model identifier."""
     from llama_index.llms.anthropic import Anthropic
     from llama_index.llms.google_genai import GoogleGenAI
-    from llama_index.llms.openai import OpenAI
+    from llama_index.llms.openai import OpenAI, OpenAIResponses
     from llama_index.llms.openai_like import OpenAILike
 
     config = resolve_model_config(selected_model)
     provider = config.provider
     model_name = config.model
+    temperature_kwargs = _temperature_kwargs(config, temperature)
     if provider == "anthropic":
         return Anthropic(
             api_key=get_api_key(provider),
             model=model_name,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     if provider == "openai":
+        openai_additional_kwargs = _llamaindex_openai_additional_kwargs(config)
+        if _requires_openai_responses_api(model_name):
+            return OpenAIResponses(
+                api_key=get_api_key(provider),
+                model=model_name,
+                **temperature_kwargs,
+                additional_kwargs=openai_additional_kwargs,
+                max_output_tokens=max_tokens,
+            )
         return OpenAI(
             api_key=get_api_key(provider),
             model=model_name,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     if provider == "google":
         return GoogleGenAI(
             api_key=get_api_key(provider),
             model=model_name,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     if provider == "xai":
@@ -384,7 +417,7 @@ def create_llamaindex_model(
             model=model_name,
             is_chat_model=True,
             is_function_calling_model=False,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     if provider == "deepseek":
@@ -394,7 +427,7 @@ def create_llamaindex_model(
             model=model_name,
             is_chat_model=True,
             is_function_calling_model=False,
-            temperature=temperature,
+            **temperature_kwargs,
             max_tokens=max_tokens,
         )
     raise ValueError(f"Unsupported provider: {provider}")

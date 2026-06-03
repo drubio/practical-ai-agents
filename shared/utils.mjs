@@ -5,7 +5,10 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
 import { Anthropic as LlamaIndexAnthropic } from "@llamaindex/anthropic";
 import { Gemini } from "@llamaindex/google";
-import { OpenAI as LlamaIndexOpenAI } from "@llamaindex/openai";
+import {
+  OpenAI as LlamaIndexOpenAI,
+  OpenAIResponses as LlamaIndexOpenAIResponses,
+} from "@llamaindex/openai";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -17,6 +20,8 @@ import {
   getIdentifierMappings,
   getModelConfig,
   getProviderModelIdentifier,
+  getUnsupportedModelParameters,
+  modelSupportsTemperature,
   resolveModelConfig,
   resolveModelIdentifier,
   sortProvidersByDisplayOrder,
@@ -269,15 +274,30 @@ export function getSelectedModelDetails(selectedModel) {
   };
 }
 
+function temperatureOptions(config, temperature) {
+  return modelSupportsTemperature(config) ? { temperature } : {};
+}
+
+function requiresOpenAIResponsesApi(modelName) {
+  return /^gpt-5(?:[.-]\d+)?-pro(?:-.+)?$/.test(modelName);
+}
+
+function llamaIndexOpenAIAdditionalChatOptions(config) {
+  return Object.fromEntries(
+    getUnsupportedModelParameters(config).map((parameter) => [parameter, undefined]),
+  );
+}
+
 export function createLangChainModel(selectedModel, { temperature = 0.7, maxTokens = 1000 } = {}) {
   const config = resolveModelConfig(selectedModel);
   const provider = config.provider;
   const modelName = config.model;
+  const supportedTemperatureOptions = temperatureOptions(config, temperature);
   if (provider === "anthropic") {
     return new ChatAnthropic({
       apiKey: getApiKey(provider),
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxTokens,
     });
   }
@@ -285,7 +305,7 @@ export function createLangChainModel(selectedModel, { temperature = 0.7, maxToke
     return new ChatOpenAI({
       apiKey: getApiKey(provider),
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxTokens,
     });
   }
@@ -293,7 +313,7 @@ export function createLangChainModel(selectedModel, { temperature = 0.7, maxToke
     return new ChatGoogleGenerativeAI({
       apiKey: getApiKey(provider),
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxTokens,
     });
   }
@@ -302,7 +322,7 @@ export function createLangChainModel(selectedModel, { temperature = 0.7, maxToke
       apiKey: getApiKey(provider),
       configuration: { baseURL: process.env.XAI_API_BASE || "https://api.x.ai/v1" },
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxTokens,
     });
   }
@@ -311,7 +331,7 @@ export function createLangChainModel(selectedModel, { temperature = 0.7, maxToke
       apiKey: getApiKey(provider),
       configuration: { baseURL: process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com" },
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxTokens,
     });
   }
@@ -351,27 +371,39 @@ export function createLlamaIndexModel(selectedModel, { temperature = 0.7, maxTok
   const config = resolveModelConfig(selectedModel);
   const provider = config.provider;
   const modelName = config.model;
+  const supportedTemperatureOptions = temperatureOptions(config, temperature);
+  const openAIAdditionalChatOptions = llamaIndexOpenAIAdditionalChatOptions(config);
   if (provider === "anthropic") {
     return new LlamaIndexAnthropic({
       apiKey: getApiKey(provider),
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxTokens,
     });
   }
   if (provider === "openai") {
+    if (requiresOpenAIResponsesApi(modelName)) {
+      return new LlamaIndexOpenAIResponses({
+        apiKey: getApiKey(provider),
+        model: modelName,
+        ...supportedTemperatureOptions,
+        maxOutputTokens: maxTokens,
+        additionalChatOptions: openAIAdditionalChatOptions,
+      });
+    }
     return new LlamaIndexOpenAI({
       apiKey: getApiKey(provider),
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxCompletionTokens: maxTokens,
+      additionalChatOptions: openAIAdditionalChatOptions,
     });
   }
   if (provider === "google") {
     return new CompatibleGemini({
       apiKey: getApiKey(provider),
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxTokens,
     });
   }
@@ -380,7 +412,7 @@ export function createLlamaIndexModel(selectedModel, { temperature = 0.7, maxTok
       apiKey: getApiKey(provider),
       baseURL: process.env.XAI_API_BASE || "https://api.x.ai/v1",
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxCompletionTokens: maxTokens,
     });
   }
@@ -389,7 +421,7 @@ export function createLlamaIndexModel(selectedModel, { temperature = 0.7, maxTok
       apiKey: getApiKey(provider),
       baseURL: process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com",
       model: modelName,
-      temperature,
+      ...supportedTemperatureOptions,
       maxCompletionTokens: maxTokens,
     });
   }
