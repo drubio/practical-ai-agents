@@ -1,18 +1,19 @@
 /**
- * "LLM application to chat with multiple LLMs - LangChain JavaScript framework implementation
+ * LLM application to chat with multiple LLMs - LangChain JavaScript framework implementation.
  */
 
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { createLangChainModel } from '../../../shared/utils.mjs';
-
 import {
     BaseLLMManager,
+    createLangChainModel,
     interactiveCli,
-} from '../../../shared/essentials/utils.mjs';
+} from '../../../shared/utils.mjs';
 
 class LangChainLLMManager extends BaseLLMManager {
-    constructor() {
+    constructor(stream = false) {
         super('LangChain JS');
+        this.stream = stream;
+        this.printsOwnOutput = stream;
     }
 
     async _testProvider(provider) {
@@ -40,6 +41,30 @@ class LangChainLLMManager extends BaseLLMManager {
         return String(result?.content ?? '');
     }
 
+    _extractStreamDelta(chunk) {
+        const content = chunk?.content ?? '';
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+            return content
+                .map((item) => (typeof item === 'string' ? item : item?.text || item?.content || ''))
+                .join('');
+        }
+        return content ? String(content) : '';
+    }
+
+    async _streamModel(model, messages) {
+        const parts = [];
+        for await (const chunk of await model.stream(messages)) {
+            const delta = this._extractStreamDelta(chunk);
+            if (delta) {
+                process.stdout.write(delta);
+                parts.push(delta);
+            }
+        }
+        console.log();
+        return parts.join('');
+    }
+
     async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7) {
         const prompt = template.replace('{topic}', topic);
         const modelConfig = this.resolveModelConfig(provider);
@@ -57,16 +82,20 @@ class LangChainLLMManager extends BaseLLMManager {
 
         try {
             const model = this._createModel(modelConfig.name, temperature, maxTokens);
-            const result = await model.invoke(this._buildMessages(prompt));
+            const messages = this._buildMessages(prompt);
+            const response = this.stream
+                ? await this._streamModel(model, messages)
+                : this._extractText(modelConfig.provider, await model.invoke(messages));
             return {
                 success: true,
                 provider: modelConfig.provider,
                 model: modelConfig.model,
                 modelIdentifier: modelConfig.name,
                 prompt,
-                response: this._extractText(modelConfig.provider, result),
+                response,
                 temperature,
                 maxTokens,
+                stream: this.stream,
             };
         } catch (error) {
             return {
@@ -79,6 +108,7 @@ class LangChainLLMManager extends BaseLLMManager {
                 response: null,
                 temperature,
                 maxTokens,
+                stream: this.stream,
             };
         }
     }
@@ -86,18 +116,19 @@ class LangChainLLMManager extends BaseLLMManager {
 
 async function main() {
     const args = process.argv.slice(2);
+    const stream = args.includes('--stream');
 
-    if (args.length > 0 && args[0] === 'web') {
+    if (args.includes('web')) {
         try {
             const { runWebServer } = await import('../../../shared/essentials/web.mjs');
-            await runWebServer(LangChainLLMManager);
+            await runWebServer(() => new LangChainLLMManager(stream));
         } catch (error) {
             console.error('Error: shared web API not found or Express not installed.');
             console.error('Install Express: npm install express cors');
             process.exit(1);
         }
     } else {
-        const manager = new LangChainLLMManager();
+        const manager = new LangChainLLMManager(stream);
         await manager._checkProviders();
         await interactiveCli(manager);
     }

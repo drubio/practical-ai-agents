@@ -176,7 +176,7 @@ def run_mode(manager: Any, mode: str, host: str, port: int, stream: bool) -> Non
     )
     print("====================================")
 
-    from shared.essentials.utils import interactive_basic_question_loop
+    from shared.utils import interactive_basic_question_loop
 
     interactive_basic_question_loop(
         manager,

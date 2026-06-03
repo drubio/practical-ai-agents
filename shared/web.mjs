@@ -89,13 +89,22 @@ export function toSseLine(data) {
 
 export async function captureConsoleOutputAsync(fn) {
   const originalLog = console.log;
+  const originalWrite = process.stdout.write.bind(process.stdout);
   const logs = [];
   console.log = (...args) => logs.push(args.join(" "));
+  process.stdout.write = (chunk, encoding, callback) => {
+    const writeCallback = typeof encoding === "function" ? encoding : callback;
+    const writeEncoding = typeof encoding === "string" ? encoding : "utf8";
+    logs.push(Buffer.isBuffer(chunk) ? chunk.toString(writeEncoding) : String(chunk));
+    if (typeof writeCallback === "function") writeCallback();
+    return true;
+  };
   try {
     const result = await fn();
-    return { result, logs: logs.join("\n") };
+    return { result, logs: logs.join("") };
   } finally {
     console.log = originalLog;
+    process.stdout.write = originalWrite;
   }
 }
 

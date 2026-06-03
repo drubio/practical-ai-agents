@@ -248,7 +248,7 @@ def create_web_api(manager_class):
 
     @app.get('/capabilities')
     async def get_capabilities():
-        return {"framework": manager.framework, "streaming": True, "memory": supports_memory(manager), "memory_retrieval": supports_memory_retrieval(manager), "coagent": supports_coagent(manager)}
+        return {"framework": manager.framework, "streaming": True, "stream_enabled": bool(getattr(manager, "stream", False)), "memory": supports_memory(manager), "memory_retrieval": supports_memory_retrieval(manager), "coagent": supports_coagent(manager)}
 
     @app.post('/query')
     async def query_single(request: SharedQueryRequest):

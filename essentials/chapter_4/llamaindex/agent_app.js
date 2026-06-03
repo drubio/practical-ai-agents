@@ -1,17 +1,18 @@
 /**
- * "LLM application to chat with multiple LLMs - LlamaIndex JavaScript framework implementation
+ * LLM application to chat with multiple LLMs - LlamaIndex JavaScript framework implementation.
  */
-
-import { createLlamaIndexModel } from '../../../shared/utils.mjs';
 
 import {
     BaseLLMManager,
+    createLlamaIndexModel,
     interactiveCli,
-} from '../../../shared/essentials/utils.mjs';
+} from '../../../shared/utils.mjs';
 
 class LlamaIndexLLMManager extends BaseLLMManager {
-    constructor() {
+    constructor(stream = false) {
         super('LlamaIndex JS');
+        this.stream = stream;
+        this.printsOwnOutput = stream;
     }
 
     async _testProvider(provider) {
@@ -29,6 +30,16 @@ class LlamaIndexLLMManager extends BaseLLMManager {
         return this.resolveModelIdentifier(provider);
     }
 
+    _extractStreamDelta(chunk) {
+        for (const attr of ['delta', 'contentDelta', 'content_delta']) {
+            const value = chunk?.[attr];
+            if (typeof value === 'string' && value) return value;
+        }
+        const content = chunk?.message?.content;
+        if (typeof content === 'string') return content;
+        return chunk ? String(chunk) : '';
+    }
+
     _extractText(result) {
         const content = result?.message?.content;
         if (typeof content === 'string') {
@@ -41,6 +52,20 @@ class LlamaIndexLLMManager extends BaseLLMManager {
                 .join('\n');
         }
         return String(content ?? result?.message ?? result ?? '');
+    }
+
+    async _streamModel(model, messages) {
+        const parts = [];
+        const stream = await model.streamChat({ messages });
+        for await (const chunk of stream) {
+            const delta = this._extractStreamDelta(chunk);
+            if (delta) {
+                process.stdout.write(delta);
+                parts.push(delta);
+            }
+        }
+        console.log();
+        return parts.join('');
     }
 
     async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7) {
@@ -60,9 +85,10 @@ class LlamaIndexLLMManager extends BaseLLMManager {
 
         try {
             const model = this._createModel(modelConfig.name, temperature, maxTokens);
-            const result = await model.chat({
-                messages: [{ role: 'user', content: prompt }],
-            });
+            const messages = [{ role: 'user', content: prompt }];
+            const response = this.stream
+                ? await this._streamModel(model, messages)
+                : this._extractText(await model.chat({ messages }));
 
             return {
                 success: true,
@@ -70,9 +96,10 @@ class LlamaIndexLLMManager extends BaseLLMManager {
                 model: modelConfig.model,
                 modelIdentifier: modelConfig.name,
                 prompt,
-                response: this._extractText(result),
+                response,
                 temperature,
                 maxTokens,
+                stream: this.stream,
             };
         } catch (error) {
             return {
@@ -85,6 +112,7 @@ class LlamaIndexLLMManager extends BaseLLMManager {
                 response: null,
                 temperature,
                 maxTokens,
+                stream: this.stream,
             };
         }
     }
@@ -92,18 +120,19 @@ class LlamaIndexLLMManager extends BaseLLMManager {
 
 async function main() {
     const args = process.argv.slice(2);
+    const stream = args.includes('--stream');
 
-    if (args.length > 0 && args[0] === 'web') {
+    if (args.includes('web')) {
         try {
             const { runWebServer } = await import('../../../shared/essentials/web.mjs');
-            await runWebServer(LlamaIndexLLMManager);
+            await runWebServer(() => new LlamaIndexLLMManager(stream));
         } catch (error) {
             console.error('Error: shared web API not found or Express not installed.');
             console.error('Install Express: npm install express cors');
             process.exit(1);
         }
     } else {
-        const manager = new LlamaIndexLLMManager();
+        const manager = new LlamaIndexLLMManager(stream);
         await manager._checkProviders();
         await interactiveCli(manager);
     }

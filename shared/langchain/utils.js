@@ -13,8 +13,8 @@ import {
   selectProviderModelIdentifier,
   sortProvidersByDisplayOrder,
   closeSharedAsk,
+  interactiveBasicQuestionLoop,
 } from '../utils.mjs';
-import { interactiveBasicQuestionLoop } from '../essentials/utils.mjs';
 
 export { ALL_MODEL_IDENTIFIERS, compactModelSelectionLines, getChapterLogger, getIdentifierMappings, logToolCall };
 

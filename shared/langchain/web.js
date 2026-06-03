@@ -46,7 +46,7 @@ export function createWebApi(manager, streamDefault = false) {
   });
 
   app.get('/capabilities', (_req, res) => {
-    res.json({ streaming: true, default_stream: streamDefault, single_provider: true });
+    res.json({ streaming: true, default_stream: streamDefault, stream_enabled: Boolean(manager?.stream), single_provider: true });
   });
 
   app.post('/query', async (req, res) => {

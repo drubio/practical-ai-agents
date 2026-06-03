@@ -198,7 +198,7 @@ export function createWebApi(managerClassOrFactory) {
     });
   });
   app.get("/capabilities", (_, res) => {
-    res.json({ framework: manager.framework, streaming: true, memory: supportsMemory(manager), memory_retrieval: supportsMemoryRetrieval(manager), coagent: supportsCoagent(manager) });
+    res.json({ framework: manager.framework, streaming: true, stream_enabled: Boolean(manager?.stream), memory: supportsMemory(manager), memory_retrieval: supportsMemoryRetrieval(manager), coagent: supportsCoagent(manager) });
   });
 
   app.post("/query", async (req, res) => {
