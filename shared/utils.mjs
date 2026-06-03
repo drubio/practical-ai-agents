@@ -3,6 +3,9 @@ import readline from "node:readline";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
+import { Anthropic as LlamaIndexAnthropic } from "@llamaindex/anthropic";
+import { Gemini } from "@llamaindex/google";
+import { OpenAI as LlamaIndexOpenAI } from "@llamaindex/openai";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -124,6 +127,85 @@ export function createLangChainModel(selectedModel, { temperature = 0.7, maxToke
   }
   throw new Error(`Unsupported provider: ${provider}`);
 }
+const GOOGLE_GEMINI_FALLBACK_CONTEXT_WINDOW = 1_000_000;
+const GOOGLE_GEMINI_FALLBACK_MODELS = new Set([
+  "gemini-3-flash-preview",
+]);
+
+// Patch support for newer Gemini versions because the LlamaIndex package metadata
+// currently covers models only through the Gemini 2.5 family.
+class CompatibleGemini extends Gemini {
+  get metadata() {
+    try {
+      return super.metadata;
+    } catch (error) {
+      if (!GOOGLE_GEMINI_FALLBACK_MODELS.has(this.model)) {
+        throw error;
+      }
+
+      return {
+        model: this.model,
+        temperature: this.temperature,
+        topP: this.topP,
+        maxTokens: this.maxTokens,
+        contextWindow: GOOGLE_GEMINI_FALLBACK_CONTEXT_WINDOW,
+        tokenizer: undefined,
+        structuredOutput: false,
+        safetySettings: this.safetySettings,
+      };
+    }
+  }
+}
+
+export function createLlamaIndexModel(selectedModel, { temperature = 0.7, maxTokens = 1000 } = {}) {
+  const config = resolveModelConfig(selectedModel);
+  const provider = config.provider;
+  const modelName = config.model;
+  if (provider === "anthropic") {
+    return new LlamaIndexAnthropic({
+      apiKey: getApiKey(provider),
+      model: modelName,
+      temperature,
+      maxTokens,
+    });
+  }
+  if (provider === "openai") {
+    return new LlamaIndexOpenAI({
+      apiKey: getApiKey(provider),
+      model: modelName,
+      temperature,
+      maxCompletionTokens: maxTokens,
+    });
+  }
+  if (provider === "google") {
+    return new CompatibleGemini({
+      apiKey: getApiKey(provider),
+      model: modelName,
+      temperature,
+      maxTokens,
+    });
+  }
+  if (provider === "xai") {
+    return new LlamaIndexOpenAI({
+      apiKey: getApiKey(provider),
+      baseURL: process.env.XAI_API_BASE || "https://api.x.ai/v1",
+      model: modelName,
+      temperature,
+      maxCompletionTokens: maxTokens,
+    });
+  }
+  if (provider === "deepseek") {
+    return new LlamaIndexOpenAI({
+      apiKey: getApiKey(provider),
+      baseURL: process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com",
+      model: modelName,
+      temperature,
+      maxCompletionTokens: maxTokens,
+    });
+  }
+  throw new Error(`Unsupported provider: ${provider}`);
+}
+
 let sharedRl = null;
 export function getSharedAsk() {
   if (!sharedRl) sharedRl = readline.createInterface({ input: process.stdin, output: process.stdout });

@@ -2,46 +2,12 @@
  * "LLM application to chat with multiple LLMs - LlamaIndex JavaScript framework implementation
  */
 
-import { Anthropic } from '@llamaindex/anthropic';
-import { OpenAI } from '@llamaindex/openai';
-import { Gemini } from '@llamaindex/google';
+import { createLlamaIndexModel } from '../../../shared/utils.mjs';
 
 import {
-    getApiKey,
     BaseLLMManager,
     interactiveCli,
 } from '../../../shared/essentials/utils.mjs';
-import { resolveModelConfig } from '../../../shared/llm_models.mjs';
-
-const GOOGLE_GEMINI_FALLBACK_CONTEXT_WINDOW = 1_000_000;
-const GOOGLE_GEMINI_FALLBACK_MODELS = new Set([
-    'gemini-3-flash-preview',
-]);
-
-// This is patch to support newer Gemini version (e.g. 3.0)
-// since the LlamaIndex package is no longer being updated beyond 2.5 models
-class CompatibleGemini extends Gemini {
-    get metadata() {
-        try {
-            return super.metadata;
-        } catch (error) {
-            if (!GOOGLE_GEMINI_FALLBACK_MODELS.has(this.model)) {
-                throw error;
-            }
-
-            return {
-                model: this.model,
-                temperature: this.temperature,
-                topP: this.topP,
-                maxTokens: this.maxTokens,
-                contextWindow: GOOGLE_GEMINI_FALLBACK_CONTEXT_WINDOW,
-                tokenizer: undefined,
-                structuredOutput: false,
-                safetySettings: this.safetySettings,
-            };
-        }
-    }
-}
 
 class LlamaIndexLLMManager extends BaseLLMManager {
     constructor() {
@@ -53,52 +19,10 @@ class LlamaIndexLLMManager extends BaseLLMManager {
     }
 
     _createModel(selectedModel, temperature, maxTokens) {
-        const config = resolveModelConfig(selectedModel);
-        const provider = config.provider;
-        if (provider === 'anthropic') {
-            return new Anthropic({
-                apiKey: getApiKey(provider),
-                model: config.model,
-                temperature,
-                maxTokens,
-            });
-        }
-        if (provider === 'openai') {
-            return new OpenAI({
-                apiKey: getApiKey(provider),
-                model: config.model,
-                temperature,
-                maxCompletionTokens: maxTokens,
-            });
-        }
-	// Using patch CompatibleGemini vs. native Gemini llamaindex (see above)
-        if (provider === 'google') {
-            return new CompatibleGemini({
-                apiKey: getApiKey(provider),
-                model: config.model,
-                temperature,
-                maxTokens,
-            });
-        }
-        if (provider === 'xai') {
-            return new OpenAI({
-                apiKey: getApiKey(provider),
-                baseURL: 'https://api.x.ai/v1',
-                model: config.model,
-                temperature,
-                maxCompletionTokens: maxTokens,
-            });
-        }
-        if (provider === 'deepseek') {
-            return new OpenAI({
-                apiKey: getApiKey(provider),
-                baseURL: 'https://api.deepseek.com',
-                model: config.model,
-                temperature,
-                maxCompletionTokens: maxTokens,
-            });
-        }	
-        throw new Error(`Unsupported provider: ${provider}`);
+        return createLlamaIndexModel(selectedModel, {
+            temperature,
+            maxTokens,
+        });
     }
 
     _resolveProvider(provider) {

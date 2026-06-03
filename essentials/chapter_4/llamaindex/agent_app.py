@@ -7,13 +7,8 @@ from typing import Dict, Optional
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 from llama_index.core.llms import ChatMessage
-from llama_index.llms.anthropic import Anthropic
-from llama_index.llms.google_genai import GoogleGenAI
-from llama_index.llms.openai import OpenAI
-from llama_index.llms.openai_like import OpenAILike
-
-from shared.essentials.utils import BaseLLMManager, get_api_key, interactive_cli
-from shared.llm_models import resolve_model_config
+from shared.essentials.utils import BaseLLMManager, interactive_cli
+from shared.utils import create_llamaindex_model
 
 
 class LlamaIndexLLMManager(BaseLLMManager):
@@ -26,50 +21,11 @@ class LlamaIndexLLMManager(BaseLLMManager):
         self._create_model(self.provider_model_identifier(provider), temperature=0.7, max_tokens=1000)
 
     def _create_model(self, selected_model: str, temperature: float, max_tokens: int):
-        config = resolve_model_config(selected_model)
-        provider = config.provider
-        if provider == "anthropic":
-            return Anthropic(
-                api_key=get_api_key(provider),
-                model=config.model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        if provider == "openai":
-            return OpenAI(
-                api_key=get_api_key(provider),
-                model=config.model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        if provider == "google":
-            return GoogleGenAI(
-                api_key=get_api_key(provider),
-                model=config.model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        if provider == "xai":
-            return OpenAILike(
-                api_key=get_api_key(provider),
-                api_base="https://api.x.ai/v1",
-                model=config.model,
-                is_chat_model=True,
-                is_function_calling_model=False,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        if provider == "deepseek":
-            return OpenAILike(
-                api_key=get_api_key(provider),
-                api_base="https://api.deepseek.com",
-                model=config.model,
-                is_chat_model=True,
-                is_function_calling_model=False,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )        
-        raise ValueError(f"Unsupported provider: {provider}")
+        return create_llamaindex_model(
+            selected_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
     def _create_client(self, provider: str, temperature: float, max_tokens: int):
         return self._create_model(provider, temperature=temperature, max_tokens=max_tokens)
@@ -102,9 +58,9 @@ class LlamaIndexLLMManager(BaseLLMManager):
         temperature: float = 0.7,
     ) -> Dict:
         prompt = template.format(topic=topic)
-        provider = self._resolve_provider(provider)
+        model_config = self.resolve_model_config(provider)
 
-        if not provider:
+        if not model_config:
             return {
                 "success": False,
                 "error": "No providers available",
@@ -114,10 +70,8 @@ class LlamaIndexLLMManager(BaseLLMManager):
                 "response": None,
             }
 
-        model_config = resolve_model_config(provider)
-
         try:
-            model = self._create_model(provider, temperature=temperature, max_tokens=max_tokens)
+            model = self._create_model(model_config.name, temperature=temperature, max_tokens=max_tokens)
             result = model.chat([ChatMessage(role="user", content=prompt)])
             return {
                 "success": True,

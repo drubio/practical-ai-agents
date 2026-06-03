@@ -128,6 +128,65 @@ def create_langchain_model(
     raise ValueError(f"Unsupported provider: {provider}")
 
 
+def create_llamaindex_model(
+    selected_model: str,
+    *,
+    temperature: float = 0.7,
+    max_tokens: int = 1000,
+):
+    """Create a provider-specific LlamaIndex LLM from a model identifier."""
+    from llama_index.llms.anthropic import Anthropic
+    from llama_index.llms.google_genai import GoogleGenAI
+    from llama_index.llms.openai import OpenAI
+    from llama_index.llms.openai_like import OpenAILike
+
+    config = resolve_model_config(selected_model)
+    provider = config.provider
+    model_name = config.model
+    if provider == "anthropic":
+        return Anthropic(
+            api_key=get_api_key(provider),
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    if provider == "openai":
+        return OpenAI(
+            api_key=get_api_key(provider),
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    if provider == "google":
+        return GoogleGenAI(
+            api_key=get_api_key(provider),
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    if provider == "xai":
+        return OpenAILike(
+            api_key=get_api_key(provider),
+            api_base=os.getenv("XAI_API_BASE", "https://api.x.ai/v1"),
+            model=model_name,
+            is_chat_model=True,
+            is_function_calling_model=False,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    if provider == "deepseek":
+        return OpenAILike(
+            api_key=get_api_key(provider),
+            api_base=os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com"),
+            model=model_name,
+            is_chat_model=True,
+            is_function_calling_model=False,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    raise ValueError(f"Unsupported provider: {provider}")
+
+
 def parse_structured_json_response(raw: Any) -> Dict[str, Any]:
     if raw is None:
         content = ""
