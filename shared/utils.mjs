@@ -1,5 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import readline from "node:readline";
+import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatOpenAI } from "@langchain/openai";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -74,6 +77,53 @@ export function getDefaultModelDetails(provider) {
     defaultModelIdentifier: config.name,
     defaultModelTier: config.tier,
   };
+}
+
+export function createLangChainModel(provider, { model = null, temperature = 0.7, maxTokens = 1000 } = {}) {
+  const modelName = model || getDefaultModel(provider);
+  if (provider === "anthropic") {
+    return new ChatAnthropic({
+      apiKey: getApiKey(provider),
+      model: modelName,
+      temperature,
+      maxTokens,
+    });
+  }
+  if (provider === "openai") {
+    return new ChatOpenAI({
+      apiKey: getApiKey(provider),
+      model: modelName,
+      temperature,
+      maxTokens,
+    });
+  }
+  if (provider === "google") {
+    return new ChatGoogleGenerativeAI({
+      apiKey: getApiKey(provider),
+      model: modelName,
+      temperature,
+      maxTokens,
+    });
+  }
+  if (provider === "xai") {
+    return new ChatOpenAI({
+      apiKey: getApiKey(provider),
+      configuration: { baseURL: process.env.XAI_API_BASE || "https://api.x.ai/v1" },
+      model: modelName,
+      temperature,
+      maxTokens,
+    });
+  }
+  if (provider === "deepseek") {
+    return new ChatOpenAI({
+      apiKey: getApiKey(provider),
+      configuration: { baseURL: process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com" },
+      model: modelName,
+      temperature,
+      maxTokens,
+    });
+  }
+  throw new Error(`Unsupported provider: ${provider}`);
 }
 export function formatProviderSummary(provider) {
   const details = getDefaultModelDetails(provider);

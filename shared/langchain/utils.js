@@ -24,6 +24,8 @@ export function buildCommonArgs(argv = process.argv.slice(2)) {
   let host = '0.0.0.0';
   let port = Number(process.env.PORT || 8000);
   let modelIdentifier = null;
+  let temperature = 0.7;
+  let maxTokens = 1000;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === 'cli' || arg === 'web') mode = arg;
@@ -31,8 +33,10 @@ export function buildCommonArgs(argv = process.argv.slice(2)) {
     else if (arg === '--host') host = argv[++i];
     else if (arg === '--port') port = Number(argv[++i]);
     else if (arg === '--model-identifier') modelIdentifier = argv[++i];
+    else if (arg === '--temperature') temperature = Number(argv[++i]);
+    else if (arg === '--max-tokens') maxTokens = Number(argv[++i]);
   }
-  return { mode, stream, host, port, modelIdentifier };
+  return { mode, stream, host, port, modelIdentifier, temperature, maxTokens };
 }
 
 function askOnce(prompt) {
@@ -44,6 +48,7 @@ function askOnce(prompt) {
     });
   });
 }
+
 
 export async function selectStartupModel(modelIdentifiers, mode, explicitModelIdentifier) {
   if (explicitModelIdentifier) return explicitModelIdentifier;

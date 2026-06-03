@@ -81,6 +81,59 @@ def get_default_model_details(provider: str) -> Dict[str, str]:
     }
 
 
+def create_langchain_model(
+    provider: str,
+    *,
+    model: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 1000,
+):
+    """Create a provider-specific LangChain chat model with shared defaults."""
+    from langchain_anthropic import ChatAnthropic
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_openai import ChatOpenAI
+
+    model_name = model or get_default_model(provider)
+    if provider == "anthropic":
+        return ChatAnthropic(
+            api_key=get_api_key(provider),
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    if provider == "openai":
+        return ChatOpenAI(
+            api_key=get_api_key(provider),
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    if provider == "google":
+        return ChatGoogleGenerativeAI(
+            api_key=get_api_key(provider),
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    if provider == "xai":
+        return ChatOpenAI(
+            api_key=get_api_key(provider),
+            base_url=os.getenv("XAI_API_BASE", "https://api.x.ai/v1"),
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    if provider == "deepseek":
+        return ChatOpenAI(
+            api_key=get_api_key(provider),
+            base_url=os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com"),
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    raise ValueError(f"Unsupported provider: {provider}")
+
+
 def format_provider_summary(provider: str) -> str:
     details = get_default_model_details(provider)
     return (

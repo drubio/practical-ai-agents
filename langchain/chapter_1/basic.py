@@ -16,6 +16,7 @@ from langchain.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from shared.langchain import tools
+from shared.utils import create_langchain_model
 from shared.langchain.utils import (
     ALL_MODEL_IDENTIFIERS,
     build_common_parser,
@@ -133,21 +134,27 @@ def _print_basic_agent_step_output(
     return state["final_text"].strip()
 
 
-class LangChainUuidAgentManager:
+class LangChainAgentManager:
     framework = "LangChain Basic Agent"
     prints_own_output = True
     tool_names = ["generate_uuid"]
     tool_trigger_help = "Tools are triggered automatically. Ask for a UUID/ticket ID to trigger generate_uuid."
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, temperature: float = 0.7, max_tokens: int = 1000):
         config = get_identifier_mappings().get(model)
         self.model_identifier = model
         self.provider = config.provider if config else "openai"
         self.model = config.model if config else model
-        provider_name = "google_genai" if self.provider == "google" else self.provider
+        self.temperature = temperature
+        self.max_tokens = max_tokens
         self.pending_tool_logs: list[dict[str, Any]] = []
         self.agent = create_agent(
-            model=f"{provider_name}:{self.model}",
+            model=create_langchain_model(
+                self.provider,
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            ),
             tools=[_make_generate_uuid_tool(self.pending_tool_logs)],
             system_prompt=SYSTEM_PROMPT,
         )
@@ -171,7 +178,15 @@ class LangChainUuidAgentManager:
                 response = self.agent.invoke({"messages": [human]})
                 response_messages = response.get("messages", []) if isinstance(response, dict) else []
                 normalized_final_text = _print_basic_agent_step_output(response_messages, state=state)
-            return {"success": True, "final_text": normalized_final_text, "finalText": normalized_final_text}
+            return {
+                "success": True,
+                "final_text": normalized_final_text,
+                "finalText": normalized_final_text,
+                "provider": self.provider,
+                "model": self.model,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+            }
         except Exception as exc:
             logger.exception(exc)
             return {"success": False, "error": str(exc)}
@@ -181,7 +196,7 @@ def main() -> None:
     parser = build_common_parser("LangChain Basic Agent")
     args = parser.parse_args()
     startup_model = select_startup_model(ALL_MODEL_IDENTIFIERS, args.mode, args.model_identifier)
-    manager = LangChainUuidAgentManager(model=startup_model)
+    manager = LangChainAgentManager(model=startup_model, temperature=args.temperature, max_tokens=args.max_tokens)
     run_mode(manager, args.mode, args.host, args.port, args.stream)
 
 

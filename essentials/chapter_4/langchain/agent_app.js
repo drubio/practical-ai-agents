@@ -2,13 +2,10 @@
  * "LLM application to chat with multiple LLMs - LangChain JavaScript framework implementation
  */
 
-import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatOpenAI } from '@langchain/openai';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { createLangChainModel } from '../../../shared/utils.mjs';
 
 import {
-    getApiKey,
     getDefaultModel,
     BaseLLMManager,
     interactiveCli,
@@ -24,49 +21,11 @@ class LangChainLLMManager extends BaseLLMManager {
     }
 
     _createClient(provider, temperature, maxTokens) {
-        if (provider === 'anthropic') {
-            return new ChatAnthropic({
-                apiKey: getApiKey(provider),
-                model: getDefaultModel(provider),
-                temperature,
-                maxTokens,
-            });
-        }
-        if (provider === 'openai') {
-            return new ChatOpenAI({
-                apiKey: getApiKey(provider),
-                model: getDefaultModel(provider),
-                temperature,
-                maxTokens,
-            });
-        }
-        if (provider === 'google') {
-            return new ChatGoogleGenerativeAI({
-                apiKey: getApiKey(provider),
-                model: getDefaultModel(provider),
-                temperature,
-                maxTokens,
-            });
-        }
-        if (provider === 'xai') {
-            return new ChatOpenAI({
-                apiKey: getApiKey(provider),
-                configuration: { baseURL: 'https://api.x.ai/v1' },
-                model: getDefaultModel(provider),
-                temperature,
-                maxTokens,
-            });
-	}
-        if (provider === 'deepseek') {
-            return new ChatOpenAI({
-                apiKey: getApiKey(provider),
-                configuration: { baseURL: 'https://api.deepseek.com' },
-                model: getDefaultModel(provider),
-                temperature,
-                maxTokens,
-            });	    
-        }
-        throw new Error(`Unsupported provider: ${provider}`);
+        return createLangChainModel(provider, {
+            model: getDefaultModel(provider),
+            temperature,
+            maxTokens,
+        });
     }
 
     _resolveProvider(provider) {

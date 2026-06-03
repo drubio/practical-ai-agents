@@ -5,12 +5,10 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 from typing import Dict, Optional
-from langchain_anthropic import ChatAnthropic
-from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from shared.essentials.utils import BaseLLMManager, get_api_key, get_default_model, interactive_cli
+from shared.essentials.utils import BaseLLMManager, get_default_model, interactive_cli
+from shared.utils import create_langchain_model
 
 
 class LangChainLLMManager(BaseLLMManager):
@@ -23,44 +21,12 @@ class LangChainLLMManager(BaseLLMManager):
         self._create_client(provider, temperature=0.7, max_tokens=1000)
 
     def _create_client(self, provider: str, temperature: float, max_tokens: int):
-        if provider == "anthropic":
-            return ChatAnthropic(
-                api_key=get_api_key(provider),
-                model=get_default_model(provider),
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        if provider == "openai":
-            return ChatOpenAI(
-                api_key=get_api_key(provider),
-                model=get_default_model(provider),
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        if provider == "google":
-            return ChatGoogleGenerativeAI(
-                api_key=get_api_key(provider),
-                model=get_default_model(provider),
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        if provider == "xai":
-            return ChatOpenAI(
-                api_key=get_api_key(provider),
-                base_url="https://api.x.ai/v1",
-                model=get_default_model(provider),
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        if provider == "deepseek":
-            return ChatOpenAI(
-                api_key=get_api_key(provider),
-                base_url="https://api.deepseek.com",
-                model=get_default_model(provider),
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )        
-        raise ValueError(f"Unsupported provider: {provider}")
+        return create_langchain_model(
+            provider,
+            model=get_default_model(provider),
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
     def _resolve_provider(self, provider: Optional[str]):
         available = self.get_available_providers()

@@ -87,7 +87,10 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
     parser.add_argument("--model-identifier", dest="model_identifier")
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--max-tokens", dest="max_tokens", type=int, default=1000)
     return parser
+
 
 
 def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, explicit_model_identifier: str | None) -> str:

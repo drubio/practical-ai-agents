@@ -6,6 +6,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 
 import * as tools from '../../shared/langchain/tools.js';
+import { createLangChainModel } from '../../shared/utils.mjs';
 import {
   ALL_MODEL_IDENTIFIERS,
   buildCommonArgs,
@@ -109,19 +110,20 @@ async function printBasicAgentStepOutput({ messages = [], streamEvents = null, s
   return state.finalText.trim();
 }
 
-export class LangChainUuidAgentManager {
+export class LangChainAgentManager {
   framework = 'LangChain Basic Agent';
   printsOwnOutput = true;
   toolNames = ['generate_uuid'];
   toolTriggerHelp = 'Tools are triggered automatically. Ask for a UUID/ticket ID to trigger generate_uuid.';
   modelIdentifiers = ALL_MODEL_IDENTIFIERS;
 
-  constructor(model) {
+  constructor(model, { temperature = 0.7, maxTokens = 1000 } = {}) {
     const config = getIdentifierMappings()[model];
     this.modelIdentifier = model;
     this.provider = config?.provider ?? 'openai';
     this.model = config?.model ?? model;
-    const providerName = this.provider === 'google' ? 'google-genai' : this.provider;
+    this.temperature = temperature;
+    this.maxTokens = maxTokens;
     this.pendingToolLogs = [];
     const generateUuidTool = tool((input) => {
       const output = tools.generateUUID(input);
@@ -133,7 +135,11 @@ export class LangChainUuidAgentManager {
       schema: z.object({}),
     });
     this.agent = createAgent({
-      model: `${providerName}:${this.model}`,
+      model: createLangChainModel(this.provider, {
+        model: this.model,
+        temperature: this.temperature,
+        maxTokens: this.maxTokens,
+      }),
       tools: [generateUuidTool],
       systemPrompt: SYSTEM_PROMPT,
     });
@@ -157,7 +163,15 @@ export class LangChainUuidAgentManager {
         finalText = await printBasicAgentStepOutput({ messages: responseMessages, state });
       }
 
-      return { success: true, finalText };
+      return {
+        success: true,
+        finalText,
+        final_text: finalText,
+        provider: this.provider,
+        model: this.model,
+        temperature: this.temperature,
+        maxTokens: this.maxTokens,
+      };
     } catch (error) {
       logger.error(error);
       return { success: false, error: error?.message || String(error) };
@@ -168,7 +182,7 @@ export class LangChainUuidAgentManager {
 async function main() {
   const args = buildCommonArgs();
   const startupModel = await selectStartupModel(ALL_MODEL_IDENTIFIERS, args.mode, args.modelIdentifier);
-  const manager = new LangChainUuidAgentManager(startupModel);
+  const manager = new LangChainAgentManager(startupModel, { temperature: args.temperature, maxTokens: args.maxTokens });
   await runMode(manager, args.mode, args.host, args.port, args.stream);
 }
 
