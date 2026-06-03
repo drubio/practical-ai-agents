@@ -150,8 +150,7 @@ class LangChainAgentManager:
         self.pending_tool_logs: list[dict[str, Any]] = []
         self.agent = create_agent(
             model=create_langchain_model(
-                self.provider,
-                model=self.model,
+                self.model_identifier,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             ),

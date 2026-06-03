@@ -3,7 +3,7 @@
  */
 
 import { LangChainLLMManager as Chapter5StructuredLangChainManager, STRUCTURED_TEMPLATE } from '../../chapter_5/langchain/agent_structured_output.js';
-import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
+import { interactiveCli, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
 import { Document } from '@langchain/core/documents';
 import { BM25Retriever } from '@langchain/community/retrievers/bm25';
 import { getEncoding } from 'js-tiktoken';
@@ -106,7 +106,7 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
 
     async askQuestion(topic, provider = null, template = STRUCTURED_TEMPLATE, maxTokens = 1000, temperature = 0.7, sessionId = 'default') {
         const effectiveTemplate = template === '{topic}' ? STRUCTURED_TEMPLATE : template;
-        const resolvedProvider = this._resolveProvider(provider);
+        const resolvedProvider = this.resolveModelIdentifier(provider);
         const basePrompt = effectiveTemplate.replace('{topic}', topic);
 
         if (!resolvedProvider) {
@@ -119,6 +119,8 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
                 response: null,
             };
         }
+
+        const modelConfig = this.resolveModelConfig(resolvedProvider);
 
         let messages = [];
         if (this.retrievalMemoryEnabled) {
@@ -148,8 +150,8 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
             : 0;
 
         try {
-            const client = this._createClient(resolvedProvider, temperature, maxTokens);
-            const result = await client.invoke(this._buildMessages(retrievalPrompt));
+            const model = this._createModel(resolvedProvider, temperature, maxTokens);
+            const result = await model.invoke(this._buildMessages(retrievalPrompt));
             const rawResponse = this._extractText(resolvedProvider, result);
 
             const responseMetadata = result?.response_metadata ?? result?.responseMetadata ?? null;
@@ -157,8 +159,9 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
             const tokenUsage = this._extractTokenUsage(responseMetadata, usageMetadata);
 
             const metadataPayload = {
-                provider: resolvedProvider,
-                model: getDefaultModel(resolvedProvider),
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 sessionId,
                 temperature,
                 maxTokens,
@@ -203,8 +206,9 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
 
             return {
                 success: true,
-                provider: resolvedProvider,
-                model: getDefaultModel(resolvedProvider),
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt: retrievalPrompt,
                 response: parsed,
                 rawAnswer: parsed.answer ?? rawResponse,
@@ -218,8 +222,9 @@ class LangChainLLMManager extends Chapter5StructuredLangChainManager {
         } catch (error) {
             return {
                 success: false,
-                provider: resolvedProvider,
-                model: getDefaultModel(resolvedProvider),
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt: retrievalPrompt,
                 error: error.message,
                 response: null,

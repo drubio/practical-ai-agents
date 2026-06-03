@@ -2,64 +2,26 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from contextvars import ContextVar
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence
+from typing import Dict, List, Optional
 
 from shared.utils import (
-    format_filename,
-    get_all_provider_names,
-    get_default_model as _base_get_default_model,
-    get_non_empty_input,
-    normalize_response_text,
-    parse_structured_json_response,
-    save_response_to_file,
     display_provider_response,
-    format_provider_summary,
-    get_all_providers,
-    get_api_key,
-    get_default_model_details,
-    get_display_name,
-    get_user_choice,
+    get_selected_model_details,
     get_user_parameters,
     model_identifiers_for_providers,
-    select_model_identifier,
-    select_provider_model_identifier,
-    compact_model_selection_lines,
+    parse_structured_json_response,
     print_initialization_status,
+    select_provider_model_identifier,
+)
+from shared.llm_models import (
+    get_all_providers,
+    get_api_key,
+    get_display_name,
+    get_model_config,
+    get_provider_model_identifier,
+    resolve_model_identifier,
     sort_providers_by_display_order,
 )
-from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
-
-
-_SELECTED_MODEL_IDENTIFIER: ContextVar[Optional[str]] = ContextVar("essentials_selected_model_identifier", default=None)
-
-
-def get_default_model(provider: str) -> str:
-    """Return the active model for a provider, honoring per-query overrides."""
-    selected_identifier = _SELECTED_MODEL_IDENTIFIER.get()
-    if selected_identifier:
-        config = get_identifier_mappings().get(selected_identifier)
-        if config and config.provider == provider:
-            return config.model
-    return _base_get_default_model(provider)
-
-
-def get_model_identifier_config(model_identifier: Optional[str]):
-    if model_identifier is None:
-        return None
-    return get_identifier_mappings().get(str(model_identifier).strip())
-
-
-
-@contextmanager
-def selected_model_context(model_identifier: Optional[str]) -> Iterator[None]:
-    token = _SELECTED_MODEL_IDENTIFIER.set(model_identifier)
-    try:
-        yield
-    finally:
-        _SELECTED_MODEL_IDENTIFIER.reset(token)
-
 
 
 class EssentialsLLMManager:
@@ -89,6 +51,16 @@ class EssentialsLLMManager:
 
     def display_initialization_status(self) -> None:
         print_initialization_status(self.framework, self.initialization_messages)
+
+    def resolve_model_identifier(self, selection: Optional[str]) -> str | None:
+        return resolve_model_identifier(selection, self.get_available_providers())
+
+    def resolve_model_config(self, selection: Optional[str]):
+        selected_model = self.resolve_model_identifier(selection)
+        return get_model_config(selected_model) if selected_model else None
+
+    def provider_model_identifier(self, provider: str) -> str:
+        return get_provider_model_identifier(provider)
 
     def ask_question(
         self,
@@ -135,8 +107,7 @@ def interactive_basic_question_loop(
         if not user_input:
             print("Input cannot be empty. Please try again.")
             continue
-        with selected_model_context(model_identifier):
-            response = ask_question(user_input) if ask_question else manager.ask_question(topic=user_input, provider=provider)
+        response = ask_question(user_input) if ask_question else manager.ask_question(topic=user_input, provider=provider)
         if not getattr(manager, "prints_own_output", False):
             display_provider_response(provider or getattr(manager, "provider", "unknown"), response, manager.framework)
 
@@ -155,10 +126,6 @@ def interactive_cli(manager: EssentialsLLMManager, model_identifier: Optional[st
     temperature, max_tokens = get_user_parameters()
     print(f"\nUsing temperature: {temperature}, max tokens: {max_tokens}")
     available_providers = sort_providers_by_display_order(available_providers)
-    #print("\nAvailable providers:")
-    #for provider_name in available_providers:
-    #    print(f"- {format_provider_summary(provider_name)}")
-
     available_model_identifiers = model_identifiers_for_providers(available_providers)
     if not available_model_identifiers:
         print("No models available for initialized providers.")
@@ -172,13 +139,14 @@ def interactive_cli(manager: EssentialsLLMManager, model_identifier: Optional[st
             return
     else:
         model_identifier = select_provider_model_identifier(available_providers)
-    model_config = get_identifier_mappings()[model_identifier]
-    provider = model_config.provider
-    selected_provider_details = get_default_model_details(provider)
+    model_config = get_model_config(model_identifier)
+    provider = model_identifier
+    provider_name = model_config.provider
+    selected_model_details = get_selected_model_details(model_identifier)
     print(
         "\nUsing model: "
-        f"{selected_provider_details['display_name']} "
-        f"(provider: {model_config.provider}, "
+        f"{selected_model_details['display_name']} "
+        f"(provider: {provider_name}, "
         f"model: {model_config.model} / "
         f"{model_config.name} / "
         f"{model_config.tier})"
@@ -190,16 +158,16 @@ def interactive_cli(manager: EssentialsLLMManager, model_identifier: Optional[st
             session_id = session_id_input
         print(f"Using memory session: {session_id}")
     print("\n" + "=" * 50)
-    print(f"{manager.framework.upper()} INTERACTIVE MODE - {get_display_name(provider).upper()}")
+    print(f"{manager.framework.upper()} INTERACTIVE MODE - {get_display_name(provider_name).upper()}")
     print("=" * 50)
     if not memory_supported:
         interactive_basic_question_loop(
             manager,
-            provider=provider,
+            provider=model_identifier,
             model_identifier=model_identifier,
             ask_question=lambda user_input: manager.ask_question(
                 topic=user_input,
-                provider=provider,
+                provider=model_identifier,
                 temperature=temperature,
                 max_tokens=max_tokens,
             ),
@@ -217,8 +185,8 @@ def interactive_cli(manager: EssentialsLLMManager, model_identifier: Optional[st
             continue
         if user_input.lower() == "history":
             if memory_supported and hasattr(manager, "get_history"):
-                history = manager.get_history(provider, session_id)
-                print(f"\n🧠 Memory for {get_display_name(provider)} (session: {session_id}):")
+                history = manager.get_history(model_identifier, session_id)
+                print(f"\n🧠 Memory for {get_display_name(provider_name)} (session: {session_id}):")
                 for turn in history["turns"]:
                     print(f"[{turn['role'].capitalize()}] {turn['content']}")
                 if not history["turns"]:
@@ -227,17 +195,16 @@ def interactive_cli(manager: EssentialsLLMManager, model_identifier: Optional[st
                 print("⚠️ This manager does not support memory history.")
         elif user_input.lower() == "clear":
             if memory_supported and hasattr(manager, "reset_memory"):
-                manager.reset_memory(provider, session_id)
+                manager.reset_memory(model_identifier, session_id)
                 print(f"✅ Memory cleared for session '{session_id}'")
             else:
                 print("⚠️ This manager does not support memory reset.")
         else:
-            kwargs = {"topic": user_input, "provider": provider, "temperature": temperature, "max_tokens": max_tokens}
+            kwargs = {"topic": user_input, "provider": model_identifier, "temperature": temperature, "max_tokens": max_tokens}
             if memory_supported:
                 kwargs["session_id"] = session_id
-            with selected_model_context(model_identifier):
-                response = manager.ask_question(**kwargs)
-            display_provider_response(provider, response, manager.framework)
+            response = manager.ask_question(**kwargs)
+            display_provider_response(model_identifier, response, manager.framework)
 
     print(f"\nThank you for using the {manager.framework} Agent Application!")
 

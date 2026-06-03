@@ -6,7 +6,6 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { createLangChainModel } from '../../../shared/utils.mjs';
 
 import {
-    getDefaultModel,
     BaseLLMManager,
     interactiveCli,
 } from '../../../shared/essentials/utils.mjs';
@@ -17,23 +16,14 @@ class LangChainLLMManager extends BaseLLMManager {
     }
 
     async _testProvider(provider) {
-        await this._createClient(provider, 0.7, 1000);
+        await this._createModel(this.providerModelIdentifier(provider), 0.7, 1000);
     }
 
-    _createClient(provider, temperature, maxTokens) {
-        return createLangChainModel(provider, {
-            model: getDefaultModel(provider),
+    _createModel(selectedModel, temperature, maxTokens) {
+        return createLangChainModel(selectedModel, {
             temperature,
             maxTokens,
         });
-    }
-
-    _resolveProvider(provider) {
-        const available = this.getAvailableProviders();
-        if (provider && available.includes(provider)) {
-            return provider;
-        }
-        return available.length > 0 ? available[0] : null;
     }
 
     _buildMessages(prompt) {
@@ -52,9 +42,9 @@ class LangChainLLMManager extends BaseLLMManager {
 
     async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7) {
         const prompt = template.replace('{topic}', topic);
-        const resolvedProvider = this._resolveProvider(provider);
+        const modelConfig = this.resolveModelConfig(provider);
 
-        if (!resolvedProvider) {
+        if (!modelConfig) {
             return {
                 success: false,
                 error: 'No providers available',
@@ -65,25 +55,25 @@ class LangChainLLMManager extends BaseLLMManager {
             };
         }
 
-        const model = getDefaultModel(resolvedProvider);
-
         try {
-            const client = this._createClient(resolvedProvider, temperature, maxTokens);
-            const result = await client.invoke(this._buildMessages(prompt));
+            const model = this._createModel(modelConfig.name, temperature, maxTokens);
+            const result = await model.invoke(this._buildMessages(prompt));
             return {
                 success: true,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
-                response: this._extractText(resolvedProvider, result),
+                response: this._extractText(modelConfig.provider, result),
                 temperature,
                 maxTokens,
             };
         } catch (error) {
             return {
                 success: false,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 error: error.message,
                 response: null,

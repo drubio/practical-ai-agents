@@ -15,7 +15,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 sys.path.append(REPO_ROOT)
 
 from essentials.chapter_5.langchain.agent_structured_output import STRUCTURED_TEMPLATE, LangChainLLMManager as Chapter5StructuredManager
-from shared.essentials.utils import get_default_model, interactive_cli, parse_structured_json_response
+from shared.essentials.utils import interactive_cli, parse_structured_json_response
 
 
 class LangChainLLMManager(Chapter5StructuredManager):
@@ -123,7 +123,7 @@ class LangChainLLMManager(Chapter5StructuredManager):
         session_id: str = "default",
     ) -> Dict:
         effective_template = STRUCTURED_TEMPLATE if template == "{topic}" else template
-        provider = self._resolve_provider(provider)
+        provider = self.resolve_model_identifier(provider)
         base_prompt = effective_template.format(topic=topic)
 
         if not provider:
@@ -161,17 +161,20 @@ class LangChainLLMManager(Chapter5StructuredManager):
             round((estimated_saved / tokens_without_retrieval) * 100, 2) if tokens_without_retrieval else 0.0
         )
 
+        model_config = self.resolve_model_config(provider)
+
         try:
-            client = self._create_client(provider, temperature=temperature, max_tokens=max_tokens)
-            result = client.invoke(self._build_messages(retrieval_prompt))
+            model = self._create_model(provider, temperature=temperature, max_tokens=max_tokens)
+            result = model.invoke(self._build_messages(retrieval_prompt))
             raw_response = self._extract_text(provider, result)
             response_metadata = getattr(result, "response_metadata", None)
             usage_metadata = getattr(result, "usage_metadata", None)
             token_usage = self._extract_token_usage(response_metadata, usage_metadata)
 
             result_payload = {
-                "provider": provider,
-                "model": get_default_model(provider),
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "session_id": session_id,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
@@ -214,8 +217,9 @@ class LangChainLLMManager(Chapter5StructuredManager):
 
             payload = {
                 "success": True,
-                "provider": provider,
-                "model": get_default_model(provider),
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": retrieval_prompt,
                 "response": parsed,
                 "raw_answer": parsed.get("answer", raw_response),
@@ -230,8 +234,9 @@ class LangChainLLMManager(Chapter5StructuredManager):
         except Exception as exc:
             return {
                 "success": False,
-                "provider": provider,
-                "model": get_default_model(provider),
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": retrieval_prompt,
                 "error": str(exc),
                 "response": None,

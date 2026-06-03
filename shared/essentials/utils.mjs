@@ -1,73 +1,36 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-
 import {
-  formatFilename,
-  getAllProviderNames,
-  getDefaultModel as baseGetDefaultModel,
-  getNonEmptyInput,
-  normalizeResponseText,
-  parseStructuredJsonResponse,
-  saveResponseToFile,
   closeSharedAsk,
   displayProviderResponse,
-  formatProviderSummary,
-  getAllProviders,
-  getApiKey,
-  getDefaultModelDetails,
-  getDisplayName,
+  getSelectedModelDetails,
   getSharedAsk,
-  getUserChoice,
   getUserParameters,
   modelIdentifiersForProviders,
-  selectModelIdentifier,
+  normalizeResponseText,
+  parseStructuredJsonResponse,
   selectProviderModelIdentifier,
-  compactModelSelectionLines,
-  sortProvidersByDisplayOrder,
 } from "../utils.mjs";
-import { getIdentifierMappings } from "../llm_models.mjs";
+import {
+  getAllProviders,
+  getApiKey,
+  getDisplayName,
+  getModelConfig,
+  getProviderModelIdentifier,
+  resolveModelIdentifier,
+  sortProvidersByDisplayOrder,
+} from "../llm_models.mjs";
 
 export {
   displayProviderResponse,
-  formatFilename,
-  formatProviderSummary,
-  getAllProviderNames,
   getAllProviders,
   getApiKey,
-  getDefaultModelDetails,
   getDisplayName,
-  getNonEmptyInput,
-  getUserChoice,
   getUserParameters,
   modelIdentifiersForProviders,
-  selectModelIdentifier,
-  selectProviderModelIdentifier,
-  compactModelSelectionLines,
   normalizeResponseText,
   parseStructuredJsonResponse,
-  saveResponseToFile,
+  selectProviderModelIdentifier,
   sortProvidersByDisplayOrder,
 };
-
-
-const selectedModelStorage = new AsyncLocalStorage();
-
-export function getDefaultModel(provider) {
-  const selectedIdentifier = selectedModelStorage.getStore() || null;
-  if (selectedIdentifier) {
-    const config = getIdentifierMappings()[selectedIdentifier];
-    if (config?.provider === provider) return config.model;
-  }
-  return baseGetDefaultModel(provider);
-}
-
-export function withSelectedModelIdentifier(modelIdentifier, fn) {
-  return selectedModelStorage.run(modelIdentifier || null, fn);
-}
-
-export function getModelIdentifierConfig(modelIdentifier) {
-  if (modelIdentifier === null || typeof modelIdentifier === "undefined") return null;
-  return getIdentifierMappings()[String(modelIdentifier).trim()] || null;
-}
 
 export class EssentialsLLMManager {
   constructor(frameworkName) {
@@ -107,6 +70,19 @@ export class EssentialsLLMManager {
     }
     console.log(`${"=".repeat(50)}\n`);
   }
+
+  resolveModelIdentifier(selection) {
+    return resolveModelIdentifier(selection, this.getAvailableProviders());
+  }
+
+  resolveModelConfig(selection) {
+    const selectedModel = this.resolveModelIdentifier(selection);
+    return selectedModel ? getModelConfig(selectedModel) : null;
+  }
+
+  providerModelIdentifier(provider) {
+    return getProviderModelIdentifier(provider);
+  }
 }
 
 export function managerSupportsInteractiveMemory(manager) {
@@ -134,7 +110,7 @@ export async function interactiveBasicQuestionLoop(manager, { provider = null, m
       console.log("Input cannot be empty. Please try again.");
       continue;
     }
-    const response = await withSelectedModelIdentifier(modelIdentifier, async () => (askQuestion ? askQuestion(userInput) : manager.askQuestion(userInput, provider)));
+    const response = await (askQuestion ? askQuestion(userInput) : manager.askQuestion(userInput, provider));
     if (!manager.printsOwnOutput) displayProviderResponse(provider || manager.provider || "unknown", response, manager.framework);
   }
 }
@@ -156,11 +132,6 @@ export async function interactiveCli(manager, modelIdentifier = null) {
     const { temperature, maxTokens } = await getUserParameters(ask);
     console.log(`\nUsing temperature: ${temperature}, max tokens: ${maxTokens}`);
     availableProviders = sortProvidersByDisplayOrder(availableProviders);
-    //console.log("\nAvailable providers:");
-    //for (const providerName of availableProviders) {
-    //  console.log(`- ${formatProviderSummary(providerName)}`);
-    //}
-
     const availableModelIdentifiers = modelIdentifiersForProviders(availableProviders);
     if (availableModelIdentifiers.length === 0) {
       console.log("No models available for initialized providers.");
@@ -177,13 +148,14 @@ export async function interactiveCli(manager, modelIdentifier = null) {
     } else {
       modelIdentifier = await selectProviderModelIdentifier(availableProviders, ask);
     }
-    const modelConfig = getIdentifierMappings()[modelIdentifier];
-    const provider = modelConfig.provider;
-    const selectedProviderDetails = getDefaultModelDetails(provider);
+    const modelConfig = getModelConfig(modelIdentifier);
+    const provider = modelIdentifier;
+    const providerName = modelConfig.provider;
+    const selectedModelDetails = getSelectedModelDetails(modelIdentifier);
     console.log(
       "\nUsing model: "
-      + `${selectedProviderDetails.displayName} `
-      + `(provider: ${modelConfig.provider}, `
+      + `${selectedModelDetails.displayName} `
+      + `(provider: ${providerName}, `
       + `model: ${modelConfig.model} / `
       + `${modelConfig.name} / `
       + `${modelConfig.tier})`,
@@ -195,14 +167,14 @@ export async function interactiveCli(manager, modelIdentifier = null) {
       console.log(`Using memory session: ${sessionId}`);
     }
     console.log(`\n${"=".repeat(50)}`);
-    console.log(`${manager.framework.toUpperCase()} INTERACTIVE MODE - ${getDisplayName(provider).toUpperCase()}`);
+    console.log(`${manager.framework.toUpperCase()} INTERACTIVE MODE - ${getDisplayName(providerName).toUpperCase()}`);
     console.log("=".repeat(50));
 
     if (!memorySupported) {
       await interactiveBasicQuestionLoop(manager, {
-        provider,
+        provider: modelIdentifier,
         modelIdentifier,
-        askQuestion: (userInput) => manager.askQuestion(userInput, provider, "{topic}", maxTokens, temperature),
+        askQuestion: (userInput) => manager.askQuestion(userInput, modelIdentifier, "{topic}", maxTokens, temperature),
       });
       console.log(`\nThank you for using the ${manager.framework} Agent Application!`);
       return;
@@ -221,8 +193,8 @@ export async function interactiveCli(manager, modelIdentifier = null) {
       }
       if (userInput.toLowerCase() === "history") {
         if (memorySupported && typeof manager.getHistory === "function") {
-          const history = await Promise.resolve(manager.getHistory(provider, sessionId));
-          console.log(`\n🧠 Memory for ${getDisplayName(provider)} (session: ${sessionId}):`);
+          const history = await Promise.resolve(manager.getHistory(modelIdentifier, sessionId));
+          console.log(`\n🧠 Memory for ${getDisplayName(providerName)} (session: ${sessionId}):`);
           for (const turn of history.turns || []) {
             console.log(`[${String(turn.role).charAt(0).toUpperCase()}${String(turn.role).slice(1)}] ${turn.content}`);
           }
@@ -232,16 +204,16 @@ export async function interactiveCli(manager, modelIdentifier = null) {
         }
       } else if (userInput.toLowerCase() === "clear") {
         if (memorySupported && typeof manager.resetMemory === "function") {
-          await Promise.resolve(manager.resetMemory(provider, sessionId));
+          await Promise.resolve(manager.resetMemory(modelIdentifier, sessionId));
           console.log(`✅ Memory cleared for session '${sessionId}'`);
         } else {
           console.log("⚠️ This manager does not support memory reset.");
         }
       } else {
-        const response = await withSelectedModelIdentifier(modelIdentifier, async () => (memorySupported
-          ? manager.askQuestion(userInput, provider, "{topic}", maxTokens, temperature, sessionId)
-          : manager.askQuestion(userInput, provider, "{topic}", maxTokens, temperature)));
-        displayProviderResponse(provider, response, manager.framework);
+        const response = await (memorySupported
+          ? manager.askQuestion(userInput, modelIdentifier, "{topic}", maxTokens, temperature, sessionId)
+          : manager.askQuestion(userInput, modelIdentifier, "{topic}", maxTokens, temperature));
+        displayProviderResponse(modelIdentifier, response, manager.framework);
       }
     }
 

@@ -10,7 +10,7 @@ import { SimpleChatEngine } from '@llamaindex/core/chat-engine';
 import { Memory } from '@llamaindex/core/memory';
 import { SimpleChatStore } from '@llamaindex/core/storage/chat-store';
 import { LlamaIndexLLMManager as Chapter4LlamaIndexManager } from '../../chapter_4/llamaindex/agent_app.js';
-import { getDefaultModel, interactiveCli } from '../../../shared/essentials/utils.mjs';
+import { interactiveCli } from '../../../shared/essentials/utils.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -133,9 +133,9 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
     _getChatEngine(provider, sessionId, temperature, maxTokens) {
         const key = this._sessionKey(provider, sessionId);
         if (!this.chatEngines.has(key)) {
-            const client = this._createClient(provider, temperature, maxTokens);
+            const model = this._createModel(provider, temperature, maxTokens);
             const memory = this._getMemory(sessionId);
-            this.chatEngines.set(key, new SimpleChatEngine({ llm: client, memory }));
+            this.chatEngines.set(key, new SimpleChatEngine({ llm: model, memory }));
         }
         return this.chatEngines.get(key);
     }
@@ -152,7 +152,7 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
             return { success: false, error: 'No providers available', provider: 'none', model: 'none', prompt, response: null };
         }
 
-        const model = getDefaultModel(resolvedProvider);
+        const modelConfig = this.resolveModelConfig(resolvedProvider);
 
         try {
             const chatEngine = this._getChatEngine(resolvedProvider, sessionId, temperature, maxTokens);
@@ -160,12 +160,13 @@ class LlamaIndexLLMManager extends Chapter4LlamaIndexManager {
             const responseText = result?.response ?? this._extractText(result);
             await this._persistMemory(sessionId);
 
-            return { success: true, provider: resolvedProvider, model, prompt, response: responseText, temperature, maxTokens, sessionId };
+            return { success: true, provider: modelConfig.provider, model: modelConfig.model, modelIdentifier: modelConfig.name, prompt, response: responseText, temperature, maxTokens, sessionId };
         } catch (error) {
             return {
                 success: false,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 error: error.message,
                 response: null,

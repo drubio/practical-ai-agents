@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 from typing import Dict, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from shared.essentials.utils import BaseLLMManager, get_default_model, interactive_cli
+from shared.essentials.utils import BaseLLMManager, interactive_cli
 from shared.utils import create_langchain_model
 
 
@@ -18,23 +18,14 @@ class LangChainLLMManager(BaseLLMManager):
         super().__init__("LangChain")
 
     def _test_provider(self, provider: str):
-        self._create_client(provider, temperature=0.7, max_tokens=1000)
+        self._create_model(self.provider_model_identifier(provider), temperature=0.7, max_tokens=1000)
 
-    def _create_client(self, provider: str, temperature: float, max_tokens: int):
+    def _create_model(self, selected_model: str, temperature: float, max_tokens: int):
         return create_langchain_model(
-            provider,
-            model=get_default_model(provider),
+            selected_model,
             temperature=temperature,
             max_tokens=max_tokens,
         )
-
-    def _resolve_provider(self, provider: Optional[str]):
-        available = self.get_available_providers()
-        if provider and provider in available:
-            return provider
-        if available:
-            return available[0]
-        return None
 
     def _build_messages(self, prompt: str):
         return [
@@ -56,9 +47,9 @@ class LangChainLLMManager(BaseLLMManager):
         temperature: float = 0.7,
     ) -> Dict:
         prompt = template.format(topic=topic)
-        provider = self._resolve_provider(provider)
+        model_config = self.resolve_model_config(provider)
 
-        if not provider:
+        if not model_config:
             return {
                 "success": False,
                 "error": "No providers available",
@@ -68,25 +59,25 @@ class LangChainLLMManager(BaseLLMManager):
                 "response": None,
             }
 
-        model = get_default_model(provider)
-
         try:
-            client = self._create_client(provider, temperature=temperature, max_tokens=max_tokens)
-            result = client.invoke(self._build_messages(prompt))
+            model = self._create_model(model_config.name, temperature=temperature, max_tokens=max_tokens)
+            result = model.invoke(self._build_messages(prompt))
             return {
                 "success": True,
-                "provider": provider,
-                "model": model,
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": prompt,
-                "response": self._extract_text(provider, result),
+                "response": self._extract_text(model_config.provider, result),
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
         except Exception as e:
             return {
                 "success": False,
-                "provider": provider,
-                "model": model,
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": prompt,
                 "error": str(e),
                 "response": None,

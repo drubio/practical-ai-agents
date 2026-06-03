@@ -3,7 +3,6 @@ import {
   parseStructuredJsonResponse,
 } from "../utils.mjs";
 import { getIdentifierMappings } from "../llm_models.mjs";
-import { withSelectedModelIdentifier } from "./utils.mjs";
 import {
   availableModelIdentifiers,
   buildManager,
@@ -97,9 +96,7 @@ export function buildQueryPayload(manager, body = {}) {
   const effectiveSessionId = resolveSessionId(sessionId, session_id);
   let selectedModelIdentifier = normalizeModelIdentifierInput(manager, modelIdentifier ?? model_identifier);
   if (!selectedModelIdentifier) selectedModelIdentifier = normalizeModelIdentifierInput(manager, provider);
-  const resolvedProvider = selectedModelIdentifier
-    ? getIdentifierMappings()[selectedModelIdentifier].provider
-    : normalizeProviderInput(manager, provider);
+  const resolvedProvider = selectedModelIdentifier || normalizeProviderInput(manager, provider);
   return {
     topic,
     provider: resolvedProvider,
@@ -114,7 +111,7 @@ export function buildQueryPayload(manager, body = {}) {
 export async function executeManagerQuery(manager, queryPayload) {
   const { topic, provider, template, maxTokens, temperature, sessionId, modelIdentifier } = queryPayload;
   return captureConsoleOutputAsync(async () => recoverStructuredParseError(
-    await withSelectedModelIdentifier(modelIdentifier, async () => askQuestionWithSession(manager, topic, provider, template, maxTokens, temperature, sessionId)),
+    await askQuestionWithSession(manager, topic, provider, template, maxTokens, temperature, sessionId),
   ));
 }
 

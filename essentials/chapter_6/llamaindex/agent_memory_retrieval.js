@@ -3,7 +3,7 @@
  */
 
 import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/agent_structured_output.js';
-import { getDefaultModel, interactiveCli, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
+import { interactiveCli, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
 import { getEncoding } from 'js-tiktoken';
 import { BM25 } from 'fast-bm25';
 
@@ -159,6 +159,8 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
             };
         }
 
+        const modelConfig = this.resolveModelConfig(resolvedProvider);
+
         const messages = this.retrievalMemoryEnabled
             ? await this._getMemoryMessages(sessionId)
             : [];
@@ -187,15 +189,16 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
             : 0;
 
         try {
-            const client = this._createClient(resolvedProvider, temperature, maxTokens);
-            const result = await client.chat({
+            const model = this._createModel(resolvedProvider, temperature, maxTokens);
+            const result = await model.chat({
                 messages: [{ role: 'user', content: retrievalPrompt }],
             });
             const rawResponse = this._extractText(result);
 
             const metadataPayload = {
-                provider: resolvedProvider,
-                model: getDefaultModel(resolvedProvider),
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 sessionId,
                 temperature,
                 maxTokens,
@@ -239,8 +242,9 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
 
             return {
                 success: true,
-                provider: resolvedProvider,
-                model: getDefaultModel(resolvedProvider),
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt: retrievalPrompt,
                 response: parsed,
                 rawAnswer: parsed.answer ?? rawResponse,
@@ -251,8 +255,9 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
         } catch (error) {
             return {
                 success: false,
-                provider: resolvedProvider,
-                model: getDefaultModel(resolvedProvider),
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt: retrievalPrompt,
                 error: error.message,
                 response: null,

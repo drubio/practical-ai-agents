@@ -2,10 +2,6 @@ import { existsSync, readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
-import { Anthropic } from "@llamaindex/anthropic";
-import { Gemini } from "@llamaindex/google";
-import { OpenAI } from "@llamaindex/openai";
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const sharedEnvPath = join(__dirname, ".env");
@@ -54,14 +50,6 @@ export const PROVIDER_API_KEY_ENV_VARS = {
   deepseek: ["DEEPSEEK_API_KEY"],
 };
 
-export const PROVIDER_DEFAULT_MODEL_IDENTIFIERS = {
-  openai: "openai_gpt_5_4",
-  anthropic: "anthropic_claude_sonnet_4_6",
-  google: "google_genai_gemini_3_flash",
-  xai: "xai_grok_4",
-  deepseek: "deepseek_4_flash",  
-};
-
 export function getIdentifierMappings() {
   return {
     openai_gpt_5_4_pro: { name: "openai_gpt_5_4_pro", provider: "openai", model: "gpt-5.4-pro", tier: "advanced", strengths: ["precision", "analysis", "long-form"] },
@@ -81,26 +69,54 @@ export function getIdentifierMappings() {
   };
 }
 
-export function getDefaultModelConfig(provider) {
-  const identifier = PROVIDER_DEFAULT_MODEL_IDENTIFIERS[provider];
-  return getIdentifierMappings()[identifier];
+export function getModelConfig(selectedModel) {
+  const config = getIdentifierMappings()[selectedModel];
+  if (!config) throw new Error(`Unknown model identifier '${selectedModel}'`);
+  return config;
 }
 
-export function getProviderCatalog(providers = Object.keys(PROVIDER_DISPLAY_NAMES)) {
-  return Object.fromEntries(
-    providers.map((provider) => {
-      const config = getDefaultModelConfig(provider);
-      return [provider, {
-        provider,
-        canonicalProvider: config.provider,
-        apiKeyEnv: PROVIDER_API_KEY_ENV_VARS[provider][0],
-        defaultModel: config.model,
-        defaultModelIdentifier: config.name,
-        displayName: PROVIDER_DISPLAY_NAMES[provider] || provider,
-      }];
-    })
-  );
+export function getModelsForProvider(provider) {
+  const mappings = getIdentifierMappings();
+  return ALL_MODEL_IDENTIFIERS
+    .filter((identifier) => mappings[identifier]?.provider === provider)
+    .map((identifier) => mappings[identifier]);
 }
+
+export function getProviderModelConfig(provider) {
+  const [config] = getModelsForProvider(provider);
+  if (!config) throw new Error(`No model identifiers configured for provider '${provider}'`);
+  return config;
+}
+
+export function getProviderModelIdentifier(provider) {
+  return getProviderModelConfig(provider).name;
+}
+
+export function resolveModelIdentifier(selection, availableProviders = null) {
+  const available = availableProviders ? new Set(availableProviders) : null;
+  const mappings = getIdentifierMappings();
+  if (selection && mappings[selection]) {
+    const { provider } = mappings[selection];
+    return !available || available.has(provider) ? selection : null;
+  }
+  if (selection && PROVIDER_DISPLAY_NAMES[selection]) {
+    return !available || available.has(selection) ? getProviderModelIdentifier(selection) : null;
+  }
+  if (selection) return null;
+  if (available?.size) {
+    const [provider] = sortProvidersByDisplayOrder([...available]);
+    return getProviderModelIdentifier(provider);
+  }
+  return null;
+}
+
+export function resolveModelConfig(selection) {
+  const mappings = getIdentifierMappings();
+  if (mappings[selection]) return mappings[selection];
+  if (PROVIDER_DISPLAY_NAMES[selection]) return getProviderModelConfig(selection);
+  throw new Error(`Unknown model or provider selection '${selection}'`);
+}
+
 
 export function getApiKey(provider) {
   for (const envVar of PROVIDER_API_KEY_ENV_VARS[provider] || []) {
@@ -108,10 +124,6 @@ export function getApiKey(provider) {
     if (value) return value;
   }
   return null;
-}
-
-export function getDefaultModelName(provider) {
-  return getDefaultModelConfig(provider).model;
 }
 
 export function getDisplayName(provider) {
@@ -134,91 +146,4 @@ export function sortProvidersByDisplayOrder(providers) {
     if (aRank !== bRank) return aRank - bRank;
     return getDisplayName(a).localeCompare(getDisplayName(b)) || String(a).localeCompare(String(b));
   });
-}
-
-function inferProvider(promptLower, selectedTools) {
-  const tools = new Set((selectedTools || []).map((name) => String(name).toLowerCase()));
-  const socialMarkers = ["social", "tweet", "x.com", "reddit", "viral", "engagement", "thread", "post"];
-  const codingMarkers = ["code", "bug", "debug", "refactor", "typescript", "python", "sql", "api"];
-  const researchMarkers = ["research", "paper", "citation", "study", "benchmark", "literature", "compare"];
-  if (["chatgpt", "openai", "gpt"].some((token) => promptLower.includes(token))) return "openai";
-  if (["claude", "anthropic"].some((token) => promptLower.includes(token))) return "anthropic";
-  if (["gemini", "google"].some((token) => promptLower.includes(token))) return "google";
-  if (["grok", "xai"].some((token) => promptLower.includes(token))) return "xai";
-  if (["deepseek"].some((token) => promptLower.includes(token))) return "deepseek";
-  if (socialMarkers.some((token) => promptLower.includes(token))) return "xai";
-  const calculatorIsPrimary = tools.has("calculator") && tools.size <= 2;
-  if (codingMarkers.some((token) => promptLower.includes(token)) || calculatorIsPrimary) return "anthropic";
-  if (researchMarkers.some((token) => promptLower.includes(token)) || tools.has("parse_content")) return "google";
-  return "openai";
-}
-
-function inferTier(promptLower, selectedTools) {
-  const tools = new Set((selectedTools || []).map((name) => String(name).toLowerCase()));
-  const advancedTools = new Set(["analyze_text", "extract_tasks", "route_workflow", "summarize_text"]);
-  const liteTools = new Set(["calculator", "resolve_datetime", "extract_keywords", "score_priority"]);
-  const advancedMarkers = ["architecture", "multi-step", "deep", "strategy", "tradeoff", "production design", "root cause", "long-form", "thorough"];
-  const liteMarkers = ["quick", "brief", "short", "one-liner", "cheap", "fast"];
-  if ([...tools].some((name) => advancedTools.has(name))) return "advanced";
-  if (tools.size > 0 && [...tools].every((name) => liteTools.has(name))) return "lite";
-  if (advancedMarkers.some((token) => promptLower.includes(token)) || promptLower.length > 900) return "advanced";
-  if (liteMarkers.some((token) => promptLower.includes(token))) return "lite";
-  return "standard";
-}
-
-export function routeModelForPrompt(prompt, selectedTools, modelIdentifiers = ALL_MODEL_IDENTIFIERS) {
-  const promptLower = String(prompt || "").toLowerCase();
-  const selectedPool = new Set(modelIdentifiers || ALL_MODEL_IDENTIFIERS);
-  const provider = inferProvider(promptLower, selectedTools);
-  const tier = inferTier(promptLower, selectedTools);
-  const providerTierCandidates = {
-    openai: { advanced: "openai_gpt_5_4_pro", standard: "openai_gpt_5_4", lite: "openai_gpt_5_mini" },
-    anthropic: { advanced: "anthropic_claude_opus_4_6", standard: "anthropic_claude_sonnet_4_6", lite: "anthropic_claude_haiku_4_5" },
-    google: { advanced: "google_genai_gemini_3_1_pro", standard: "google_genai_gemini_3_flash", lite: "google_genai_gemini_3_1_flash_lite" },
-    xai: { advanced: "xai_grok_4", standard: "xai_grok_3", lite: "xai_grok_3_mini" },
-    // DeepSeek currently exposes two model IDs. Route both advanced and
-    // standard requests to Pro rather than duplicating the same model in the
-    // registry under two tiers.
-    deepseek: { advanced: "deepseek_4_pro", standard: "deepseek_4_pro", lite: "deepseek_4_flash" },    
-  };
-  const mappings = getIdentifierMappings();
-  const candidates = providerTierCandidates[provider] || providerTierCandidates.openai;
-  for (const tierName of [tier, "standard", "lite", "advanced"]) {
-    const candidateName = candidates[tierName];
-    if (selectedPool.has(candidateName)) return mappings[candidateName];
-  }
-  if (selectedPool.size) {
-    const [firstAvailable] = selectedPool;
-    return mappings[firstAvailable];
-  }
-  const [firstMappedKey] = Object.keys(mappings);
-  return mappings[firstMappedKey];
-}
-
-
-export function resolveLlamaindexModel(selectedModel) {
-  const config = getIdentifierMappings()[selectedModel];
-  if (!config) {
-    throw new Error(`Unknown model identifier '${selectedModel}'`);
-  }
-
-  const provider = config.provider;
-  const llmProvider = provider;
-  const builders = {
-    openai: () => ({ llmClass: OpenAI, llmConfig: { model: config.model } }),
-    anthropic: () => ({ llmClass: Anthropic, llmConfig: { model: config.model, apiKey: process.env.ANTHROPIC_API_KEY } }),
-    google: () => ({ llmClass: Gemini, llmConfig: { model: config.model, apiKey: process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY } }),
-    xai: () => ({ llmClass: OpenAI, llmConfig: { model: config.model, apiKey: process.env.XAI_API_KEY, baseURL: process.env.XAI_API_BASE || "https://api.x.ai/v1" } }),
-    deepseek: () => ({ llmClass: OpenAI, llmConfig: { model: config.model, apiKey: process.env.DEEPSEEK_API_KEY, baseURL: process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com" } }),    
-  };
-  const builder = builders[llmProvider];
-  if (!builder) {
-    throw new Error(`Unsupported provider '${config.provider}' for '${selectedModel}'`);
-  }
-  return { provider: config.provider, model: config.model, ...builder() };
-}
-
-export function createLlamaindexLLM(selectedModel) {
-  const resolved = resolveLlamaindexModel(selectedModel);
-  return { ...resolved, llm: new resolved.llmClass(resolved.llmConfig) };
 }

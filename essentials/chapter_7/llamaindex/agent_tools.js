@@ -3,7 +3,7 @@
  */
 
 import { LlamaIndexLLMManager as Chapter6LlamaIndexManager } from '../../chapter_6/llamaindex/agent_memory_retrieval.js';
-import { interactiveCli, getDefaultModel, normalizeResponseText } from '../../../shared/essentials/utils.mjs';
+import { interactiveCli, normalizeResponseText } from '../../../shared/essentials/utils.mjs';
 import { buildToolsPrompt, runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
@@ -95,8 +95,8 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
     }
 
     async _invokeJsonStep(provider, prompt, temperature, maxTokens) {
-        const client = this._createClient(provider, temperature, maxTokens);
-        const result = await client.chat({ messages: [{ role: 'user', content: prompt }] });
+        const model = this._createModel(provider, temperature, maxTokens);
+        const result = await model.chat({ messages: [{ role: 'user', content: prompt }] });
         const text = this._extractText(result);
 
         try {
@@ -203,10 +203,10 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
             };
         }
 
+        const modelConfig = this.resolveModelConfig(resolvedProvider);
+
         const { retrievalAugmentedTopic, retrievalMetadata } = await this._buildRetrievalContext(topic, sessionId);
         const prompt = template.replace('{topic}', retrievalAugmentedTopic).replace('{tools}', buildToolsPrompt());
-        const model = getDefaultModel(resolvedProvider);
-
         try {
             const { payload: firstStep } = await this._invokeJsonStep(resolvedProvider, prompt, temperature, maxTokens);
             const toolCalls = Array.isArray(firstStep.tool_calls) ? firstStep.tool_calls : [];
@@ -245,8 +245,9 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
                 final_answer: finalAnswer,
                 metadata: {
                     ...this._buildMetadata({
-                        provider: resolvedProvider,
-                        model,
+                        provider: modelConfig.provider,
+                        model: modelConfig.model,
+                        modelIdentifier: modelConfig.name,
                         sessionId,
                         temperature,
                         maxTokens,
@@ -263,8 +264,9 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
 
             return {
                 success: true,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 response: responsePayload,
                 rawAnswer: finalAnswer,
@@ -275,8 +277,9 @@ class LlamaIndexLLMManager extends Chapter6LlamaIndexManager {
         } catch (error) {
             return {
                 success: false,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 error: error.message,
                 response: null,

@@ -3,7 +3,7 @@
  */
 
 import { LangChainLLMManager as Chapter6LangChainManager } from '../../chapter_6/langchain/agent_memory_retrieval.js';
-import { interactiveCli, getDefaultModel, normalizeResponseText, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
+import { interactiveCli, normalizeResponseText, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
 import { buildToolsPrompt, runTool } from '../tools.js';
 
 const TOOLS_TEMPLATE = `You are a helpful assistant with access to external tools.
@@ -84,8 +84,8 @@ class LangChainLLMManager extends Chapter6LangChainManager {
     }
 
     async _invokeJsonStep(provider, prompt, temperature, maxTokens) {
-        const client = this._createClient(provider, temperature, maxTokens);
-        const result = await client.invoke(this._buildMessages(prompt));
+        const model = this._createModel(provider, temperature, maxTokens);
+        const result = await model.invoke(this._buildMessages(prompt));
         const text = this._extractText(provider, result);
 
         try {
@@ -178,7 +178,7 @@ class LangChainLLMManager extends Chapter6LangChainManager {
 
     async askQuestion(topic, provider = null, template = TOOLS_TEMPLATE, maxTokens = 1000, temperature = 0.2, sessionId = 'default') {
         template = this._resolveToolsTemplate(template);
-        const resolvedProvider = this._resolveProvider(provider);
+        const resolvedProvider = this.resolveModelIdentifier(provider);
         const basePrompt = template.replace('{topic}', topic).replace('{tools}', buildToolsPrompt());
 
         if (!resolvedProvider) {
@@ -192,10 +192,10 @@ class LangChainLLMManager extends Chapter6LangChainManager {
             };
         }
 
+        const modelConfig = this.resolveModelConfig(resolvedProvider);
+
         const { retrievalAugmentedTopic, retrievalMetadata } = await this._buildRetrievalContext(topic, sessionId);
         const prompt = template.replace('{topic}', retrievalAugmentedTopic).replace('{tools}', buildToolsPrompt());
-        const model = getDefaultModel(resolvedProvider);
-
         try {
             const { payload: firstStep, result: firstResult } = await this._invokeJsonStep(resolvedProvider, prompt, temperature, maxTokens);
             const toolCalls = Array.isArray(firstStep.tool_calls) ? firstStep.tool_calls : [];
@@ -238,8 +238,9 @@ class LangChainLLMManager extends Chapter6LangChainManager {
                 final_answer: finalAnswer,
                 metadata: {
                     ...this._buildMetadata({
-                        provider: resolvedProvider,
-                        model,
+                        provider: modelConfig.provider,
+                        model: modelConfig.model,
+                        modelIdentifier: modelConfig.name,
                         sessionId,
                         temperature,
                         maxTokens,
@@ -258,8 +259,9 @@ class LangChainLLMManager extends Chapter6LangChainManager {
 
             return {
                 success: true,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 response: responsePayload,
                 rawAnswer: finalAnswer,
@@ -273,8 +275,9 @@ class LangChainLLMManager extends Chapter6LangChainManager {
         } catch (error) {
             return {
                 success: false,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 error: error.message,
                 response: null,

@@ -13,8 +13,6 @@ from shared.utils import (
     normalize_response_text,
     parse_structured_json_response,
 )
-from shared.llm_models import get_identifier_mappings
-from shared.essentials.utils import selected_model_context
 
 
 class SharedQueryRequest(BaseModel):
@@ -150,7 +148,7 @@ def build_query_args(manager, request: SharedQueryRequest) -> tuple[dict, str, O
     if model_identifier is None:
         model_identifier = normalize_model_identifier_input(manager, provider_input)
     if model_identifier:
-        provider = get_identifier_mappings()[model_identifier].provider
+        provider = model_identifier
     else:
         provider = normalize_provider_input(manager, provider_input)
     args = {
@@ -167,8 +165,7 @@ def build_query_args(manager, request: SharedQueryRequest) -> tuple[dict, str, O
 
 async def execute_manager_query(manager, args: dict, session_id: Optional[str], model_identifier: Optional[str] = None) -> dict:
     def run_query():
-        with selected_model_context(model_identifier):
-            return ask_question_with_recovery(manager, args, session_id)
+        return ask_question_with_recovery(manager, args, session_id)
 
     return recover_structured_parse_error(await run_manager_in_thread(run_query))
 

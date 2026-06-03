@@ -3,10 +3,10 @@ import cors from "cors";
 import {
   ALL_MODEL_IDENTIFIERS,
   getAllProviders,
+  getDisplayName,
   getIdentifierMappings,
   sortProvidersByDisplayOrder,
 } from "./llm_models.mjs";
-import { getDefaultModelDetails } from "./utils.mjs";
 
 function extractPythonStyleContent(payload) {
   const marker = "content=";
@@ -224,12 +224,12 @@ export function modelPayload(modelIdentifier, manager, idx = null, { requireAvai
     name: `${config.provider}:${config.model}`,
     display_name: `${config.provider.charAt(0).toUpperCase() + config.provider.slice(1)} (${modelIdentifier})`,
     provider: config.provider,
-    default_model: config.model,
+    selected_model: config.model,
     model: config.model,
     model_identifier: modelIdentifier,
-    default_model_identifier: modelIdentifier,
+    selected_model_identifier: modelIdentifier,
     model_tier: config.tier,
-    default_model_tier: config.tier,
+    selected_model_tier: config.tier,
     strengths: Array.from(config.strengths || []),
     status,
     framework: String(manager?.framework ?? "unknown"),
@@ -242,15 +242,11 @@ export function modelPayloads(manager, { requireAvailableProvider = true, defaul
 }
 
 export function providerPayload(provider, manager, { requireAvailableProvider = true, defaultStatus = "Unknown" } = {}) {
-  const details = getDefaultModelDetails(provider);
   const modelIdentifiers = modelIdentifiersForProvider(provider);
   return {
     name: provider,
-    display_name: details.displayName,
-    provider: details.canonicalProvider,
-    default_model: details.defaultModel,
-    default_model_identifier: details.defaultModelIdentifier,
-    default_model_tier: details.defaultModelTier,
+    display_name: getDisplayName(provider),
+    provider,
     models: modelIdentifiers.map((identifier) => modelPayload(identifier, manager, null, { requireAvailableProvider, defaultStatus })),
     model_identifiers: modelIdentifiers,
     status: managerInitializationMessages(manager)[provider] || defaultStatus,

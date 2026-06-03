@@ -1,7 +1,7 @@
 """Shared LLM model registry and routing helpers.
 
 This module centralizes provider/model metadata so multiple volumes can reuse
-consistent model identifiers and default selections.
+consistent model identifiers and explicit selections.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from dotenv import load_dotenv
 
@@ -60,14 +60,6 @@ PROVIDER_API_KEY_ENV_VARS = {
     "google": ("GOOGLE_GENAI_API_KEY", "GOOGLE_API_KEY"),
     "xai": ("XAI_API_KEY",),
     "deepseek": ("DEEPSEEK_API_KEY",),
-}
-
-PROVIDER_DEFAULT_MODEL_IDENTIFIERS = {
-    "openai": "openai_gpt_5_4",
-    "anthropic": "anthropic_claude_sonnet_4_6",
-    "google": "google_genai_gemini_3_flash",
-    "xai": "xai_grok_4",
-    "deepseek": "deepseek_4_flash",
 }
 
 
@@ -175,25 +167,61 @@ def get_identifier_mappings() -> dict[str, ModelConfig]:
     }
 
 
-def get_default_model_config(provider: str) -> ModelConfig:
-    identifier = PROVIDER_DEFAULT_MODEL_IDENTIFIERS[provider]
-    return get_identifier_mappings()[identifier]
+def get_model_config(selected_model: str) -> ModelConfig:
+    """Return metadata for an explicit model identifier.
+
+    The public selection value is the model identifier (for example
+    ``openai_gpt_5_4``), not a bare provider. Bare providers are only used for
+    API-key checks and provider grouping.
+    """
+    try:
+        return get_identifier_mappings()[selected_model]
+    except KeyError as exc:
+        raise ValueError(f"Unknown model identifier '{selected_model}'") from exc
 
 
-def get_provider_catalog(providers: Sequence[str] | None = None) -> dict[str, dict[str, str]]:
-    selected_providers = providers or list(PROVIDER_DISPLAY_NAMES)
-    catalog: dict[str, dict[str, str]] = {}
-    for provider in selected_providers:
-        config = get_default_model_config(provider)
-        catalog[provider] = {
-            "provider": provider,
-            "canonical_provider": config.provider,
-            "api_key_env": PROVIDER_API_KEY_ENV_VARS[provider][0],
-            "default_model": config.model,
-            "default_model_identifier": config.name,
-            "display_name": PROVIDER_DISPLAY_NAMES.get(provider, provider.replace('_', ' ').title()),
-        }
-    return catalog
+def get_models_for_provider(provider: str) -> list[ModelConfig]:
+    mappings = get_identifier_mappings()
+    return [mappings[identifier] for identifier in ALL_MODEL_IDENTIFIERS if identifier in mappings and mappings[identifier].provider == provider]
+
+
+def get_provider_model_config(provider: str) -> ModelConfig:
+    """Return the configured model used when only a provider is available."""
+    for config in get_models_for_provider(provider):
+        return config
+    raise ValueError(f"No model identifiers configured for provider '{provider}'")
+
+
+def get_provider_model_identifier(provider: str) -> str:
+    return get_provider_model_config(provider).name
+
+
+def resolve_model_identifier(selection: str | None, available_providers: Sequence[str] | None = None) -> str | None:
+    """Resolve a model identifier or provider name to a configured model identifier."""
+    available = set(available_providers) if available_providers is not None else None
+    mappings = get_identifier_mappings()
+
+    if selection in mappings:
+        provider = mappings[selection].provider
+        return selection if available is None or provider in available else None
+    if selection in PROVIDER_DISPLAY_NAMES:
+        return get_provider_model_identifier(selection) if available is None or selection in available else None
+    if selection:
+        return None
+    if available:
+        for provider in sort_providers_by_display_order(list(available)):
+            return get_provider_model_identifier(provider)
+    return None
+
+
+def resolve_model_config(selection: str) -> ModelConfig:
+    """Resolve either an explicit model identifier or a provider alias."""
+    mappings = get_identifier_mappings()
+    if selection in mappings:
+        return mappings[selection]
+    if selection in PROVIDER_DISPLAY_NAMES:
+        return get_provider_model_config(selection)
+    raise ValueError(f"Unknown model or provider selection '{selection}'")
 
 
 def get_api_key_env_vars(provider: str) -> tuple[str, ...]:
@@ -207,9 +235,6 @@ def get_api_key(provider: str) -> str | None:
             return value
     return None
 
-
-def get_default_model_name(provider: str) -> str:
-    return get_default_model_config(provider).model
 
 
 def get_display_name(provider: str) -> str:
@@ -235,133 +260,3 @@ def sort_providers_by_display_order(providers: Sequence[str]) -> list[str]:
             provider,
         ),
     )
-
-
-def select_models(model_identifiers: Sequence[str]) -> list[ModelConfig]:
-    available = get_identifier_mappings()
-    return [available[identifier] for identifier in model_identifiers]
-
-
-def _infer_provider(prompt_l: str, selected_tools: Iterable[str]) -> str:
-    tools = {name.lower() for name in selected_tools}
-    social_markers = {"social", "tweet", "x.com", "reddit", "viral", "engagement", "thread", "post"}
-    coding_markers = {"code", "bug", "debug", "refactor", "typescript", "python", "sql", "api"}
-    research_markers = {"research", "paper", "citation", "study", "benchmark", "literature", "compare"}
-
-    if any(token in prompt_l for token in {"chatgpt", "openai", "gpt"}):
-        return "openai"
-    if any(token in prompt_l for token in {"claude", "anthropic"}):
-        return "anthropic"
-    if any(token in prompt_l for token in {"gemini", "google"}):
-        return "google"
-    if any(token in prompt_l for token in {"grok", "xai"}):
-        return "xai"
-    if any(token in prompt_l for token in {"deepseek"}):
-        return "deepseek"
-    if any(token in prompt_l for token in social_markers):
-        return "xai"
-
-    calculator_is_primary = "calculator" in tools and len(tools) <= 2
-    if any(token in prompt_l for token in coding_markers) or calculator_is_primary:
-        return "anthropic"
-    if any(token in prompt_l for token in research_markers) or "parse_content" in tools:
-        return "google"
-    return "openai"
-
-
-def _infer_tier(prompt_l: str, selected_tools: Iterable[str]) -> str:
-    tools = {name.lower() for name in selected_tools}
-    advanced_tools = {"analyze_text", "extract_tasks", "route_workflow", "summarize_text"}
-    lite_tools = {"calculator", "resolve_datetime", "extract_keywords", "score_priority"}
-    advanced_markers = {
-        "architecture", "multi-step", "deep", "strategy", "tradeoff", "production design", "root cause", "long-form", "thorough",
-    }
-    lite_markers = {"quick", "brief", "short", "one-liner", "cheap", "fast"}
-
-    if tools & advanced_tools:
-        return "advanced"
-    if tools and tools <= lite_tools:
-        return "lite"
-    if any(token in prompt_l for token in advanced_markers) or len(prompt_l) > 900:
-        return "advanced"
-    if any(token in prompt_l for token in lite_markers):
-        return "lite"
-    return "standard"
-
-
-def route_model_for_prompt(prompt: str, selected_tools: Sequence[str], model_identifiers: Sequence[str] | None = None) -> ModelConfig:
-    prompt_l = prompt.lower()
-    selected_pool = set(model_identifiers or ALL_MODEL_IDENTIFIERS)
-    provider = _infer_provider(prompt_l, selected_tools)
-    tier = _infer_tier(prompt_l, selected_tools)
-
-    provider_tier_candidates = {
-        "openai": {"advanced": "openai_gpt_5_4_pro", "standard": "openai_gpt_5_4", "lite": "openai_gpt_5_mini"},
-        "anthropic": {"advanced": "anthropic_claude_opus_4_6", "standard": "anthropic_claude_sonnet_4_6", "lite": "anthropic_claude_haiku_4_5"},
-        "google": {"advanced": "google_genai_gemini_3_1_pro", "standard": "google_genai_gemini_3_flash", "lite": "google_genai_gemini_3_1_flash_lite"},
-        "xai": {"advanced": "xai_grok_4", "standard": "xai_grok_3", "lite": "xai_grok_3_mini"},
-        # DeepSeek currently exposes two model IDs. Route both advanced and
-        # standard requests to Pro rather than duplicating the same model in the
-        # registry under two tiers.
-        "deepseek": {"advanced": "deepseek_4_pro", "standard": "deepseek_4_pro", "lite": "deepseek_4_flash"},
-    }
-
-    candidates = provider_tier_candidates.get(provider, provider_tier_candidates["openai"])
-    for tier_name in [tier, "standard", "lite", "advanced"]:
-        candidate_name = candidates[tier_name]
-        if candidate_name in selected_pool:
-            return get_identifier_mappings()[candidate_name]
-
-    if selected_pool:
-        first_available = next(iter(selected_pool))
-        return get_identifier_mappings()[first_available]
-
-    all_available = get_identifier_mappings()
-    if not all_available:
-        raise ValueError("No model configurations available.")
-    return next(iter(all_available.values()))
-
-
-def resolve_llamaindex_model(selected_model: str):
-    config = get_identifier_mappings().get(selected_model)
-    if config is None:
-        raise ValueError(f"Unknown model identifier '{selected_model}'")
-
-    provider = config.provider
-    model = config.model
-    llamaindex_provider = provider
-
-    if llamaindex_provider == "openai":
-        from llama_index.llms.openai import OpenAI
-        llm = OpenAI(model=model)
-    elif llamaindex_provider == "anthropic":
-        from llama_index.llms.anthropic import Anthropic
-        llm = Anthropic(model=model)
-    elif llamaindex_provider == "google":
-        from llama_index.llms.google_genai import GoogleGenAI
-        llm = GoogleGenAI(model=model)
-    elif llamaindex_provider == "xai":
-        from llama_index.llms.openai_like import OpenAILike
-        llm = OpenAILike(
-            model=model,
-            api_base=os.getenv("XAI_API_BASE", "https://api.x.ai/v1"),
-            api_key=os.getenv("XAI_API_KEY"),
-            is_chat_model=True,
-            is_function_calling_model=True,
-        )
-    elif llamaindex_provider == "deepseek":
-        from llama_index.llms.openai_like import OpenAILike
-        llm = OpenAILike(
-            model=model,
-            api_base=os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com"),
-            api_key=os.getenv("DEEPSEEK_API_KEY"),
-            is_chat_model=True,
-            is_function_calling_model=True,
-        )        
-    else:
-        supported = "anthropic, google, openai, xai, deepseek"
-        raise ValueError(
-            f"Unsupported provider '{config.provider}' for '{selected_model}'. Supported: {supported}"
-        )
-
-    return config, llm

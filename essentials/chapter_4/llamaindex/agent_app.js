@@ -8,10 +8,10 @@ import { Gemini } from '@llamaindex/google';
 
 import {
     getApiKey,
-    getDefaultModel,
     BaseLLMManager,
     interactiveCli,
 } from '../../../shared/essentials/utils.mjs';
+import { resolveModelConfig } from '../../../shared/llm_models.mjs';
 
 const GOOGLE_GEMINI_FALLBACK_CONTEXT_WINDOW = 1_000_000;
 const GOOGLE_GEMINI_FALLBACK_MODELS = new Set([
@@ -49,14 +49,16 @@ class LlamaIndexLLMManager extends BaseLLMManager {
     }
 
     async _testProvider(provider) {
-        await this._createClient(provider, 0.7, 1000);
+        await this._createModel(this.providerModelIdentifier(provider), 0.7, 1000);
     }
 
-    _createClient(provider, temperature, maxTokens) {
+    _createModel(selectedModel, temperature, maxTokens) {
+        const config = resolveModelConfig(selectedModel);
+        const provider = config.provider;
         if (provider === 'anthropic') {
             return new Anthropic({
                 apiKey: getApiKey(provider),
-                model: getDefaultModel(provider),
+                model: config.model,
                 temperature,
                 maxTokens,
             });
@@ -64,7 +66,7 @@ class LlamaIndexLLMManager extends BaseLLMManager {
         if (provider === 'openai') {
             return new OpenAI({
                 apiKey: getApiKey(provider),
-                model: getDefaultModel(provider),
+                model: config.model,
                 temperature,
                 maxCompletionTokens: maxTokens,
             });
@@ -73,7 +75,7 @@ class LlamaIndexLLMManager extends BaseLLMManager {
         if (provider === 'google') {
             return new CompatibleGemini({
                 apiKey: getApiKey(provider),
-                model: getDefaultModel(provider),
+                model: config.model,
                 temperature,
                 maxTokens,
             });
@@ -82,7 +84,7 @@ class LlamaIndexLLMManager extends BaseLLMManager {
             return new OpenAI({
                 apiKey: getApiKey(provider),
                 baseURL: 'https://api.x.ai/v1',
-                model: getDefaultModel(provider),
+                model: config.model,
                 temperature,
                 maxCompletionTokens: maxTokens,
             });
@@ -91,7 +93,7 @@ class LlamaIndexLLMManager extends BaseLLMManager {
             return new OpenAI({
                 apiKey: getApiKey(provider),
                 baseURL: 'https://api.deepseek.com',
-                model: getDefaultModel(provider),
+                model: config.model,
                 temperature,
                 maxCompletionTokens: maxTokens,
             });
@@ -100,11 +102,7 @@ class LlamaIndexLLMManager extends BaseLLMManager {
     }
 
     _resolveProvider(provider) {
-        const available = this.getAvailableProviders();
-        if (provider && available.includes(provider)) {
-            return provider;
-        }
-        return available.length > 0 ? available[0] : null;
+        return this.resolveModelIdentifier(provider);
     }
 
     _extractText(result) {
@@ -123,9 +121,9 @@ class LlamaIndexLLMManager extends BaseLLMManager {
 
     async askQuestion(topic, provider = null, template = '{topic}', maxTokens = 1000, temperature = 0.7) {
         const prompt = template.replace('{topic}', topic);
-        const resolvedProvider = this._resolveProvider(provider);
+        const modelConfig = this.resolveModelConfig(provider);
 
-        if (!resolvedProvider) {
+        if (!modelConfig) {
             return {
                 success: false,
                 error: 'No providers available',
@@ -136,18 +134,17 @@ class LlamaIndexLLMManager extends BaseLLMManager {
             };
         }
 
-        const model = getDefaultModel(resolvedProvider);
-
         try {
-            const client = this._createClient(resolvedProvider, temperature, maxTokens);
-            const result = await client.chat({
+            const model = this._createModel(modelConfig.name, temperature, maxTokens);
+            const result = await model.chat({
                 messages: [{ role: 'user', content: prompt }],
             });
 
             return {
                 success: true,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 response: this._extractText(result),
                 temperature,
@@ -156,8 +153,9 @@ class LlamaIndexLLMManager extends BaseLLMManager {
         } catch (error) {
             return {
                 success: false,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 error: error.message,
                 response: null,

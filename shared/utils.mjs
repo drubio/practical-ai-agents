@@ -10,10 +10,10 @@ import {
   ALL_MODEL_IDENTIFIERS,
   getAllProviders,
   getApiKey,
-  getDefaultModelConfig,
-  getDefaultModelName,
   getDisplayName,
   getIdentifierMappings,
+  getModelConfig,
+  resolveModelConfig,
   sortProvidersByDisplayOrder,
 } from "./llm_models.mjs";
 
@@ -65,22 +65,21 @@ export function normalizeResponseText(payload) {
 }
 
 export { getAllProviders, getApiKey, getDisplayName, sortProvidersByDisplayOrder };
-export function getDefaultModel(provider) { return getDefaultModelName(provider); }
-export function getAllProviderNames() { return getAllProviders(); }
-export function getDefaultModelDetails(provider) {
-  const config = getDefaultModelConfig(provider);
+export function getSelectedModelDetails(selectedModel) {
+  const config = resolveModelConfig(selectedModel);
   return {
-    provider,
-    canonicalProvider: config.provider,
-    displayName: getDisplayName(provider),
-    defaultModel: config.model,
-    defaultModelIdentifier: config.name,
-    defaultModelTier: config.tier,
+    provider: config.provider,
+    displayName: getDisplayName(config.provider),
+    selectedModel: config.model,
+    selectedModelIdentifier: config.name,
+    selectedModelTier: config.tier,
   };
 }
 
-export function createLangChainModel(provider, { model = null, temperature = 0.7, maxTokens = 1000 } = {}) {
-  const modelName = model || getDefaultModel(provider);
+export function createLangChainModel(selectedModel, { temperature = 0.7, maxTokens = 1000 } = {}) {
+  const config = resolveModelConfig(selectedModel);
+  const provider = config.provider;
+  const modelName = config.model;
   if (provider === "anthropic") {
     return new ChatAnthropic({
       apiKey: getApiKey(provider),
@@ -125,11 +124,6 @@ export function createLangChainModel(provider, { model = null, temperature = 0.7
   }
   throw new Error(`Unsupported provider: ${provider}`);
 }
-export function formatProviderSummary(provider) {
-  const details = getDefaultModelDetails(provider);
-  return `${details.displayName} [provider: ${details.canonicalProvider}, default model: ${details.defaultModel} (${details.defaultModelIdentifier}, ${details.defaultModelTier})]`;
-}
-
 let sharedRl = null;
 export function getSharedAsk() {
   if (!sharedRl) sharedRl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -257,14 +251,6 @@ export function displayProviderResponse(provider, response, framework = "") {
   console.log("=".repeat(60));
 }
 
-export async function getNonEmptyInput(prompt, ask) {
-  while (true) {
-    const value = (await ask(prompt)).trim();
-    if (value) return value;
-    console.log("Input cannot be empty. Please try again.");
-  }
-}
-
 export async function getUserChoice(options, prompt, ask) {
   console.log(`\n${prompt}`);
   options.forEach((option, i) => console.log(`${i + 1}. ${option}`));
@@ -274,15 +260,6 @@ export async function getUserChoice(options, prompt, ask) {
     if (choice >= 0 && choice < options.length) return choice;
     console.log("Invalid selection. Please try again.");
   }
-}
-
-export function formatFilename(question, framework) {
-  return `llm_responses_${framework}_${question.slice(0, 20).replace(/\s+/g, "_").replace(/[?!]/g, "")}.json`;
-}
-
-export function saveResponseToFile(response, filename) {
-  writeFileSync(filename, JSON.stringify(response, null, 2));
-  console.log(`Response saved to ${filename}`);
 }
 
 export const MODEL_PROVIDER_PREFIXES = [
@@ -315,7 +292,7 @@ export function compactModelSelectionLines(modelIdentifiers) {
       flushCurrent();
       currentProvider = providerName;
     }
-    currentOptions.push(`${index + 1}. ${modelName}${index === 0 ? " [default]" : ""}`);
+    currentOptions.push(`${index + 1}. ${modelName}${index === 0 ? " [first]" : ""}`);
   });
   flushCurrent();
   return lines;

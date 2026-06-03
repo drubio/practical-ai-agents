@@ -16,7 +16,8 @@ sys.path.append(REPO_ROOT)
 
 from essentials.chapter_6.llamaindex.agent_memory_retrieval import LlamaIndexLLMManager as Chapter6LlamaIndexManager
 from essentials.chapter_7.tools import build_tools_prompt, run_tool
-from shared.essentials.utils import get_default_model, interactive_cli
+from shared.essentials.utils import interactive_cli
+from shared.llm_models import resolve_model_config
 
 TOOLS_TEMPLATE = """
 You are a helpful assistant with access to external tools.
@@ -156,7 +157,7 @@ class LlamaIndexLLMManager(Chapter6LlamaIndexManager):
                 "response": None,
             }
 
-        model = get_default_model(provider)
+        model = resolve_model_config(provider).model
         retrieval_topic, retrieval_metadata = self._build_retrieval_context(topic, session_id)
         retrieval_prompt = template.format(topic=retrieval_topic, tools=build_tools_prompt())
 

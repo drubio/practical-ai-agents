@@ -12,18 +12,21 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
-from shared.llm_models import ALL_MODEL_IDENTIFIERS, get_identifier_mappings
-from shared.utils import (
-    compact_model_selection_lines,
+from shared.llm_models import (
+    ALL_MODEL_IDENTIFIERS,
     get_all_providers,
     get_api_key,
-    get_chapter_logger,
     get_display_name,
+    get_identifier_mappings,
+    sort_providers_by_display_order,
+)
+from shared.utils import (
+    compact_model_selection_lines,
+    get_chapter_logger,
     log_tool_call,
     model_identifiers_for_providers,
     print_initialization_status,
     select_provider_model_identifier,
-    sort_providers_by_display_order,
 )
 from shared.web import normalize_response_text
 

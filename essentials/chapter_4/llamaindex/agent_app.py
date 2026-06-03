@@ -12,7 +12,8 @@ from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.llms.openai import OpenAI
 from llama_index.llms.openai_like import OpenAILike
 
-from shared.essentials.utils import BaseLLMManager, get_api_key, get_default_model, interactive_cli
+from shared.essentials.utils import BaseLLMManager, get_api_key, interactive_cli
+from shared.llm_models import resolve_model_config
 
 
 class LlamaIndexLLMManager(BaseLLMManager):
@@ -22,27 +23,29 @@ class LlamaIndexLLMManager(BaseLLMManager):
         super().__init__("LlamaIndex")
 
     def _test_provider(self, provider: str):
-        self._create_client(provider, temperature=0.7, max_tokens=1000)
+        self._create_model(self.provider_model_identifier(provider), temperature=0.7, max_tokens=1000)
 
-    def _create_client(self, provider: str, temperature: float, max_tokens: int):
+    def _create_model(self, selected_model: str, temperature: float, max_tokens: int):
+        config = resolve_model_config(selected_model)
+        provider = config.provider
         if provider == "anthropic":
             return Anthropic(
                 api_key=get_api_key(provider),
-                model=get_default_model(provider),
+                model=config.model,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
         if provider == "openai":
             return OpenAI(
                 api_key=get_api_key(provider),
-                model=get_default_model(provider),
+                model=config.model,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
         if provider == "google":
             return GoogleGenAI(
                 api_key=get_api_key(provider),
-                model=get_default_model(provider),
+                model=config.model,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
@@ -50,7 +53,7 @@ class LlamaIndexLLMManager(BaseLLMManager):
             return OpenAILike(
                 api_key=get_api_key(provider),
                 api_base="https://api.x.ai/v1",
-                model=get_default_model(provider),
+                model=config.model,
                 is_chat_model=True,
                 is_function_calling_model=False,
                 temperature=temperature,
@@ -60,7 +63,7 @@ class LlamaIndexLLMManager(BaseLLMManager):
             return OpenAILike(
                 api_key=get_api_key(provider),
                 api_base="https://api.deepseek.com",
-                model=get_default_model(provider),
+                model=config.model,
                 is_chat_model=True,
                 is_function_calling_model=False,
                 temperature=temperature,
@@ -68,13 +71,11 @@ class LlamaIndexLLMManager(BaseLLMManager):
             )        
         raise ValueError(f"Unsupported provider: {provider}")
 
+    def _create_client(self, provider: str, temperature: float, max_tokens: int):
+        return self._create_model(provider, temperature=temperature, max_tokens=max_tokens)
+
     def _resolve_provider(self, provider: Optional[str]):
-        available = self.get_available_providers()
-        if provider and provider in available:
-            return provider
-        if available:
-            return available[0]
-        return None
+        return self.resolve_model_identifier(provider)
 
     @staticmethod
     def _extract_text(result) -> str:
@@ -113,15 +114,16 @@ class LlamaIndexLLMManager(BaseLLMManager):
                 "response": None,
             }
 
-        model = get_default_model(provider)
+        model_config = resolve_model_config(provider)
 
         try:
-            client = self._create_client(provider, temperature=temperature, max_tokens=max_tokens)
-            result = client.chat([ChatMessage(role="user", content=prompt)])
+            model = self._create_model(provider, temperature=temperature, max_tokens=max_tokens)
+            result = model.chat([ChatMessage(role="user", content=prompt)])
             return {
                 "success": True,
-                "provider": provider,
-                "model": model,
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": prompt,
                 "response": self._extract_text(result),
                 "temperature": temperature,
@@ -130,8 +132,9 @@ class LlamaIndexLLMManager(BaseLLMManager):
         except Exception as exc:
             return {
                 "success": False,
-                "provider": provider,
-                "model": model,
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": prompt,
                 "error": str(exc),
                 "response": None,

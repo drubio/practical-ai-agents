@@ -135,8 +135,7 @@ export class LangChainAgentManager {
       schema: z.object({}),
     });
     this.agent = createAgent({
-      model: createLangChainModel(this.provider, {
-        model: this.model,
+      model: createLangChainModel(this.modelIdentifier, {
         temperature: this.temperature,
         maxTokens: this.maxTokens,
       }),

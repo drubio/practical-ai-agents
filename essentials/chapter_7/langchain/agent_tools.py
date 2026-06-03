@@ -14,7 +14,7 @@ sys.path.append(REPO_ROOT)
 
 from essentials.chapter_6.langchain.agent_memory_retrieval import LangChainLLMManager as Chapter6LangChainManager
 from essentials.chapter_7.tools import build_tools_prompt, run_tool
-from shared.essentials.utils import get_default_model, interactive_cli
+from shared.essentials.utils import interactive_cli
 
 TOOLS_TEMPLATE = """
 You are a helpful assistant with access to external tools.
@@ -81,8 +81,8 @@ class LangChainLLMManager(Chapter6LangChainManager):
             return json.loads(match.group(0))
 
     def _invoke_json_step(self, provider: str, prompt: str, temperature: float, max_tokens: int) -> Tuple[Dict, object]:
-        client = self._create_client(provider, temperature=temperature, max_tokens=max_tokens)
-        result = client.invoke(self._build_messages(prompt))
+        model = self._create_model(provider, temperature=temperature, max_tokens=max_tokens)
+        result = model.invoke(self._build_messages(prompt))
         text = self._extract_text(provider, result)
         payload = self._extract_json_object(text)
         tool_calls = payload.get("tool_calls")
@@ -181,7 +181,7 @@ class LangChainLLMManager(Chapter6LangChainManager):
         session_id: str = "default",
     ) -> Dict:
         template = self._resolve_tools_template(template)
-        provider = self._resolve_provider(provider)
+        provider = self.resolve_model_identifier(provider)
         prompt = template.format(topic=topic, tools=build_tools_prompt())
 
         if not provider:
@@ -194,7 +194,8 @@ class LangChainLLMManager(Chapter6LangChainManager):
                 "response": None,
             }
 
-        model = get_default_model(provider)
+        model_config = self.resolve_model_config(provider)
+        model = model_config.model
         retrieval_topic, retrieval_metadata = self._build_retrieval_context(topic, session_id)
         retrieval_prompt = template.format(topic=retrieval_topic, tools=build_tools_prompt())
 
@@ -235,8 +236,9 @@ class LangChainLLMManager(Chapter6LangChainManager):
                 "metadata": {
                     **self._build_metadata(
                         {
-                            "provider": provider,
-                            "model": model,
+                            "provider": model_config.provider,
+                            "model": model_config.model,
+                            "model_identifier": model_config.name,
                             "session_id": session_id,
                             "temperature": temperature,
                             "max_tokens": max_tokens,
@@ -256,8 +258,9 @@ class LangChainLLMManager(Chapter6LangChainManager):
 
             result = {
                 "success": True,
-                "provider": provider,
-                "model": model,
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": retrieval_prompt,
                 "response": payload,
                 "raw_answer": final_answer,
@@ -272,8 +275,9 @@ class LangChainLLMManager(Chapter6LangChainManager):
         except Exception as exc:
             return {
                 "success": False,
-                "provider": provider,
-                "model": model,
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": retrieval_prompt,
                 "error": str(exc),
                 "response": None,

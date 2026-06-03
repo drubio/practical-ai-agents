@@ -11,7 +11,7 @@ import { mapChatMessagesToStoredMessages } from '@langchain/core/messages';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { RunnableWithMessageHistory } from '@langchain/core/runnables';
 import { LangChainLLMManager as Chapter4LangChainManager } from '../../chapter_4/langchain/agent_app.js';
-import { getDefaultModel, interactiveCli } from '../../../shared/essentials/utils.mjs';
+import { interactiveCli } from '../../../shared/essentials/utils.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -92,13 +92,13 @@ class LangChainLLMManager extends Chapter4LangChainManager {
     _getChain(provider, sessionId, temperature, maxTokens) {
         const key = this._historyKey(provider, sessionId);
         if (!this.chains.has(key)) {
-            const client = this._createClient(provider, temperature, maxTokens);
+            const model = this._createModel(provider, temperature, maxTokens);
             const prompt = ChatPromptTemplate.fromMessages([
                 new MessagesPlaceholder('history'),
                 ['human', '{input}'],
             ]);
             const chain = new RunnableWithMessageHistory({
-                runnable: prompt.pipe(client),
+                runnable: prompt.pipe(model),
                 getMessageHistory: () => this._getHistory(sessionId),
                 inputMessagesKey: 'input',
                 historyMessagesKey: 'history',
@@ -141,13 +141,13 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         }
 
         const prompt = template.replace('{topic}', topic);
-        const resolvedProvider = this._resolveProvider(provider);
+        const resolvedProvider = this.resolveModelIdentifier(provider);
 
         if (!resolvedProvider) {
             return { success: false, error: 'No providers available', provider: 'none', model: 'none', prompt, response: null };
         }
 
-        const model = getDefaultModel(resolvedProvider);
+        const modelConfig = this.resolveModelConfig(resolvedProvider);
 
         try {
             const chain = this._getChain(resolvedProvider, sessionId, temperature, maxTokens);
@@ -161,8 +161,9 @@ class LangChainLLMManager extends Chapter4LangChainManager {
 
             return {
                 success: true,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 response: responseText,
                 temperature,
@@ -177,8 +178,9 @@ class LangChainLLMManager extends Chapter4LangChainManager {
         } catch (error) {
             return {
                 success: false,
-                provider: resolvedProvider,
-                model,
+                provider: modelConfig.provider,
+                model: modelConfig.model,
+                modelIdentifier: modelConfig.name,
                 prompt,
                 error: error.message,
                 response: null,

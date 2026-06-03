@@ -13,12 +13,10 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 from dotenv import load_dotenv
 
 from shared.llm_models import (
-    get_all_providers,
     get_api_key,
-    get_default_model_config,
-    get_default_model_name,
     get_display_name,
-    sort_providers_by_display_order,
+    get_model_config,
+    resolve_model_config,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -65,35 +63,31 @@ def normalize_response_text(payload: Any) -> str:
     return str(payload)
 
 
-def get_default_model(provider: str) -> str:
-    return get_default_model_name(provider)
-
-
-def get_default_model_details(provider: str) -> Dict[str, str]:
-    config = get_default_model_config(provider)
+def get_selected_model_details(selected_model: str) -> Dict[str, str]:
+    config = resolve_model_config(selected_model)
     return {
-        "provider": provider,
-        "canonical_provider": config.provider,
-        "display_name": get_display_name(provider),
-        "default_model": config.model,
-        "default_model_identifier": config.name,
-        "default_model_tier": config.tier,
+        "provider": config.provider,
+        "display_name": get_display_name(config.provider),
+        "selected_model": config.model,
+        "selected_model_identifier": config.name,
+        "selected_model_tier": config.tier,
     }
 
 
 def create_langchain_model(
-    provider: str,
+    selected_model: str,
     *,
-    model: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 1000,
 ):
-    """Create a provider-specific LangChain chat model with shared defaults."""
+    """Create a provider-specific LangChain chat model from a model identifier."""
     from langchain_anthropic import ChatAnthropic
     from langchain_google_genai import ChatGoogleGenerativeAI
     from langchain_openai import ChatOpenAI
 
-    model_name = model or get_default_model(provider)
+    config = resolve_model_config(selected_model)
+    provider = config.provider
+    model_name = config.model
     if provider == "anthropic":
         return ChatAnthropic(
             api_key=get_api_key(provider),
@@ -132,20 +126,6 @@ def create_langchain_model(
             max_tokens=max_tokens,
         )
     raise ValueError(f"Unsupported provider: {provider}")
-
-
-def format_provider_summary(provider: str) -> str:
-    details = get_default_model_details(provider)
-    return (
-        f"{details['display_name']} "
-        f"[provider: {details['canonical_provider']}, "
-        f"default model: {details['default_model']} "
-        f"({details['default_model_identifier']}, {details['default_model_tier']})]"
-    )
-
-
-def get_all_provider_names() -> List[str]:
-    return get_all_providers()
 
 
 def parse_structured_json_response(raw: Any) -> Dict[str, Any]:
@@ -239,17 +219,6 @@ def parse_structured_json_response(raw: Any) -> Dict[str, Any]:
     raise ValueError("Parsed structured content is not a JSON object")
 
 
-def build_task_prompt(topic: str) -> str:
-    text = (topic or "").strip()
-    if not text:
-        return ""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if len(lines) <= 1:
-        return text
-    checklist = "\n".join(f"{idx}. {line}" for idx, line in enumerate(lines, start=1))
-    return f"{text}\n\nTask checklist (every item is required, including the final line):\n{checklist}\n\nDo not skip any checklist item."
-
-
 def get_chapter_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     if logger.handlers:
@@ -293,12 +262,6 @@ def get_user_parameters():
         print(f"Invalid max tokens, using default: {max_tokens}")
 
     return temperature, max_tokens
-
-
-def save_response_to_file(response: Dict[str, Any], filename: str) -> None:
-    with open(filename, "w") as file:
-        json.dump(response, file, indent=2, default=str)
-    print(f"Response saved to {filename}")
 
 
 def display_provider_response(provider: str, response: Dict[str, Any], framework: str = "") -> None:
@@ -348,36 +311,6 @@ def get_user_choice(options: List[str], prompt: str) -> int:
             print("Invalid input. Please enter a number.")
 
 
-def get_non_empty_input(prompt: str) -> str:
-    while True:
-        value = input(prompt).strip()
-        if value:
-            return value
-        print("Input cannot be empty. Please try again.")
-
-
-def format_filename(question: str, framework: str) -> str:
-    safe_question = question[:20].replace(" ", "_").replace("?", "").replace("!", "")
-    return f"llm_responses_{framework}_{safe_question}.json"
-
-MODEL_PROVIDER_PREFIXES = (
-    ("google_genai_", "Google"),
-    ("anthropic_", "Anthropic"),
-    ("openai_", "OpenAI"),
-    ("xai_", "xAI"),
-    ("deepseek_", "DeepSeek"),
-)
-
-
-def provider_and_model_name(model_identifier: str) -> tuple[str, str]:
-    """Return display-friendly provider/model names for a configured model identifier."""
-    for prefix, provider_name in MODEL_PROVIDER_PREFIXES:
-        if model_identifier.startswith(prefix):
-            return provider_name, model_identifier[len(prefix) :]
-    provider_name, _, model_name = model_identifier.partition("_")
-    return (provider_name.title() if provider_name else "Other"), (model_name or model_identifier)
-
-
 def compact_model_selection_lines(model_identifiers: Sequence[str]) -> list[str]:
     """Format model identifiers into compact provider-grouped CLI selection lines."""
     lines: list[str] = []
@@ -395,8 +328,8 @@ def compact_model_selection_lines(model_identifiers: Sequence[str]) -> list[str]
         if provider_name != current_provider or len(current_options) == 3:
             flush_current()
             current_provider = provider_name
-        default_suffix = " [default]" if index == 1 else ""
-        current_options.append(f"{index}. {model_name}{default_suffix}")
+        first_suffix = " [first]" if index == 1 else ""
+        current_options.append(f"{index}. {model_name}{first_suffix}")
     flush_current()
     return lines
 

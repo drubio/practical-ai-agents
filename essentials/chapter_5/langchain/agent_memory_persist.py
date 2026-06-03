@@ -14,7 +14,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from essentials.chapter_4.langchain.agent_app import LangChainLLMManager as Chapter4LangChainManager
-from shared.essentials.utils import get_default_model, interactive_cli
+from shared.essentials.utils import interactive_cli
 
 
 class LangChainLLMManager(Chapter4LangChainManager):
@@ -46,7 +46,7 @@ class LangChainLLMManager(Chapter4LangChainManager):
     def _get_chain(self, provider: str, session_id: str, temperature: float, max_tokens: int):
         key = (provider, session_id)
         if key not in self.chains:
-            client = self._create_client(provider, temperature, max_tokens)
+            model = self._create_model(provider, temperature, max_tokens)
             prompt = ChatPromptTemplate.from_messages(
                 [
                     MessagesPlaceholder("history"),
@@ -54,7 +54,7 @@ class LangChainLLMManager(Chapter4LangChainManager):
                 ]
             )
             self.chains[key] = RunnableWithMessageHistory(
-                prompt | client,
+                prompt | model,
                 get_session_history=lambda _: self._get_history(session_id),
                 input_messages_key="input",
                 history_messages_key="history",
@@ -99,7 +99,7 @@ class LangChainLLMManager(Chapter4LangChainManager):
             return super().ask_question(topic, provider, template, max_tokens, temperature)
 
         prompt = template.format(topic=topic)
-        provider = self._resolve_provider(provider)
+        provider = self.resolve_model_identifier(provider)
         if not provider:
             return {
                 "success": False,
@@ -109,6 +109,8 @@ class LangChainLLMManager(Chapter4LangChainManager):
                 "prompt": prompt,
                 "response": None,
             }
+
+        model_config = self.resolve_model_config(provider)
 
         try:
             result = self._get_chain(provider, session_id, temperature, max_tokens).invoke(
@@ -125,8 +127,9 @@ class LangChainLLMManager(Chapter4LangChainManager):
 
             payload = {
                 "success": True,
-                "provider": provider,
-                "model": get_default_model(provider),
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": prompt,
                 "response": self._extract_text(provider, result),
                 "temperature": temperature,
@@ -142,8 +145,9 @@ class LangChainLLMManager(Chapter4LangChainManager):
         except Exception as exc:
             return {
                 "success": False,
-                "provider": provider,
-                "model": get_default_model(provider),
+                "provider": model_config.provider,
+                "model": model_config.model,
+                "model_identifier": model_config.name,
                 "prompt": prompt,
                 "error": str(exc),
                 "response": None,

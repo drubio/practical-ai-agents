@@ -15,7 +15,8 @@ from llama_index.core.memory import Memory
 from llama_index.core.storage.chat_store import SimpleChatStore
 
 from essentials.chapter_4.llamaindex.agent_app import LlamaIndexLLMManager as Chapter4LlamaIndexManager
-from shared.essentials.utils import get_default_model, interactive_cli
+from shared.essentials.utils import interactive_cli
+from shared.llm_models import resolve_model_config
 
 
 class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
@@ -106,7 +107,7 @@ class LlamaIndexLLMManager(Chapter4LlamaIndexManager):
                 "response": None,
             }
 
-        model = get_default_model(provider)
+        model = resolve_model_config(provider).model
 
         try:
             chat_engine = self._get_chat_engine(provider, session_id, temperature, max_tokens)

@@ -261,12 +261,12 @@ def model_payload(
         "name": canonical_name,
         "display_name": f"{config.provider.capitalize()} ({model_identifier})",
         "provider": config.provider,
-        "default_model": config.model,
+        "selected_model": config.model,
         "model": config.model,
         "model_identifier": model_identifier,
-        "default_model_identifier": model_identifier,
+        "selected_model_identifier": model_identifier,
         "model_tier": config.tier,
-        "default_model_tier": config.tier,
+        "selected_model_tier": config.tier,
         "strengths": list(config.strengths),
         "status": status,
         "framework": str(getattr(manager, "framework", "unknown")),
@@ -281,17 +281,13 @@ def model_payloads(manager: Any, *, require_available_provider: bool = True, def
 
 
 def provider_payload(provider: str, manager: Any, *, require_available_provider: bool = True, default_status: str = "Unknown") -> dict[str, Any]:
-    from shared.utils import get_default_model_details
+    from shared.llm_models import get_display_name
 
-    details = get_default_model_details(provider)
     model_identifiers = model_identifiers_for_provider(provider)
     return {
         "name": provider,
-        "display_name": details["display_name"],
-        "provider": details["canonical_provider"],
-        "default_model": details["default_model"],
-        "default_model_identifier": details["default_model_identifier"],
-        "default_model_tier": details["default_model_tier"],
+        "display_name": get_display_name(provider),
+        "provider": provider,
         "models": [model_payload(identifier, manager, require_available_provider=require_available_provider, default_status=default_status) for identifier in model_identifiers],
         "model_identifiers": model_identifiers,
         "status": manager_initialization_messages(manager).get(provider, default_status),

@@ -14,7 +14,8 @@ from llama_index.core.utils import get_tokenizer
 import bm25s
 
 from essentials.chapter_5.llamaindex.agent_structured_output import STRUCTURED_TEMPLATE, LlamaIndexLLMManager as Chapter5StructuredManager
-from shared.essentials.utils import get_default_model, interactive_cli, parse_structured_json_response
+from shared.essentials.utils import interactive_cli, parse_structured_json_response
+from shared.llm_models import resolve_model_config
 
 
 class LlamaIndexLLMManager(Chapter5StructuredManager):
@@ -198,7 +199,7 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
 
             result_payload = {
                 "provider": provider,
-                "model": get_default_model(provider),
+                "model": resolve_model_config(provider).model,
                 "session_id": session_id,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
@@ -240,7 +241,7 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             return {
                 "success": True,
                 "provider": provider,
-                "model": get_default_model(provider),
+                "model": resolve_model_config(provider).model,
                 "prompt": retrieval_prompt,
                 "response": parsed,
                 "raw_answer": parsed.get("answer", raw_response),
@@ -252,7 +253,7 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
             return {
                 "success": False,
                 "provider": provider,
-                "model": get_default_model(provider),
+                "model": resolve_model_config(provider).model,
                 "prompt": retrieval_prompt,
                 "error": str(exc),
                 "response": None,
