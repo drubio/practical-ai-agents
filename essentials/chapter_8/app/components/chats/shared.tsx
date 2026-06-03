@@ -957,7 +957,7 @@ const FrameworkHeader = ({ title, color, settings, providers, onSettingsClick, a
         <div>
           <h1 className="text-lg font-semibold">{title}</h1>
           <div className="text-xs opacity-75">
-            Provider: {settings.selectedProvider} | Model: {selectedProviderDetails?.default_model || 'n/a'} |{' '}
+            Provider: {selectedProviderDetails?.provider || 'n/a'} | Model: {selectedProviderDetails?.selected_model || 'n/a'} |{' '}
             {apiCapabilities.hasMemory && `Session: ${settings.sessionId} | `}
             Mode: {settings.responseMode} | Temp: {settings.temperature} | Max Tokens: {settings.maxTokens}
           </div>
