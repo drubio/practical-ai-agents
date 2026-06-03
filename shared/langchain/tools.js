@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
+import { tool } from '@langchain/core/tools';
+import { z } from 'zod';
+
 export function calculator(expression) {
   const text = String(expression ?? '').trim();
   if (!text) return { error: 'No expression provided.' };
@@ -31,4 +34,17 @@ export function resolveDatetime(text) {
 
 export function generateUUID() {
   return { uuid: randomUUID() };
+}
+
+
+export function createGenerateUuidTool(pendingToolLogs) {
+  return tool((input) => {
+    const output = generateUUID(input);
+    pendingToolLogs.push({ name: 'generate_uuid', input, output });
+    return output;
+  }, {
+    name: 'generate_uuid',
+    description: 'Generate a unique UUID identifier.',
+    schema: z.object({}),
+  });
 }

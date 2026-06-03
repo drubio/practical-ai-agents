@@ -135,3 +135,101 @@ export async function runMode(manager, mode, host = '0.0.0.0', port = 8000, stre
     closeSharedAsk();
   }
 }
+
+export function printStepHeader(step, typeName) {
+  console.log(`\n[${step}] ${typeName}`);
+}
+
+export function printStepMessage(step, message, content = extractTextContent(message?.content)) {
+  printStepHeader(step, langChainMessageTypeName(message));
+  console.log(content);
+}
+
+export function flushPendingToolLogs(state, logger) {
+  while (state.pendingToolLogs.length) {
+    const { name, input, output } = state.pendingToolLogs.shift();
+    logger.info(`Tool call | name=${name} | input=%o`, input);
+    logger.info(`Tool result | name=${name} | output=%o`, output);
+  }
+}
+
+export function createAgentStepState(pendingToolLogs = []) {
+  return {
+    finalText: '',
+    pendingToolLogs,
+    printedFinalHeader: false,
+    printedSystemMessage: false,
+    printedHumanMessage: false,
+  };
+}
+
+export function printAgentStepMessage(message, state, logger, { stream = false } = {}) {
+  if (!message) return;
+
+  const typeName = langChainMessageTypeName(message);
+  const toolCalls = langChainMessageToolCalls(message);
+  if (typeName === 'SystemMessage') {
+    if (!state.printedSystemMessage) {
+      printStepMessage('STEP 1 - SYSTEM MESSAGE', message);
+      state.printedSystemMessage = true;
+    }
+    return;
+  }
+  if (typeName === 'HumanMessage') {
+    if (!state.printedHumanMessage) {
+      printStepMessage('STEP 2 - USER -> LLM', message);
+      state.printedHumanMessage = true;
+    }
+    return;
+  }
+  if (typeName.includes('AIMessage') && toolCalls) {
+    printStepHeader('STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS', 'AIMessage.tool_calls');
+    console.log(JSON.stringify(toolCalls, null, 2));
+    return;
+  }
+  if (typeName === 'ToolMessage') {
+    flushPendingToolLogs(state, logger);
+    printStepMessage('STEP 4 - TOOL -> LLM', message);
+    return;
+  }
+  if (typeName === 'AIMessageChunk') {
+    const delta = extractTextContent(message.content);
+    if (delta && !state.printedFinalHeader) {
+      printStepHeader('STEP 5 - LLM FINAL MESSAGE', 'AIMessage');
+      state.printedFinalHeader = true;
+    }
+    if (delta) process.stdout.write(delta);
+    state.finalText += delta;
+    return;
+  }
+  if (typeName.includes('AIMessage')) {
+    const text = extractTextContent(message.content);
+    if (stream) {
+      if (!state.printedFinalHeader) {
+        printStepMessage('STEP 5 - LLM FINAL MESSAGE', message, text);
+        state.printedFinalHeader = true;
+      }
+      if (!state.finalText) state.finalText = text;
+    } else {
+      printStepMessage('STEP 5 - LLM FINAL MESSAGE', message, text);
+      state.printedFinalHeader = true;
+      state.finalText = text;
+    }
+  }
+}
+
+export async function printAgentStepOutput({
+  logger,
+  messages = [],
+  streamEvents = null,
+  state = createAgentStepState(),
+} = {}) {
+  for (const message of messages) printAgentStepMessage(message, state, logger);
+  if (streamEvents) {
+    for await (const event of streamEvents) {
+      printAgentStepMessage(langChainStreamChunkFromEvent(event), state, logger, { stream: true });
+    }
+  }
+  console.log('\n');
+  return state.finalText.trim();
+}

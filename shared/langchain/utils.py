@@ -40,6 +40,9 @@ __all__ = [
     "langchain_message_tool_calls",
     "langchain_message_type_name",
     "log_tool_call",
+    "create_agent_step_state",
+    "print_agent_step_message",
+    "print_agent_step_output",
     "run_mode",
     "select_startup_model",
     "stream_message_chunks",
@@ -61,7 +64,11 @@ def extract_text_content(content: Any) -> str:
                 text_value = item.get("text")
                 if isinstance(text_value, str) and text_value.strip():
                     parts.append(text_value)
-            elif "text" in item and isinstance(item.get("text"), str) and item["text"].strip():
+            elif (
+                "text" in item
+                and isinstance(item.get("text"), str)
+                and item["text"].strip()
+            ):
                 parts.append(item["text"])
         return "".join(parts)
     return normalize_response_text(content)
@@ -95,8 +102,11 @@ def build_common_parser(description: str) -> argparse.ArgumentParser:
     return parser
 
 
-
-def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, explicit_model_identifier: str | None) -> str:
+def select_startup_model(
+    model_identifiers: Iterable[str] | None,
+    mode: str,
+    explicit_model_identifier: str | None,
+) -> str:
     if explicit_model_identifier:
         return explicit_model_identifier
     ids = list(model_identifiers or ALL_MODEL_IDENTIFIERS)
@@ -104,18 +114,32 @@ def select_startup_model(model_identifiers: Iterable[str] | None, mode: str, exp
         raise ValueError("No model identifiers configured")
 
     provider_statuses = {
-        provider: "✓ API key configured" if get_api_key(provider) else "✗ API key not found"
+        provider: (
+            "✓ API key configured" if get_api_key(provider) else "✗ API key not found"
+        )
         for provider in get_all_providers()
     }
-    available_providers = sort_providers_by_display_order([provider for provider, status in provider_statuses.items() if status.startswith("✓")])
-    available_model_ids = [identifier for identifier in model_identifiers_for_providers(available_providers) if identifier in ids]
+    available_providers = sort_providers_by_display_order(
+        [
+            provider
+            for provider, status in provider_statuses.items()
+            if status.startswith("✓")
+        ]
+    )
+    available_model_ids = [
+        identifier
+        for identifier in model_identifiers_for_providers(available_providers)
+        if identifier in ids
+    ]
 
     if mode != "cli" or not sys.stdin.isatty() or not sys.stdout.isatty():
         return (available_model_ids or ids)[0]
 
     print_initialization_status("LangChain", provider_statuses)
     if not available_model_ids:
-        print("No models available for initialized providers; using the first configured model.")
+        print(
+            "No models available for initialized providers; using the first configured model."
+        )
         return ids[0]
 
     selected_model = select_provider_model_identifier(available_providers)
@@ -147,7 +171,9 @@ def run_mode(manager: Any, mode: str, host: str, port: int, stream: bool) -> Non
     else:
         print("Available local tools: (none declared)")
 
-    print(f"\n{getattr(manager, 'tool_trigger_help', 'Tools are triggered automatically from your prompt.')}")
+    print(
+        f"\n{getattr(manager, 'tool_trigger_help', 'Tools are triggered automatically from your prompt.')}"
+    )
     print("====================================")
 
     from shared.essentials.utils import interactive_basic_question_loop
@@ -158,3 +184,111 @@ def run_mode(manager: Any, mode: str, host: str, port: int, stream: bool) -> Non
         model_identifier=getattr(manager, "model_identifier", None),
         ask_question=lambda prompt: manager.ask_question(prompt, stream=stream),
     )
+
+
+def print_step_header(step: str, type_name: str) -> None:
+    print(f"\n[{step}] {type_name}")
+
+
+def print_step_message(step: str, message: Any, content: str | None = None) -> None:
+    print_step_header(step, langchain_message_type_name(message))
+    print(
+        extract_text_content(getattr(message, "content", ""))
+        if content is None
+        else content
+    )
+
+
+def flush_pending_tool_logs(state: dict[str, Any], logger: Any) -> None:
+    sys.stdout.flush()
+    while state["pending_tool_logs"]:
+        tool_log = state["pending_tool_logs"].pop(0)
+        logger.info(
+            "Tool call | name=%s | input=%s", tool_log["name"], tool_log["input"]
+        )
+        logger.info(
+            "Tool result | name=%s | output=%s", tool_log["name"], tool_log["output"]
+        )
+
+
+def create_agent_step_state(
+    pending_tool_logs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "final_text": "",
+        "pending_tool_logs": pending_tool_logs if pending_tool_logs is not None else [],
+        "printed_final_header": False,
+        "printed_system_message": False,
+        "printed_human_message": False,
+    }
+
+
+def print_agent_step_message(
+    message: Any,
+    state: dict[str, Any],
+    logger: Any,
+    *,
+    stream: bool = False,
+) -> None:
+    if message is None:
+        return
+
+    type_name = langchain_message_type_name(message)
+    tool_calls = langchain_message_tool_calls(message)
+    if type_name == "SystemMessage":
+        if not state["printed_system_message"]:
+            print_step_message("STEP 1 - SYSTEM MESSAGE", message)
+            state["printed_system_message"] = True
+        return
+    if type_name == "HumanMessage":
+        if not state["printed_human_message"]:
+            print_step_message("STEP 2 - USER -> LLM", message)
+            state["printed_human_message"] = True
+        return
+    if "AIMessage" in type_name and tool_calls:
+        print_step_header(
+            "STEP 3 - LLM -> AGENT TOOL INSTRUCTIONS", "AIMessage.tool_calls"
+        )
+        print(tool_calls)
+        return
+    if type_name == "ToolMessage":
+        flush_pending_tool_logs(state, logger)
+        print_step_message("STEP 4 - TOOL -> LLM", message)
+        return
+    if type_name == "AIMessageChunk":
+        delta = extract_text_content(getattr(message, "content", ""))
+        if delta and not state["printed_final_header"]:
+            print_step_header("STEP 5 - LLM FINAL MESSAGE", "AIMessage")
+            state["printed_final_header"] = True
+        if delta:
+            print(delta, end="")
+        state["final_text"] += delta
+        return
+    if "AIMessage" in type_name:
+        text = extract_text_content(getattr(message, "content", ""))
+        if stream:
+            if not state["printed_final_header"]:
+                print_step_message("STEP 5 - LLM FINAL MESSAGE", message, text)
+                state["printed_final_header"] = True
+            if not state["final_text"]:
+                state["final_text"] = text
+        else:
+            print_step_message("STEP 5 - LLM FINAL MESSAGE", message, text)
+            state["printed_final_header"] = True
+            state["final_text"] = text
+
+
+def print_agent_step_output(
+    logger: Any,
+    messages: list[Any] | None = None,
+    stream_chunks: Any | None = None,
+    state: dict[str, Any] | None = None,
+) -> str:
+    state = state or create_agent_step_state()
+    for message in messages or []:
+        print_agent_step_message(message, state, logger)
+    if stream_chunks is not None:
+        for chunk, _text in stream_chunks:
+            print_agent_step_message(chunk, state, logger, stream=True)
+    print("\n")
+    return state["final_text"].strip()

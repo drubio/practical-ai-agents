@@ -43,3 +43,20 @@ def resolve_datetime(text: str) -> Dict[str, Any]:
 
 def generate_uuid(_: Any = None) -> Dict[str, Any]:
     return {"uuid": str(uuid.uuid4())}
+
+
+def create_generate_uuid_tool(pending_tool_logs: list[dict[str, Any]]):
+    """Create a LangChain tool that records each generated UUID call."""
+
+    from langchain.tools import tool
+
+    @tool
+    def generate_uuid_tool(tool_input: str = ""):
+        """Generate a unique UUID identifier."""
+        output = generate_uuid(tool_input)
+        pending_tool_logs.append(
+            {"name": "generate_uuid", "input": tool_input, "output": output}
+        )
+        return output
+
+    return generate_uuid_tool
