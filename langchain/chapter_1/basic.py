@@ -7,6 +7,20 @@ from typing import Any, Dict
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
+if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+    from shared.utils import print_cli_help
+
+    print_cli_help(
+        sys.argv[0],
+        description="Run the LangChain Chapter 1 basic tool-calling agent.",
+        options=[
+            ("--stream", "Stream response tokens in CLI/web responses."),
+            ("--no-log-step-by-step", "Hide LangChain message/tool step-by-step logs."),
+        ],
+    )
+    sys.exit(0)
+
+
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 

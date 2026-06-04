@@ -9,6 +9,13 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 
 sys.path.append(REPO_ROOT)
 
+if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+    from shared.utils import print_cli_help
+
+    print_cli_help(sys.argv[0])
+    sys.exit(0)
+
+
 from langchain_community.chat_message_histories import FileChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
@@ -206,7 +213,8 @@ class LangChainLLMManager(Chapter4LangChainManager):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "web":
+    args = sys.argv[1:]
+    if "web" in args:
         from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LangChainLLMManager(memory_enabled=True))

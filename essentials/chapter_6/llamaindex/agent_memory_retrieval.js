@@ -3,7 +3,7 @@
  */
 
 import { LlamaIndexLLMManager as Chapter5StructuredLlamaIndexManager, STRUCTURED_TEMPLATE } from '../../chapter_5/llamaindex/agent_structured_output.js';
-import { interactiveCli, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
+import { interactiveCli, parseStructuredJsonResponse, printCliHelp } from '../../../shared/essentials/utils.mjs';
 import { getEncoding } from 'js-tiktoken';
 import { BM25 } from 'fast-bm25';
 
@@ -271,7 +271,11 @@ class LlamaIndexLLMManager extends Chapter5StructuredLlamaIndexManager {
 
 async function main() {
     const args = process.argv.slice(2);
-    if (args.length > 0 && args[0] === 'web') {
+    if (args.includes('-h') || args.includes('--help')) {
+        printCliHelp(process.argv[1]);
+        return;
+    }
+    if (args.includes('web')) {
         const { runWebServer } = await import('../../../shared/essentials/web.mjs');
         await runWebServer(() => new LlamaIndexLLMManager(true));
     } else {

@@ -2,6 +2,7 @@ export {
   BaseLLMManager,
   BaseLLMManager as EssentialsLLMManager,
   displayProviderResponse,
+  displayManagerToolInfo,
   getAllProviders,
   getApiKey,
   getDisplayName,
@@ -12,6 +13,7 @@ export {
   modelIdentifiersForProviders,
   normalizeResponseText,
   parseStructuredJsonResponse,
+  printCliHelp,
   selectProviderModelIdentifier,
   sortProvidersByDisplayOrder,
 } from "../utils.mjs";

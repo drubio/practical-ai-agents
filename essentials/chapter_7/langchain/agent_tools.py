@@ -12,6 +12,13 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 
 sys.path.append(REPO_ROOT)
 
+if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+    from shared.utils import print_cli_help
+
+    print_cli_help(sys.argv[0])
+    sys.exit(0)
+
+
 from essentials.chapter_6.langchain.agent_memory_retrieval import LangChainLLMManager as Chapter6LangChainManager
 from essentials.chapter_7.tools import build_tools_prompt, run_tool
 from shared.essentials.utils import interactive_cli
@@ -288,7 +295,8 @@ class LangChainLLMManager(Chapter6LangChainManager):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "web":
+    args = sys.argv[1:]
+    if "web" in args:
         from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LangChainLLMManager(memory_enabled=True))

@@ -7,6 +7,7 @@ import {
   BaseLLMManager,
   createLangChainModel,
   interactiveCli,
+  printCliHelp,
 } from '../../shared/utils.mjs';
 import { createGenerateUuidTool } from '../../shared/langchain/tools.js';
 import {
@@ -170,6 +171,16 @@ export class LangChainLLMManager extends BaseLLMManager {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes('-h') || args.includes('--help')) {
+    printCliHelp(process.argv[1], {
+      description: 'Run the LangChain Chapter 1 basic tool-calling agent.',
+      options: [
+        ['--stream', 'Stream response tokens in CLI/web responses.'],
+        ['--no-log-step-by-step', 'Hide LangChain message/tool step-by-step logs.'],
+      ],
+    });
+    return;
+  }
   const stream = args.includes('--stream');
   const logStepByStep = !args.includes('--no-log-step-by-step');
 

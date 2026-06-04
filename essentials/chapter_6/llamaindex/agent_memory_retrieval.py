@@ -9,6 +9,13 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 
 sys.path.append(REPO_ROOT)
 
+if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+    from shared.utils import print_cli_help
+
+    print_cli_help(sys.argv[0])
+    sys.exit(0)
+
+
 from llama_index.core.llms import ChatMessage
 from llama_index.core.utils import get_tokenizer
 import bm25s
@@ -264,7 +271,8 @@ class LlamaIndexLLMManager(Chapter5StructuredManager):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "web":
+    args = sys.argv[1:]
+    if "web" in args:
         from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LlamaIndexLLMManager(memory_enabled=True))

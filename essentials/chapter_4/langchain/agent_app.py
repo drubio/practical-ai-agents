@@ -4,6 +4,13 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
+if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+    from shared.utils import print_cli_help
+
+    print_cli_help(sys.argv[0])
+    sys.exit(0)
+
+
 from typing import Dict, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -14,9 +21,7 @@ from shared.utils import create_langchain_model
 class LangChainLLMManager(BaseLLMManager):
     """LangChain implementation with reusable hooks for chapter extensions."""
 
-    def __init__(self, stream: bool = False):
-        self.stream = stream
-        self.prints_own_output = stream
+    def __init__(self):
         super().__init__("LangChain")
 
     def _test_provider(self, provider: str):
@@ -39,29 +44,6 @@ class LangChainLLMManager(BaseLLMManager):
         if provider == "google" and hasattr(result, "text"):
             return str(result.text)
         return str(result.content)
-
-    @staticmethod
-    def _extract_stream_delta(chunk) -> str:
-        content = getattr(chunk, "content", "")
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            return "".join(
-                str(item.get("text", ""))
-                for item in content
-                if isinstance(item, dict) and item.get("type") == "text"
-            )
-        return str(content) if content else ""
-
-    def _stream_model(self, model, messages) -> str:
-        parts = []
-        for chunk in model.stream(messages):
-            delta = self._extract_stream_delta(chunk)
-            if delta:
-                print(delta, end="", flush=True)
-                parts.append(delta)
-        print()
-        return "".join(parts)
 
     def ask_question(
         self,
@@ -87,11 +69,8 @@ class LangChainLLMManager(BaseLLMManager):
         try:
             model = self._create_model(model_config.name, temperature=temperature, max_tokens=max_tokens)
             messages = self._build_messages(prompt)
-            if self.stream:
-                response_text = self._stream_model(model, messages)
-            else:
-                result = model.invoke(messages)
-                response_text = self._extract_text(model_config.provider, result)
+            result = model.invoke(messages)
+            response_text = self._extract_text(model_config.provider, result)
             return {
                 "success": True,
                 "provider": model_config.provider,
@@ -100,7 +79,6 @@ class LangChainLLMManager(BaseLLMManager):
                 "prompt": prompt,
                 "response": response_text,
                 "temperature": temperature,
-                "stream": self.stream,
                 "max_tokens": max_tokens,
             }
         except Exception as e:
@@ -113,24 +91,22 @@ class LangChainLLMManager(BaseLLMManager):
                 "error": str(e),
                 "response": None,
                 "temperature": temperature,
-                "stream": self.stream,
                 "max_tokens": max_tokens,
             }
 
 
 def main():
     args = sys.argv[1:]
-    stream = "--stream" in args
     if "web" in args:
         try:
             from shared.essentials.web import run_web_server
-            run_web_server(lambda: LangChainLLMManager(stream=stream))
+            run_web_server(lambda: LangChainLLMManager())
         except ImportError:
             print("Error: shared web API not found or FastAPI not installed.")
             print("Install FastAPI: pip install fastapi uvicorn")
             sys.exit(1)
     else:
-        manager = LangChainLLMManager(stream=stream)
+        manager = LangChainLLMManager()
         interactive_cli(manager)
 
 

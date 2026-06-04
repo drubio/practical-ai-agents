@@ -96,6 +96,28 @@ export class BaseLLMManager {
   }
 }
 
+export function printCliHelp(scriptName, { description = "Run the agent manager in CLI or web API mode.", options = [] } = {}) {
+  console.log(`Usage: ${scriptName} [web] [options]`);
+  console.log();
+  console.log(description);
+  console.log();
+  console.log("Arguments:");
+  console.log("  web                         Run the shared web API instead of interactive CLI mode.");
+  console.log("  -h, --help                  Show this help message and exit.");
+  for (const [flag, details] of options) {
+    console.log(`  ${flag.padEnd(27)} ${details}`);
+  }
+}
+
+export function displayManagerToolInfo(manager) {
+  const toolNames = manager?.toolNames || manager?.tool_names;
+  if (!Array.isArray(toolNames) || toolNames.length === 0) return;
+  console.log("\nAvailable tools:");
+  for (const toolName of toolNames) console.log(`  - ${toolName}`);
+  const toolHelp = manager?.toolTriggerHelp || manager?.tool_trigger_help;
+  if (toolHelp) console.log(toolHelp);
+}
+
 export function managerSupportsInteractiveMemory(manager) {
   const fullMemorySupported = manager?.memoryEnabled === true
     && typeof manager.askQuestion === "function"
@@ -181,6 +203,7 @@ export async function interactiveCli(manager, modelIdentifier = null) {
     console.log("=".repeat(50));
 
     if (!memorySupported) {
+      displayManagerToolInfo(manager);
       await interactiveBasicQuestionLoop(manager, {
         provider: modelIdentifier,
         modelIdentifier,

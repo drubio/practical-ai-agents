@@ -3,7 +3,7 @@
  */
 
 import { LlamaIndexLLMManager as Chapter5LlamaIndexManager } from './agent_memory_persist.js';
-import { interactiveCli, parseStructuredJsonResponse } from '../../../shared/essentials/utils.mjs';
+import { interactiveCli, parseStructuredJsonResponse, printCliHelp } from '../../../shared/essentials/utils.mjs';
 
 export const STRUCTURED_TEMPLATE = `Given the topic below, provide:
 
@@ -148,7 +148,11 @@ class LlamaIndexLLMManager extends Chapter5LlamaIndexManager {
 
 async function main() {
     const args = process.argv.slice(2);
-    if (args.length > 0 && args[0] === 'web') {
+    if (args.includes('-h') || args.includes('--help')) {
+        printCliHelp(process.argv[1]);
+        return;
+    }
+    if (args.includes('web')) {
         const { runWebServer } = await import('../../../shared/essentials/web.mjs');
         await runWebServer(() => new LlamaIndexLLMManager(true));
     } else {

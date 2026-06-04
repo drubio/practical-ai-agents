@@ -5,14 +5,20 @@ import re
 import sys
 from typing import Dict, List, Optional
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+sys.path.append(REPO_ROOT)
+
+if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+    from shared.utils import print_cli_help
+
+    print_cli_help(sys.argv[0])
+    sys.exit(0)
+
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_community.retrievers import BM25Retriever
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-
-sys.path.append(REPO_ROOT)
 
 from essentials.chapter_5.langchain.agent_structured_output import STRUCTURED_TEMPLATE, LangChainLLMManager as Chapter5StructuredManager
 from shared.essentials.utils import interactive_cli, parse_structured_json_response
@@ -247,7 +253,8 @@ class LangChainLLMManager(Chapter5StructuredManager):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "web":
+    args = sys.argv[1:]
+    if "web" in args:
         from shared.essentials.web import run_web_server
 
         run_web_server(lambda: LangChainLLMManager(memory_enabled=True))

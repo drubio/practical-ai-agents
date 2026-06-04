@@ -82,6 +82,24 @@ class BaseLLMManager:
         raise NotImplementedError("Subclasses must implement ask_question")
 
 
+def print_cli_help(
+    script_name: str,
+    *,
+    description: str = "Run the agent manager in CLI or web API mode.",
+    options: Optional[Sequence[tuple[str, str]]] = None,
+) -> None:
+    """Print lightweight CLI help before importing framework-heavy modules."""
+    print(f"Usage: {script_name} [web] [options]")
+    print()
+    print(description)
+    print()
+    print("Arguments:")
+    print("  web                         Run the shared web API instead of interactive CLI mode.")
+    print("  -h, --help                  Show this help message and exit.")
+    for flag, details in options or ():
+        print(f"  {flag:<27} {details}")
+
+
 def manager_supports_interactive_memory(manager: BaseLLMManager) -> bool:
     full_memory_supported = (
         getattr(manager, "memory_enabled", False) is True
@@ -96,6 +114,19 @@ def manager_supports_interactive_memory(manager: BaseLLMManager) -> bool:
         and hasattr(manager, "reset_memory")
     )
     return full_memory_supported or retrieval_memory_supported
+
+
+def display_manager_tool_info(manager) -> None:
+    """Print optional manager tool guidance before the question prompt."""
+    tool_names = getattr(manager, "tool_names", None)
+    if not tool_names:
+        return
+    print("\nAvailable tools:")
+    for tool_name in tool_names:
+        print(f"  - {tool_name}")
+    tool_help = getattr(manager, "tool_trigger_help", None)
+    if tool_help:
+        print(tool_help)
 
 
 def interactive_basic_question_loop(
@@ -182,6 +213,7 @@ def interactive_cli(manager: BaseLLMManager, model_identifier: Optional[str] = N
     )
     print("=" * 50)
     if not memory_supported:
+        display_manager_tool_info(manager)
         interactive_basic_question_loop(
             manager,
             provider=model_identifier,
