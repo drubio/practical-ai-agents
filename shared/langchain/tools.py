@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict
 
+from pydantic import BaseModel, Field
+
 
 def calculator(expression: str) -> Dict[str, Any]:
     text = (expression or "").strip()
@@ -45,17 +47,51 @@ def generate_uuid(_: Any = None) -> Dict[str, Any]:
     return {"uuid": str(uuid.uuid4())}
 
 
+class CalculatorInput(BaseModel):
+    """Schema for calculator calls that require an expression argument."""
+
+    expression: str = Field(description="Arithmetic expression to evaluate.")
+
+
+GENERATE_UUID_ARGS_SCHEMA = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
+
+def create_calculator_tool(pending_tool_logs: list[dict[str, Any]]):
+    """Create a LangChain calculator tool that records expression input."""
+
+    from langchain_core.tools import tool
+
+    @tool("calculator", args_schema=CalculatorInput)
+    def calculator_tool(expression: str):
+        """Evaluate a basic arithmetic expression."""
+        output = calculator(expression)
+        pending_tool_logs.append(
+            {
+                "name": "calculator",
+                "input": {"expression": expression},
+                "output": output,
+            }
+        )
+        return output
+
+    return calculator_tool
+
+
 def create_generate_uuid_tool(pending_tool_logs: list[dict[str, Any]]):
     """Create a LangChain tool that records each generated UUID call."""
 
-    from langchain.tools import tool
+    from langchain_core.tools import tool
 
-    @tool
-    def generate_uuid_tool(tool_input: str = ""):
+    @tool("generate_uuid", args_schema=GENERATE_UUID_ARGS_SCHEMA)
+    def generate_uuid_tool():
         """Generate a unique UUID identifier."""
-        output = generate_uuid(tool_input)
+        output = generate_uuid()
         pending_tool_logs.append(
-            {"name": "generate_uuid", "input": tool_input, "output": output}
+            {"name": "generate_uuid", "input": {}, "output": output}
         )
         return output
 

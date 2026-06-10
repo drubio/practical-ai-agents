@@ -28,7 +28,7 @@ export class LangChainLLMManager extends BaseLLMManager {
   toolTriggerHelp = 'Tools are triggered automatically. Ask for a UUID/ticket ID to trigger generate_uuid.';
 
   constructor({ logStepByStep = true, stream = false } = {}) {
-    super('LangChain Basic Agent');
+    super('LangChain');
     this.logStepByStep = logStepByStep;
     this.stream = stream;
     this.printsOwnOutput = logStepByStep || stream;

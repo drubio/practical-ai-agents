@@ -37,14 +37,30 @@ export function generateUUID() {
 }
 
 
+export function createCalculatorTool(pendingToolLogs) {
+  return tool(({ expression }) => {
+    const input = { expression };
+    const output = calculator(expression);
+    pendingToolLogs.push({ name: 'calculator', input, output });
+    return output;
+  }, {
+    name: 'calculator',
+    description: 'Evaluate a basic arithmetic expression.',
+    schema: z.object({
+      expression: z.string().describe('Arithmetic expression to evaluate.'),
+    }),
+  });
+}
+
 export function createGenerateUuidTool(pendingToolLogs) {
-  return tool((input) => {
-    const output = generateUUID(input);
+  return tool(() => {
+    const input = {};
+    const output = generateUUID();
     pendingToolLogs.push({ name: 'generate_uuid', input, output });
     return output;
   }, {
     name: 'generate_uuid',
-    description: 'Generate a unique UUID identifier.',
-    schema: z.object({}),
+    description: 'Generate a unique UUID identifier. No input is required.',
+    schema: z.object({}).strict(),
   });
 }

@@ -54,7 +54,7 @@ class LangChainLLMManager(BaseLLMManager):
         self.stream = stream
         self.prints_own_output = log_step_by_step or stream
         self.pending_tool_logs: list[dict[str, Any]] = []
-        super().__init__("LangChain Basic Agent")
+        super().__init__("LangChain")
 
     def _test_provider(self, provider: str):
         self._create_model(
@@ -130,7 +130,9 @@ class LangChainLLMManager(BaseLLMManager):
                 else:
                     response = agent.invoke({"messages": [human_message]})
                     response_messages = (
-                        response.get("messages", []) if isinstance(response, dict) else []
+                        response.get("messages", [])
+                        if isinstance(response, dict)
+                        else []
                     )
                     final_text = print_agent_step_output(
                         logger,
