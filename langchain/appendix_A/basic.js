@@ -26,7 +26,10 @@ const generateUUID = tool(
 );
 
 const tools = [generateUUID];
-const llm = new ChatOpenAI({ model: "gpt-4o" }).bindTools(tools);
+const llm = new ChatOpenAI({
+    model: "gpt-5.6-luna",
+    modelKwargs: { reasoning_effort: "none"}
+}).bindTools(tools);
 
 // Node function to unpack state.messages for the LLM
 async function callAgent(state) {

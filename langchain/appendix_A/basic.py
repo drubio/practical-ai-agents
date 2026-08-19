@@ -23,7 +23,7 @@ def generate_uuid_tool():
     }
 
 tools = [generate_uuid_tool]
-llm = ChatOpenAI(model="gpt-4o").bind_tools(tools)
+llm = ChatOpenAI(model="gpt-5.6-luna", reasoning_effort="none").bind_tools(tools)
 
 
 # Node function to unpack state["messages"] for the LLM
