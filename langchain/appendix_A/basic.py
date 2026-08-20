@@ -10,7 +10,7 @@ load_dotenv(dotenv_path=env_path)
 from langchain.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langgraph.graph import START, MessagesState, StateGraph
+from langgraph.graph import START, END, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 
@@ -27,7 +27,7 @@ llm = ChatOpenAI(model="gpt-5.6-luna", reasoning_effort="none").bind_tools(tools
 
 
 # Node function to unpack state["messages"] for the LLM
-def call_agent(state: MessagesState):
+def call_model(state: MessagesState):
     response = llm.invoke(state["messages"])
     return {"messages": [response]}
 
@@ -35,12 +35,14 @@ def call_agent(state: MessagesState):
 # Construct Graph
 builder = StateGraph(MessagesState)
 
-builder.add_node("agent", call_agent)
+builder.add_node("model", call_model)
 builder.add_node("tools", ToolNode(tools))
 
-builder.add_edge(START, "agent")
-builder.add_conditional_edges("agent", tools_condition)
-builder.add_edge("tools", "agent")
+builder.add_edge(START, "model")
+builder.add_conditional_edges("model", tools_condition)
+builder.add_edge("tools", "model")
+builder.add_edge("model", END)
+
 
 graph = builder.compile()
 

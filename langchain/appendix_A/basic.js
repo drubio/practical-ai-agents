@@ -10,7 +10,7 @@ dotenv.config({ path: path.resolve(__dirname, "../../shared/.env") });
 import { tool } from "@langchain/core/tools";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
-import { StateGraph, MessagesAnnotation, START } from "@langchain/langgraph";
+import { StateGraph, MessagesAnnotation, START, END } from "@langchain/langgraph";
 import { ToolNode, toolsCondition } from "@langchain/langgraph/prebuilt";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -32,18 +32,19 @@ const llm = new ChatOpenAI({
 }).bindTools(tools);
 
 // Node function to unpack state.messages for the LLM
-async function callAgent(state) {
+async function callModel(state) {
   const response = await llm.invoke(state.messages);
   return { messages: [response] };
 }
 
-// Construct Graph using pre-built MessagesAnnotation state
+// Construct Graph 
 const builder = new StateGraph(MessagesAnnotation)
-  .addNode("agent", callAgent)
+  .addNode("model", callModel)
   .addNode("tools", new ToolNode(tools))
-  .addEdge(START, "agent")
-  .addConditionalEdges("agent", toolsCondition)
-  .addEdge("tools", "agent");
+  .addEdge(START, "model")
+  .addConditionalEdges("model", toolsCondition)
+  .addEdge("tools", "model")
+  .addEdge("model", END);
 
 const graph = builder.compile();
 
