@@ -35,9 +35,7 @@ const llm = new ChatOpenAI({
 import { Annotation, messagesStateReducer } from "@langchain/langgraph";
 import { BaseMessage } from "@langchain/core/messages";
 
-
-
-// Long explicit state definition with NO MessagesAnnotation inheritance
+// Option 1 - All custom graph state fields
 const CustomAgentState = Annotation.Root({
   // Manually define messages channel with its reducer
   messages: Annotation({
@@ -51,7 +49,7 @@ const CustomAgentState = Annotation.Root({
 
 
 /**
-// Extending MessagesAnnotation automatically includes the merged "messages" key
+// Option 2 - Equivalent graph state inherting from MessagesAnnotation
 const CustomAgentState = Annotation.Root({
     ...MessagesAnnotation.spec,
   llmCallCount: Annotation(),
@@ -65,6 +63,7 @@ async function callModel(state) {
 
   // Safely get llmCallCount in case it was not initialized (default to 0)
   const currentCount = state.llmCallCount ?? 0;
+  //Increase llm_call_count after llm.invoke    
   const newCount = currentCount + 1;
 
   console.log(`Running LLM on behalf of ${state.user}`);

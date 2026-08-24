@@ -29,13 +29,14 @@ from langgraph.graph.message import add_messages
 from typing import Annotated
 from typing_extensions import TypedDict
 
+# Option 1 - All custom graph state fields
 class CustomAgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     llm_call_count: int
     user: str
 
 """
-# Equivalent state using inheritance
+# Option 2 - Equivalent graph state inherting from MessagesState
 class CustomAgentState(MessagesState):
     llm_call_count: int
     user: str
@@ -45,10 +46,10 @@ class CustomAgentState(MessagesState):
 def call_model(state: CustomAgentState):
     
     response = llm.invoke(state["messages"])
-    # Increase llm_call_count after llm.invoke
 
     # Safely get llm_call_count in case it was not initialzed
     current_count = state.get("llm_call_count", 0)
+    # Increase llm_call_count after llm.invoke    
     new_count = current_count + 1
         
     print(f"Running LLM on behalf of {state['user']}")
