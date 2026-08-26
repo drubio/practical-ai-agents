@@ -36,7 +36,7 @@ import { Annotation, messagesStateReducer } from "@langchain/langgraph";
 import { BaseMessage } from "@langchain/core/messages";
 
 
-// Long explicit state definition with NO MessagesAnnotation inheritance
+// Option 1 - All custom graph state fields with reducer
 const CustomAgentState = Annotation.Root({
   // Manually define messages channel with its reducer
   messages: Annotation({
@@ -52,7 +52,7 @@ const CustomAgentState = Annotation.Root({
 });
 
 /**
-// Extending MessagesAnnotation automatically includes the merged "messages" key
+// Option 2 - Equivalent graph state extending MessagesAnnotation to include "messages" key
 const CustomAgentState = Annotation.Root({
     ...MessagesAnnotation.spec,
    llmCallCount: Annotation({

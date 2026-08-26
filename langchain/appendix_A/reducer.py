@@ -30,16 +30,16 @@ from langgraph.graph.message import add_messages
 from typing import Annotated
 from typing_extensions import TypedDict
 
+# Option 1 - All custom graph state fields with reducer
 class CustomAgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     llm_call_count: Annotated[int, operator.add]
     user: str
 
 """
-# Equivalent state using inheritance
+# Option 2 - Equivalent graph state inherting from MessagesState
 class CustomAgentState(MessagesState):
     llm_call_count: Annotated[int, operator.add]
-    llm_call_count: int
     user: str
 """
 
