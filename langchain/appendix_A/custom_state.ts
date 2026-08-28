@@ -3,21 +3,22 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 // Load environment variables from relative .env file
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../../shared/.env") });
 
 // LangChain and LangGraph imports
 import { tool } from "@langchain/core/tools";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
-import { StateGraph, MessagesAnnotation, START, END } from "@langchain/langgraph";
+import { Annotation, StateGraph, MessagesAnnotation, messagesStateReducer, START, END } from "@langchain/langgraph";
 import { ToolNode, toolsCondition } from "@langchain/langgraph/prebuilt";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 // Define Tool (uses Zod for schema validation)
 const generateUUID = tool(
-    () => randomUUID(),   
+    async () => randomUUID(),   
     {
       name: "generate_uuid",
       description: "Generate a unique UUID",
@@ -32,48 +33,44 @@ const llm = new ChatOpenAI({
 }).bindTools(tools);
 
 
-import { Annotation, messagesStateReducer } from "@langchain/langgraph";
-import { BaseMessage } from "@langchain/core/messages";
-
-
-// Option 1 - All custom graph state fields with reducer
+// Option 1 - All custom graph state fields
 const CustomAgentState = Annotation.Root({
   // Manually define messages channel with its reducer
-  messages: Annotation({
+  messages: Annotation<BaseMessage[]>({
     reducer: messagesStateReducer,
     default: () => [],
   }),
-  // Reducer for llmCallCount
-  llmCallCount: Annotation({
-    reducer: (current, update) => current + update,
-    default: () => 0,
-  }),
-  user: Annotation(),
+  // Standard channels that overwrite on update
+  llmCallCount: Annotation<number>(),
+  user: Annotation<string>(),
 });
 
+
 /**
-// Option 2 - Equivalent graph state extending MessagesAnnotation to include "messages" key
+// Option 2 - Equivalent graph state inherting from MessagesAnnotation
 const CustomAgentState = Annotation.Root({
     ...MessagesAnnotation.spec,
-   llmCallCount: Annotation({
-   reducer: (current, update) => current + update,
-    default: () => 0,
-  }),
-  user: Annotation(),
+  llmCallCount: Annotation<number>(),
+  user: Annotation<string>(),
 });
 **/
 
 // 2. Node function implementation
-async function callModel(state) {
+async function callModel(state: typeof CustomAgentState.State) {
   const response = await llm.invoke(state.messages);
 
+  // Safely get llmCallCount in case it was not initialized (default to 0)
+  const currentCount = state.llmCallCount ?? 0;
+  //Increase llm_call_count after llm.invoke    
+  const newCount = currentCount + 1;
+
   console.log(`Running LLM on behalf of ${state.user}`);
-  console.log(`LLM has been run ${state.llmCallCount + 1} times`);
+  console.log(`LLM has been run ${newCount} times`);
 
   // Return updates to state
   return {
     messages: [response],
-    llmCallCount: 1,
+    llmCallCount: newCount,
   };
 }
 

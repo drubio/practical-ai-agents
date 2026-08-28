@@ -3,7 +3,8 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 // Load environment variables from relative .env file
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../../shared/.env") });
 
 // LangChain and LangGraph imports
@@ -17,7 +18,7 @@ import { z } from "zod";
 
 // Define Tool (uses Zod for schema validation)
 const generateUUID = tool(
-    () => randomUUID(),   
+    async () => randomUUID(),
     {
       name: "generate_uuid",
       description: "Generate a unique UUID",
@@ -31,54 +32,14 @@ const llm = new ChatOpenAI({
     modelKwargs: { reasoning_effort: "none"}
 }).bindTools(tools);
 
-
-import { Annotation, messagesStateReducer } from "@langchain/langgraph";
-import { BaseMessage } from "@langchain/core/messages";
-
-// Option 1 - All custom graph state fields
-const CustomAgentState = Annotation.Root({
-  // Manually define messages channel with its reducer
-  messages: Annotation({
-    reducer: messagesStateReducer,
-    default: () => [],
-  }),
-  // Standard channels that overwrite on update
-  llmCallCount: Annotation(),
-  user: Annotation(),
-});
-
-
-/**
-// Option 2 - Equivalent graph state inherting from MessagesAnnotation
-const CustomAgentState = Annotation.Root({
-    ...MessagesAnnotation.spec,
-  llmCallCount: Annotation(),
-  user: Annotation(),
-});
-**/
-
-// 2. Node function implementation
-async function callModel(state) {
+// Node function to unpack state.messages for the LLM
+async function callModel(state: typeof MessagesAnnotation.State) {
   const response = await llm.invoke(state.messages);
-
-  // Safely get llmCallCount in case it was not initialized (default to 0)
-  const currentCount = state.llmCallCount ?? 0;
-  //Increase llm_call_count after llm.invoke    
-  const newCount = currentCount + 1;
-
-  console.log(`Running LLM on behalf of ${state.user}`);
-  console.log(`LLM has been run ${newCount} times`);
-
-  // Return updates to state
-  return {
-    messages: [response],
-    llmCallCount: newCount,
-  };
+  return { messages: [response] };
 }
 
-
 // Construct Graph 
-const builder = new StateGraph(CustomAgentState)
+const builder = new StateGraph(MessagesAnnotation)
   .addNode("model", callModel)
   .addNode("tools", new ToolNode(tools))
   .addEdge(START, "model")
@@ -96,11 +57,8 @@ const result = await graph.invoke({
     ),
     new HumanMessage("Generate a ticket ID for last night's network outage"),
   ],
-  llmCallCount : 0,
-  user: "drubio"
 });
 
 // Output final response
 const lastMessage = result.messages[result.messages.length - 1];
 console.log(lastMessage.content);
-

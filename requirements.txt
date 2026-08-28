@@ -32,3 +32,6 @@ langchain-mcp-adapters==0.2.1
 
 # Graph output used by LangGraph
 grandalf==0.8
+
+# Dataclass for context
+dataclasses==0.6

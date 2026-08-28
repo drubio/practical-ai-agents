@@ -22,5 +22,8 @@
     "js-tiktoken": "^1.0.21",
     "langchain": "^1.2.35",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
   }
 }
